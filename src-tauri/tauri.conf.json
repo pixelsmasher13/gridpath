@@ -1,0 +1,71 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "identifier": "com.gridpath.dev",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run start",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": null,
+      "dangerousDisableAssetCspModification": false,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$RESOURCE/*"]
+      }
+    },
+    "windows": [
+      {
+        "height": 720,
+        "resizable": true,
+        "title": "GridPath",
+        "width": 1200,
+        "skipTaskbar": false,
+        "minHeight": 600,
+        "minWidth": 800
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon_16.png",
+      "icons/icon_32.png",
+      "icons/icon_64.png",
+      "icons/icon_128.png",
+      "icons/icon_256.png",
+      "icons/icon_512.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "",
+    "category": "Productivity",
+    "shortDescription": "AI spreadsheet editor",
+    "longDescription": "GridPath is an AI spreadsheet editor powered by Claude and ChatGPT.",
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZDMjlBQ0YzN0JGQjVBNApSV1NrdGI4M3o1ckNEOEQ0b3E3OGJwMGlvKzJhSVVCVXcyR2UwaE1HeHM0OERNUzdra2g1cnJLeQo=",
+      "endpoints": [
+        "https://gridpath.s3.us-east-1.amazonaws.com/latest_app/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "productName": "GridPath",
+  "version": "0.0.1"
+}

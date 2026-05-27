@@ -1,0 +1,1054 @@
+/* =========================================================================
+   GridPath — marketing site
+   Light theme. The desktop app is dark; the web is sunny.
+   ========================================================================= */
+
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f7f8;
+  --bg-card: #ffffff;
+  --bg-muted: #f1f1f3;
+  /* Softened body text from #0a0a0a (near-pure black) to a warmer
+     near-black. Reads as "confident dark" without the dire harshness
+     of true black on white. Cascades to buttons, headings, brand mark. */
+  --text: #1d1d1f;
+  --text-soft: #44444a;
+  --text-mute: #71717a;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent: #3363AD;
+  --accent-hover: #2a4f8c;
+  --accent-soft: rgba(51, 99, 173, 0.08);
+  --green: #16a34a;
+  --green-soft: #dcfce7;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.12);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--bg-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.container-narrow { max-width: 760px; }
+
+/* ============================= NAV ============================= */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.brand:hover { color: var(--text); }
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.nav-links a {
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: var(--text); }
+.nav-cta {
+  background: var(--accent);
+  color: #fff !important;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-cta:hover { background: var(--accent-hover); color: #fff !important; }
+
+/* ============================= BUTTONS ============================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid transparent;
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  white-space: nowrap;
+}
+/* Download CTAs use a black/white pair, Linear-style monochrome:
+   primary = solid black, secondary = outlined.
+   Brand blue stays the accent for nav-cta, links, and the in-content tiles. */
+.btn-primary {
+  background: var(--text);
+  color: #fff !important;
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover { background: #2d2d30; transform: translateY(-1px); }
+.btn-secondary {
+  background: #fff;
+  color: var(--text) !important;
+  border-color: var(--text);
+}
+.btn-secondary:hover { background: var(--bg-muted); transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+.btn-ghost:hover { color: var(--accent); }
+.btn-large {
+  padding: 14px 28px;
+  font-size: 15px;
+  border-radius: 10px;
+  /* Equal width so "Mac" and "Windows" buttons sit balanced regardless
+     of label length. */
+  min-width: 220px;
+}
+
+/* ============================= HERO ============================= */
+.hero {
+  /* Top whitespace tuned so the headline reads as centered against the
+     fold without sitting too low. A "smidge" up from the prior 180px. */
+  padding: 140px 0 56px;
+  background: linear-gradient(180deg, #ffffff 0%, var(--bg-soft) 100%);
+  text-align: center;
+}
+@media (max-width: 720px) { .hero { padding: 88px 0 40px; } }
+.hero-inner { max-width: 880px; margin: 0 auto; }
+.hero h1 {
+  font-size: clamp(36px, 4.6vw, 56px);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin: 0 0 20px;
+  font-weight: 700;
+}
+.lede {
+  font-size: clamp(16px, 1.3vw, 18px);
+  color: var(--text-soft);
+  margin: 0 auto 32px;
+  max-width: 600px;
+  line-height: 1.55;
+}
+.lede strong { color: var(--text); font-weight: 600; }
+.hero-ctas {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+/* ============================= SCREENSHOT ============================= */
+.screenshot-section {
+  padding: 40px 0 100px;
+  background: var(--bg-soft);
+}
+.screenshot-frame {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  background: #1e1e1e;
+}
+.ui-window {
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  /* Treat the whole mockup as a static screenshot, not a live UI.
+     Disables hover/cursor changes on buttons, prevents text selection
+     on cell contents, and blocks any focus rings — visitors won't try
+     to click Accept/Reject or type in the composer. */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ui-window button { cursor: default; }
+.ui-titlebar {
+  background: #2a2a2a;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+.ui-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.ui-dot-red { background: #ff5f57; }
+.ui-dot-yellow { background: #febc2e; }
+.ui-dot-green { background: #28c840; }
+.ui-title {
+  margin-left: 14px;
+  font-size: 12px;
+  color: #9b9b9b;
+  letter-spacing: 0.02em;
+}
+.ui-body {
+  display: grid;
+  grid-template-columns: 200px 1fr 320px;
+  min-height: 540px;
+}
+@media (max-width: 900px) {
+  .ui-body { grid-template-columns: 1fr; }
+  .ui-sidebar, .ui-chat { display: none; }
+}
+
+/* On narrow viewports (iPad portrait, small laptops) cut a couple of
+   sidebar sessions + two non-essential Tesla rows so the mockup doesn't
+   tower above the fold. Sidebar entries hide on tablet-and-down (where
+   the sidebar is still visible at 900–1100px); grid rows hide on actual
+   phones, where vertical real estate is scarcest. */
+@media (max-width: 1100px) {
+  .ui-session-hide-mobile { display: none; }
+}
+@media (max-width: 600px) {
+  .ui-row-hide-mobile { display: none; }
+}
+
+/* Sidebar */
+.ui-sidebar {
+  background: #1a1a1a;
+  border-right: 1px solid #2a2a2a;
+  padding: 12px 8px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ui-sidebar-h {
+  font-size: 10px;
+  color: #7c7c7c;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 10px 4px;
+  font-weight: 600;
+}
+.ui-session {
+  padding: 8px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.ui-session:hover { background: #232323; }
+.ui-session-active {
+  background: rgba(51, 99, 173, 0.18);
+  border-left-color: #3363AD;
+}
+.ui-session-name {
+  color: #e4e4e4;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-session-meta {
+  color: #7c7c7c;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* Main grid area */
+.ui-main {
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+  min-width: 0;
+}
+.ui-tabs {
+  display: flex;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  padding: 0 8px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.ui-tab {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: #9b9b9b;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.ui-tab:hover { color: #e4e4e4; }
+.ui-tab-active {
+  color: #e4e4e4;
+  background: #1e1e1e;
+  border-bottom: 2px solid #3363AD;
+}
+.ui-tab-new {
+  border-right: 0;
+  color: #7c7c7c;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+/* Formatting toolbar — slim, grouped buttons with subtle dividers.
+   Visual cue that GridPath is a real spreadsheet app with the ops
+   you'd expect (bold, color, alignment, number format) — not just
+   a chat-driven canvas. */
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #232323;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 11px;
+  color: #d4d4d4;
+  flex-wrap: nowrap;
+  overflow-x: hidden;
+  flex-shrink: 0;
+}
+.ui-toolgroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ui-toolsep {
+  width: 1px;
+  height: 18px;
+  background: #383838;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.ui-toolbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #c4c4c4;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  padding: 0;
+  position: relative;
+}
+.ui-toolbtn svg { width: 14px; height: 14px; }
+.ui-toolbtn-wide { width: 32px; font-size: 10px; }
+.ui-toolbtn-active {
+  background: #3363AD;
+  color: #fff;
+}
+.ui-toolbtn-stack {
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 2px;
+}
+.ui-swatch {
+  display: block;
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+}
+.ui-swatch-fontc { background: #1d1d1f; }
+.ui-swatch-fillc { background: #fde047; }
+.ui-toolselect {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 24px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-size: 11px;
+  min-width: 70px;
+}
+.ui-toolselect::after {
+  content: '▾';
+  margin-left: auto;
+  padding-left: 8px;
+  color: #7c7c7c;
+  font-size: 9px;
+}
+.ui-toolselect-sm { min-width: 36px; }
+
+.ui-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 36px repeat(5, 1fr);
+  background: #1e1e1e;
+  align-content: start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.ui-grid-corner,
+.ui-grid-header,
+.ui-grid-rownum,
+.ui-grid-cell {
+  border-right: 1px solid #262626;
+  border-bottom: 1px solid #262626;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.ui-grid-corner { background: #252526; }
+.ui-grid-header {
+  background: #252526;
+  color: #9b9b9b;
+  justify-content: center;
+  font-weight: 600;
+}
+.ui-grid-rownum {
+  background: #252526;
+  color: #9b9b9b;
+  justify-content: center;
+}
+.ui-grid-cell { color: #d4d4d4; }
+.ui-cell-title {
+  color: #e4e4e4;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 13px;
+}
+.ui-cell-header {
+  color: #e4e4e4;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 12px;
+  background: #232323;
+}
+.ui-cell-forecast {
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.06);
+}
+.ui-cell-label {
+  color: #e4e4e4;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+.ui-cell-num {
+  justify-content: flex-end;
+  color: #d4d4d4;
+}
+.ui-cell-pct { color: #93c5fd; }
+.ui-cell-pending {
+  background: rgba(134, 239, 172, 0.14);
+  color: #86efac;
+}
+
+.ui-status {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1a1a1a;
+  border-top: 1px solid #2a2a2a;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #9b9b9b;
+}
+.ui-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.ui-status-right {
+  margin-left: auto;
+  color: #6f6f6f;
+}
+
+/* Chat panel */
+.ui-chat {
+  background: #252526;
+  border-left: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  gap: 10px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.ui-chat-h {
+  font-size: 10px;
+  color: #7c7c7c;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.ui-chat-bubble {
+  padding: 9px 11px;
+  border-radius: 8px;
+  line-height: 1.45;
+  font-size: 12px;
+}
+.ui-chat-user {
+  background: #3363AD;
+  color: #fff;
+  align-self: flex-end;
+  max-width: 90%;
+}
+.ui-chat-agent {
+  background: #2a2a2a;
+  color: #d4d4d4;
+  align-self: flex-start;
+  max-width: 95%;
+}
+.ui-chat-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  background: #1e1e1e;
+  border-radius: 5px;
+  color: #b3b3b3;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ui-tool-icon { color: #3363AD; font-size: 12px; }
+.ui-chat-batch {
+  background: #1e1e1e;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 4px;
+}
+.ui-batch-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #e4e4e4;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.ui-batch-count { color: #7c7c7c; }
+.ui-batch-actions {
+  display: flex;
+  gap: 6px;
+}
+.ui-btn-accept,
+.ui-btn-reject {
+  flex: 1;
+  border: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ui-btn-accept {
+  background: #16a34a;
+  color: #fff;
+}
+.ui-btn-reject {
+  background: transparent;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+}
+.ui-chat-composer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  background: rgba(51, 99, 173, 0.15);
+  color: #93c5fd;
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(51, 99, 173, 0.35);
+  align-self: flex-start;
+}
+.ui-composer-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.ui-composer-input {
+  flex: 1;
+  background: #161616;
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 8px 10px;
+  color: #6f6f6f;
+  font-size: 11px;
+}
+.ui-send {
+  width: 32px;
+  height: 32px;
+  background: #3363AD;
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* ============================= SECTION PRIMITIVES ============================= */
+section.capabilities,
+section.providers,
+section.faq,
+section.download { padding: 100px 0; }
+.section-title {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  margin: 0 0 14px;
+  text-align: center;
+  line-height: 1.15;
+}
+.section-sub {
+  font-size: 17px;
+  color: var(--text-soft);
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 56px;
+  line-height: 1.5;
+}
+
+/* ============================= CAPABILITIES ============================= */
+.capabilities { background: var(--bg); }
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+@media (max-width: 880px) { .cap-grid { grid-template-columns: 1fr; } }
+.cap-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.cap-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+/* Capability tiles — soft tinted background, colored icon. Each card
+   gets its own hue but at ~10% saturation, so the row reads as gentle
+   variation rather than a Skittles bag. Stripe / Linear use this pattern.
+   Tone the icon down to the full hue, no white-on-saturated. */
+.cap-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.cap-icon svg { width: 22px; height: 22px; }
+
+.cap-icon-indigo  { background: rgba(99, 102, 241, 0.11);  color: #6366f1; }
+.cap-icon-emerald { background: rgba(16, 185, 129, 0.11);  color: #10b981; }
+.cap-icon-amber   { background: rgba(245, 158, 11, 0.13);  color: #f59e0b; }
+.cap-icon-sky     { background: rgba(51, 99, 173, 0.10);   color: #3363AD; }
+.cap-icon-rose    { background: rgba(244, 63, 94, 0.10);   color: #f43f5e; }
+.cap-icon-teal    { background: rgba(20, 184, 166, 0.11);  color: #14b8a6; }
+.cap-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  letter-spacing: -0.015em;
+}
+.cap-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ============================= PROVIDERS ============================= */
+.providers { background: var(--bg-soft); }
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin: 0 auto 28px;
+  max-width: 680px;
+}
+@media (max-width: 720px) { .provider-grid { grid-template-columns: 1fr; } }
+.provider-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 20px;
+  text-align: center;
+  position: relative;
+}
+.provider-soon { opacity: 0.55; }
+.provider-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.provider-logo svg { width: 28px; height: 28px; }
+.provider-claude { background: #C15F3C; }
+.provider-openai { background: #10A37F; }
+.provider-gemini { background: #4285F4; }
+.provider-grok { background: #1a1a1a; }
+.provider-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.provider-sub {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-bottom: 14px;
+  min-height: 32px;
+}
+.provider-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  color: var(--text-mute);
+  font-weight: 500;
+}
+.provider-badge-on {
+  background: #dcfce7;
+  color: #166534;
+}
+.provider-note {
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ============================= FAQ ============================= */
+.faq { background: var(--bg); }
+.faq-item {
+  border-bottom: 1px solid var(--border);
+  padding: 18px 0;
+}
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--text-mute);
+  font-size: 20px;
+  font-weight: 300;
+  transition: transform 200ms ease;
+}
+.faq-item[open] summary::after { content: '−'; }
+.faq-item p {
+  margin: 12px 0 0;
+  color: var(--text-soft);
+  font-size: 14.5px;
+  line-height: 1.65;
+  max-width: 720px;
+}
+
+/* ============================= DOWNLOAD ============================= */
+.download {
+  background: var(--bg-soft);
+  text-align: center;
+}
+.download-inner { max-width: 700px; }
+.download h2 {
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0 0 12px;
+  line-height: 1.1;
+}
+.download-sub {
+  font-size: 16px;
+  color: var(--text-soft);
+  margin: 0 0 32px;
+}
+.download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.download-fineprint {
+  font-size: 13px;
+  color: var(--text-mute);
+  margin: 0;
+}
+
+/* ============================= LEGAL / CONTACT PAGES ============================= */
+.legal {
+  padding: 80px 0 100px;
+  background: var(--bg);
+}
+.legal-title {
+  font-size: clamp(36px, 4.6vw, 56px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0 0 8px;
+  line-height: 1.08;
+}
+.legal-meta {
+  color: var(--text-mute);
+  font-size: 13px;
+  margin: 0 0 28px;
+  letter-spacing: 0.03em;
+}
+.legal-lede {
+  font-size: 17px;
+  color: var(--text-soft);
+  margin: 0 0 36px;
+  line-height: 1.55;
+}
+.legal h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 36px 0 12px;
+}
+.legal p {
+  color: var(--text-soft);
+  line-height: 1.65;
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+.legal ul {
+  color: var(--text-soft);
+  line-height: 1.65;
+  font-size: 15px;
+  padding-left: 22px;
+  margin: 0 0 14px;
+}
+.legal ul li { margin-bottom: 6px; }
+.legal strong { color: var(--text); }
+
+/* Contact-page card grid */
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 16px 0 56px;
+}
+@media (max-width: 720px) { .contact-grid { grid-template-columns: 1fr; } }
+.contact-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.contact-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+.contact-card h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.015em;
+}
+.contact-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin: 0;
+}
+.contact-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.legal-note {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  margin-top: 40px;
+}
+.legal-note h2 { margin: 0 0 8px; font-size: 16px; }
+.legal-note p { margin: 0; font-size: 14px; }
+
+/* ============================= FOOTER ============================= */
+.footer {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 64px 0 32px;
+  font-size: 14px;
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 48px;
+}
+@media (max-width: 720px) {
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+  .footer-brand { grid-column: 1 / -1; }
+}
+.footer-tag {
+  margin: 10px 0 0;
+  color: var(--text-mute);
+  font-size: 13px;
+}
+.footer-col h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-mute);
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+.footer-col a {
+  display: block;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+}
+.footer-col a:hover { color: var(--accent); }
+.footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+/* ============================= MOBILE / RESPONSIVE ============================= */
+/* Safety net: nothing should ever cause horizontal scroll on a phone. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+img, svg, video, iframe { max-width: 100%; height: auto; }
+
+/* Phones (<= 600px): single-column buttons, hide non-CTA nav links, tighter pads. */
+@media (max-width: 600px) {
+  .container { padding: 0 16px; }
+
+  /* Nav: keep only brand + Download CTA visible. The anchor links to
+     sections lower on the page are pure noise on phones where the user
+     scrolls anyway. */
+  .nav-links a:not(.nav-cta) { display: none; }
+  .nav-links { gap: 12px; }
+  .nav-cta { padding: 8px 14px; font-size: 13px; }
+
+  /* Hero & download CTAs stack to full-width so the download button is
+     obvious and always within thumb-reach. min-width:220px (designed for
+     desktop side-by-side) would overflow narrow viewports. */
+  .hero-ctas,
+  .download-buttons {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .hero-ctas .btn-large,
+  .download-buttons .btn-large {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Hero typography & spacing tightened to fit above the fold on a phone
+     — primary download button visible without scrolling on iPhone-sized
+     viewports (375–414px). */
+  .hero { padding: 64px 0 32px; }
+  .hero h1 { font-size: 30px; line-height: 1.15; }
+  .lede { font-size: 15px; margin-bottom: 24px; }
+
+  /* Footer collapses cleanly. */
+  .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+  .footer-brand { grid-column: auto; }
+}
+
+/* Tiny phones (<= 380px): even smaller padding, smaller H1. */
+@media (max-width: 380px) {
+  .container { padding: 0 12px; }
+  .hero { padding: 48px 0 24px; }
+  .hero h1 { font-size: 26px; }
+}

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy — GridPath</title>
+  <meta name="description" content="GridPath's privacy policy. Your workbook stays on your machine. We collect the minimum we need to ship a desktop app." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/#providers">Models</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="legal">
+    <div class="container container-narrow">
+      <h1 class="legal-title">Privacy.</h1>
+      <p class="legal-meta">Last updated: May 2026</p>
+
+      <p class="legal-lede">
+        GridPath is a desktop app. Your workbooks stay on your machine.
+        We collect the minimum we need to ship updates, debug crashes, and
+        run the optional account features. The plain-English version is below;
+        the legal version is in <a href="/terms">Terms</a>.
+      </p>
+
+      <h2>What stays on your machine</h2>
+      <p>
+        The <code>.xlsx</code> file itself lives on your local disk in
+        whatever folder you chose. We don't operate a GridPath cloud for
+        your workbooks — there's no GridPath-side copy, no syncing, and no
+        third-party server sits between you and the LLM provider.
+      </p>
+
+      <h2>What goes to the LLM provider you pick</h2>
+      <p>
+        When you send a prompt, your chosen LLM provider (Anthropic for
+        Claude, OpenAI for ChatGPT/Codex) receives the following over
+        their normal API:
+      </p>
+      <ul>
+        <li>Your typed prompt and any earlier messages in the session.</li>
+        <li>
+          Workbook context — sheet names, used range dimensions, a sample
+          of cells, and any cells the agent reads or writes during the run.
+          The more the agent needs to see to do its job, the more cell
+          content flows. Practically, this can range from a few hundred
+          cells for a small edit to the bulk of a sheet for a large model.
+        </li>
+        <li>The agent's tool calls (e.g. "set_range at A1, 58 × 9").</li>
+      </ul>
+      <p>
+        That data is governed by your LLM provider's privacy terms
+        (<a href="https://www.anthropic.com/legal/privacy" rel="noopener" target="_blank">Anthropic</a>,
+        <a href="https://openai.com/policies/privacy-policy/" rel="noopener" target="_blank">OpenAI</a>) —
+        the same terms you'd be subject to using Claude or ChatGPT directly.
+        GridPath never reads or stores the prompts or LLM responses on our
+        side.
+      </p>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li>
+          <strong>Account info</strong> — when you sign in (Google, email),
+          we store your email address and a Firebase user ID so you can
+          recover access and we can talk to you.
+        </li>
+        <li>
+          <strong>Crash reports &amp; anonymous usage metrics</strong> —
+          aggregate counts of feature use (sessions started, batches
+          accepted) plus stack traces from crashes. No prompt text, no cell
+          content, no file paths.
+        </li>
+        <li>
+          <strong>Update checks</strong> — your app pings us periodically
+          to find newer versions. We log timestamp + version + OS only.
+        </li>
+      </ul>
+
+      <h2>What we don't collect</h2>
+      <ul>
+        <li>Your workbook contents.</li>
+        <li>Your prompts or the LLM's responses.</li>
+        <li>Anything from other apps on your machine.</li>
+        <li>Browsing history, screen captures, or keystrokes outside GridPath.</li>
+      </ul>
+
+      <h2>Third-party services</h2>
+      <p>
+        Authentication runs on Firebase Auth (Google). Crash reports flow
+        through Sentry. Update delivery uses Tauri's bundled updater backed
+        by our own static asset host. We don't ship a third-party analytics
+        SDK that watches user behavior — every metric is explicit and
+        opt-out is in Settings → Privacy.
+      </p>
+
+      <h2>Data deletion</h2>
+      <p>
+        To delete your account and any associated data, email
+        <a href="mailto:privacy@gridpath.dev">privacy@gridpath.dev</a>.
+        We confirm in under 5 business days. Local app data on your machine
+        lives under <code>~/Library/Application Support/com.gridpath.dev/</code>
+        on macOS (or the Windows equivalent); delete that folder to wipe
+        sessions, settings, and the SQLite history.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        GridPath is not directed at people under 13. We don't knowingly
+        collect data from children. If a parent or guardian believes their
+        child has provided us with personal information, email
+        <a href="mailto:privacy@gridpath.dev">privacy@gridpath.dev</a> and
+        we'll remove it.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        If we materially change this policy, we'll bump the "Last updated"
+        date above and email signed-in users. Continued use of GridPath
+        after the change means you accept the new terms.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Privacy questions: <a href="mailto:privacy@gridpath.dev">privacy@gridpath.dev</a>.
+        Security disclosures: <a href="mailto:security@gridpath.dev">security@gridpath.dev</a>.
+      </p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="#">Docs</a>
+        <a href="#">Changelog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>
