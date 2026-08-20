@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blog — GridPath</title>
+  <meta name="description" content="Notes from the GridPath team on building an AI agent for spreadsheets — context management, agent tools, and token efficiency." />
+  <link rel="canonical" href="https://gridpath.dev/blog" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Blog — GridPath" />
+  <meta property="og:description" content="Notes from the GridPath team on building an AI agent for spreadsheets — context management, agent tools, and token efficiency." />
+  <meta property="og:url" content="https://gridpath.dev/blog" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Blog — GridPath" />
+  <meta name="twitter:description" content="Notes from the GridPath team on building an AI agent for spreadsheets — context management, agent tools, and token efficiency." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r4" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="legal">
+    <div class="container container-narrow">
+      <h1 class="legal-title">Blog.</h1>
+      <p class="legal-lede">
+        Notes from the team on building an AI agent for spreadsheets —
+        context management, agent tools, and why token efficiency matters.
+      </p>
+
+      <div class="blog-list">
+        <a class="blog-card" href="/blog/why-the-harness-wins">
+          <span class="blog-card-date">August 20, 2026</span>
+          <h2>The quarterly update test: 4 minutes vs 17</h2>
+          <p>
+            Most spreadsheet work isn't building a model — it's updating
+            the one you already have. We rolled a real 663-formula model
+            forward a quarter against a CLI coding agent on the same Claude
+            model: 4 minutes vs 17, $2.34 vs $8.76, and a fidelity result
+            worth seeing before you point a coding agent at a workbook you
+            care about.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/claude-vs-chatgpt-for-excel">
+          <span class="blog-card-date">August 4, 2026</span>
+          <h2>Claude vs ChatGPT for Excel: an honest comparison</h2>
+          <p>
+            Anthropic and OpenAI both shipped official Excel add-ins this
+            year, eight weeks apart. What each one actually is, what the
+            head-to-head tests found, what accountants and FP&amp;A
+            practitioners report — and the version wall both add-ins share
+            that neither launch post mentions.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/spreadsheet-disasters">
+          <span class="blog-card-date">August 4, 2026</span>
+          <h2>The London Whale and other great spreadsheet disasters</h2>
+          <p>
+            A $6.2 billion trading loss, a global austerity policy, a
+            pandemic response, and the human genome — four disasters that
+            ran through a spreadsheet, none caused by people who were bad at
+            spreadsheets, and the one failure mode they all share.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/same-model-benchmark">
+          <span class="blog-card-date">July 20, 2026</span>
+          <h2>Same model, same edit: benchmarking GridPath against a CLI coding agent</h2>
+          <p>
+            Five runs each, same Claude model. One harness was byte-clean
+            every time; the other silently dropped file content every time —
+            and our own audit deleted our best speed number along the way.
+            Methodology, caveats, and the two commands to reproduce it.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/dead-numbers">
+          <span class="blog-card-date">July 18, 2026</span>
+          <h2>Dead numbers: why AI pastes values into your spreadsheet</h2>
+          <p>
+            Ask an AI to extend your model and you'll usually get values, not
+            formulas — numbers that look right and never update again. Why
+            every AI tool defaults to this, what it costs you, and the
+            ten-second test that catches it.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/free-excel-alternatives">
+          <span class="blog-card-date">July 10, 2026</span>
+          <h2>Free Excel alternatives: what they can and can't do</h2>
+          <p>
+            An honest look at the free and open-source options —
+            LibreOffice Calc, Google Sheets, OnlyOffice, and engines like
+            Univer. Where they genuinely win, and where Excel is still the
+            king. Written from building GridPath on top of an open
+            spreadsheet engine.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+        <a class="blog-card" href="/blog/why-we-built-gridpath">
+          <span class="blog-card-date">July 4, 2026</span>
+          <h2>Why we built GridPath</h2>
+          <p>
+            General-purpose AI tools treat a workbook like a wall of text.
+            We built GridPath around two ideas instead: you should control
+            exactly what context the model sees, and the agent should have
+            tools specialized for spreadsheet work. The result is more
+            detailed, faster, and dramatically more token-efficient work.
+          </p>
+          <span class="blog-read">Read the post →</span>
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

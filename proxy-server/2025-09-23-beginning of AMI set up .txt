@@ -1,0 +1,32 @@
+ ✻ Welcome to Claude Code!
+
+   /help for help, /status for your current setup
+
+   cwd: /Users/pashachikosh/Automation Agent/heelix_notes/proxy-server
+
+> how do I rebaseremote: Enumerating objects: 63, done.
+  remote: Counting objects: 100% (63/63), done.
+  remote: Compressing objects: 100% (22/22), done.
+  remote: Total 63 (delta 40), reused 57 (delta 40), 
+  pack-reused 0 (from 0)
+  Unpacking objects: 100% (63/63), 1.56 MiB | 2.28 MiB/s, 
+  done.
+  From https://github.com/stritefax/heelix_automation_agent
+     2433424..566df60  sonali_sep16 -> origin/sonali_sep16
+     5b84c93..bbbe679  916_main     -> origin/916_main
+
+⏺ To rebase your current branch, you can use:
+
+  git rebase origin/sonali_sep16
+
+  This will rebase your local sonali_sep16 branch onto the
+  updated remote version. If you have local commits that
+  aren't on the remote, they'll be replayed on top of the
+  remote changes.
+
+  If you encounter conflicts during the rebase, resolve
+  them, then use:
+  - git add <resolved-files> to stage resolved files
+  - git rebase --continue to proceed
+  - git rebase --abort if you want to cancel the rebase
+

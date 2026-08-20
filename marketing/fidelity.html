@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Edit Excel files without breaking them — GridPath</title>
+  <meta name="description" content="GridPath edits your Excel files directly while keeping charts, pivots, macros, and themes intact." />
+  <link rel="canonical" href="https://gridpath.dev/fidelity" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Edit Excel files without breaking them — GridPath" />
+  <meta property="og:description" content="GridPath edits your Excel files directly while keeping charts, pivots, macros, and themes intact." />
+  <meta property="og:url" content="https://gridpath.dev/fidelity" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Edit Excel files without breaking them — GridPath" />
+  <meta name="twitter:description" content="GridPath edits your Excel files directly while keeping charts, pivots, macros, and themes intact." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="style.css?v=20260717" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="fidelity-page">
+    <section class="fidelity-page-hero">
+      <div class="container">
+        <div class="fidelity-panel">
+          <div class="fidelity-copy">
+            <p class="fidelity-eyebrow">Native Excel editing</p>
+            <h1 class="section-title fidelity-title">Edits your Excel files. Keeps everything else intact.</h1>
+            <p class="fidelity-lede">
+              Most AI tools re-export your whole file and quietly shred what
+              they don't understand. GridPath's native Rust patcher edits the
+              <code>.xlsx</code> package itself — only what changed.
+            </p>
+          </div>
+          <div class="fidelity-receipt" aria-hidden="true">
+            <div class="receipt-titlebar">
+              <span class="receipt-dot"></span><span class="receipt-dot"></span><span class="receipt-dot"></span>
+              <span class="receipt-filename">FY26_Model.xlsx</span>
+            </div>
+            <div class="receipt-body">
+              <div class="receipt-status"><span class="receipt-check">✓</span> Saved · surgical</div>
+              <div class="receipt-line"><span>Cells patched</span><span>47</span></div>
+              <div class="receipt-line"><span>Formats updated</span><span>12</span></div>
+              <div class="receipt-line"><span>Sheets added</span><span>1</span></div>
+              <div class="receipt-line"><span>Package parts untouched</span><span>62 / 67</span></div>
+              <div class="receipt-divider"></div>
+              <div class="receipt-line receipt-preserved"><span>Charts · pivots · macros · themes</span><span class="receipt-badge">byte-identical</span></div>
+              <div class="receipt-line receipt-preserved"><span>Excel validity check</span><span class="receipt-badge">passed</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="fidelity-page-points">
+      <div class="container">
+        <div class="fidelity-card-grid">
+          <article class="fidelity-card">
+            <h2>Surgical by default</h2>
+            <p>Only what you changed is rewritten. Charts, pivots, macros, themes: byte-for-byte.</p>
+          </article>
+          <article class="fidelity-card">
+            <h2>References follow your edits</h2>
+            <p>Row and column changes shift formulas, named ranges, chart series, and comments across the whole package.</p>
+          </article>
+          <article class="fidelity-card">
+            <h2>Checked before it's written</h2>
+            <p>A save that wouldn't open cleanly in Excel is never written at all.</p>
+          </article>
+          <article class="fidelity-card">
+            <h2>No silent loss</h2>
+            <p>An edit that can't be surgical gets named losses and an untouched original — never a quiet overwrite.</p>
+          </article>
+          <article class="fidelity-card">
+            <h2>Excel stays the authority</h2>
+            <p>Formulas recalculate on open. Your numbers come from Excel's engine, not ours.</p>
+          </article>
+          <article class="fidelity-card">
+            <h2>Measured, not promised</h2>
+            <p>Benchmarked against a CLI coding agent running the same Claude model: GridPath byte-clean in 10 of 10 runs, including a 918&nbsp;KB institutional bank model — while the library-based path silently dropped content in 5 of 5 runs on the test workbook. <a href="/blog/same-model-benchmark">The numbers, and how to reproduce them</a>.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="fidelity-page-cta">
+      <div class="container download-inner">
+        <h2>Try it on a real workbook.</h2>
+        <p class="download-sub">Free with your Claude or ChatGPT subscription.</p>
+        <div class="download-buttons">
+          <a class="btn btn-primary btn-large" href="https://gridpath.s3.us-east-1.amazonaws.com/GridPath-latest.dmg" download>Download for Mac</a>
+          <a class="btn btn-secondary btn-large" href="https://gridpath.s3.us-east-1.amazonaws.com/GridPath_0.0.1_x64_en-US.msi" download>Download for Windows</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,967 @@
+/* =========================================================================
+   GridPath — marketing site
+   Light theme. The desktop app is dark; the web is sunny.
+   ========================================================================= */
+
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f7f8;
+  --bg-card: #ffffff;
+  --bg-muted: #f1f1f3;
+  /* Softened body text from #0a0a0a (near-pure black) to a warmer
+     near-black. Reads as "confident dark" without the dire harshness
+     of true black on white. Cascades to buttons, headings, brand mark. */
+  --text: #1d1d1f;
+  --text-soft: #44444a;
+  --text-mute: #71717a;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent: #3363AD;
+  --accent-hover: #2a4f8c;
+  --accent-soft: rgba(51, 99, 173, 0.08);
+  --green: #16a34a;
+  --green-soft: #dcfce7;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.12);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--bg-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.container-narrow { max-width: 760px; }
+
+/* ============================= NAV ============================= */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.brand:hover { color: var(--text); }
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.nav-links a {
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: var(--text); }
+.nav-cta {
+  background: var(--accent);
+  color: #fff !important;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-cta:hover { background: var(--accent-hover); color: #fff !important; }
+
+/* ============================= BUTTONS ============================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid transparent;
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  white-space: nowrap;
+}
+/* Download CTAs use a black/white pair, Linear-style monochrome:
+   primary = solid black, secondary = outlined.
+   Brand blue stays the accent for nav-cta, links, and the in-content tiles. */
+.btn-primary {
+  background: var(--text);
+  color: #fff !important;
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover { background: #2d2d30; transform: translateY(-1px); }
+.btn-secondary {
+  background: #fff;
+  color: var(--text) !important;
+  border-color: var(--text);
+}
+.btn-secondary:hover { background: var(--bg-muted); transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+.btn-ghost:hover { color: var(--accent); }
+.btn-large {
+  padding: 14px 28px;
+  font-size: 15px;
+  border-radius: 10px;
+  /* Equal width so "Mac" and "Windows" buttons sit balanced regardless
+     of label length. */
+  min-width: 220px;
+}
+
+/* ============================= HERO ============================= */
+.hero {
+  /* Top whitespace tuned so the headline reads as centered against the
+     fold without sitting too low. A "smidge" up from the prior 180px. */
+  padding: 140px 0 56px;
+  background: linear-gradient(180deg, #ffffff 0%, var(--bg-soft) 100%);
+  text-align: center;
+}
+@media (max-width: 720px) { .hero { padding: 88px 0 40px; } }
+.hero-inner { max-width: 880px; margin: 0 auto; }
+.hero h1 {
+  font-size: clamp(36px, 4.6vw, 56px);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin: 0 0 20px;
+  font-weight: 700;
+}
+.lede {
+  font-size: clamp(16px, 1.3vw, 18px);
+  color: var(--text-soft);
+  margin: 0 auto 32px;
+  max-width: 600px;
+  line-height: 1.55;
+}
+.lede strong { color: var(--text); font-weight: 600; }
+.hero-ctas {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+/* ============================= SCREENSHOT ============================= */
+.screenshot-section {
+  padding: 40px 0 100px;
+  background: var(--bg-soft);
+}
+.screenshot-frame {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  background: #1e1e1e;
+}
+.hero-demo-video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* ============================= SECTION PRIMITIVES ============================= */
+section.capabilities,
+section.fidelity,
+section.providers,
+section.faq,
+section.download { padding: 100px 0; }
+.section-title {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  margin: 0 0 14px;
+  text-align: center;
+  line-height: 1.15;
+}
+.section-sub {
+  font-size: 17px;
+  color: var(--text-soft);
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 56px;
+  line-height: 1.5;
+}
+
+/* ============================= CAPABILITIES ============================= */
+.capabilities { background: var(--bg); }
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+@media (max-width: 880px) { .cap-grid { grid-template-columns: 1fr; } }
+
+/* ============================= BENCHMARK ============================= */
+.benchmark {
+  padding: 90px 0 100px;
+  background: var(--bg-soft);
+}
+.bench-legend {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+  margin: -6px 0 28px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.bench-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.bench-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.bench-dot-gp { background: #3363ad; }
+.bench-dot-cli { background: #c9834d; }
+.bench-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+@media (max-width: 880px) { .bench-grid { grid-template-columns: 1fr; } }
+.bench-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 22px 24px 18px;
+}
+.bench-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-mute);
+  margin: 0 0 4px;
+}
+.bench-claim {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0 0 16px;
+}
+.bench-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.bench-card svg path { transition: opacity 0.12s ease; }
+.bench-card svg path:hover { opacity: 0.82; }
+.bc-gp { fill: #3363ad; }
+.bc-cli { fill: #c9834d; }
+.bc-track { fill: var(--bg-muted); }
+.bc-lab { font-size: 12.5px; fill: var(--text-soft); }
+.bc-grp { font-size: 12px; font-weight: 500; fill: var(--text-mute); }
+.bc-val { font-size: 12.5px; font-weight: 600; fill: var(--text-soft); }
+.bench-note {
+  font-size: 12.5px;
+  color: var(--text-mute);
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+.bench-footer {
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-soft);
+  margin: 30px 0 0;
+}
+/* Blog-post embeds render the cards narrower — bump SVG text (viewBox units)
+   so labels stay legible at the smaller scale. */
+.post .bc-lab,
+.post .bc-val { font-size: 14px; }
+.post .bc-grp { font-size: 13.5px; }
+.post .bench-grid { margin-bottom: 8px; }
+.cap-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.cap-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+/* Capability tiles — soft tinted background, colored icon. Each card
+   gets its own hue but at ~10% saturation, so the row reads as gentle
+   variation rather than a Skittles bag. Stripe / Linear use this pattern.
+   Tone the icon down to the full hue, no white-on-saturated. */
+.cap-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.cap-icon svg { width: 22px; height: 22px; }
+
+.cap-icon-indigo  { background: rgba(99, 102, 241, 0.11);  color: #6366f1; }
+.cap-icon-emerald { background: rgba(16, 185, 129, 0.11);  color: #10b981; }
+.cap-icon-amber   { background: rgba(245, 158, 11, 0.13);  color: #f59e0b; }
+.cap-icon-sky     { background: rgba(51, 99, 173, 0.10);   color: #3363AD; }
+.cap-icon-rose    { background: rgba(244, 63, 94, 0.10);   color: #f43f5e; }
+.cap-icon-teal    { background: rgba(20, 184, 166, 0.11);  color: #14b8a6; }
+.cap-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  letter-spacing: -0.015em;
+}
+.cap-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ============================= FIDELITY ============================= */
+/* Sits between capabilities (white) and providers (soft) — the panel
+   carries the contrast so section backgrounds keep alternating. */
+.fidelity { background: var(--bg); padding-top: 0 !important; }
+.fidelity-panel {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 56px;
+  align-items: center;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 56px 64px;
+}
+@media (max-width: 880px) {
+  .fidelity-panel { grid-template-columns: 1fr; padding: 32px 24px; gap: 32px; }
+}
+.fidelity-title { text-align: left; margin-bottom: 16px; }
+.fidelity-lede {
+  font-size: 17px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 36em;
+}
+.fidelity-more {
+  display: inline-flex;
+  margin-top: 22px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.fidelity-more:hover { color: var(--accent); }
+
+/* Dedicated /fidelity page — short hero + card grid, not a prose wall. */
+.fidelity-page-hero {
+  padding: 72px 0 0;
+  background: var(--bg);
+}
+@media (max-width: 720px) { .fidelity-page-hero { padding-top: 48px; } }
+.fidelity-eyebrow {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.fidelity-page-hero .fidelity-title {
+  font-size: clamp(28px, 3.4vw, 40px);
+}
+.fidelity-page-points {
+  padding: 48px 0 80px;
+  background: var(--bg);
+}
+.fidelity-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .fidelity-card-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .fidelity-card-grid { grid-template-columns: 1fr; }
+}
+.fidelity-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 22px 24px;
+}
+.fidelity-card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+.fidelity-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+@media (min-width: 901px) {
+  /* 3 on top, 2 equal-width on the bottom. */
+  .fidelity-card-grid { grid-template-columns: repeat(6, 1fr); }
+  .fidelity-card-grid .fidelity-card:nth-child(-n+3) { grid-column: span 2; }
+  .fidelity-card-grid .fidelity-card:nth-child(n+4) { grid-column: span 3; }
+}
+.fidelity-page-cta {
+  padding: 72px 0 96px;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.fidelity-page-cta h2 {
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  margin: 0 0 10px;
+}
+.fidelity-page-cta .download-sub { margin-bottom: 28px; }
+
+/* The "save receipt" — a stylized save confirmation. */
+.fidelity-receipt {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  font-size: 13.5px;
+}
+.receipt-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+}
+.receipt-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.receipt-filename {
+  margin-left: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.receipt-body { padding: 18px 20px 20px; }
+.receipt-status {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.receipt-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+.receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 0;
+  color: var(--text-soft);
+}
+.receipt-line span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 500;
+}
+.receipt-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 10px 0;
+}
+.receipt-preserved span:first-child { font-size: 13px; }
+.receipt-badge {
+  background: var(--green-soft);
+  color: var(--green) !important;
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 11.5px;
+  font-weight: 600 !important;
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* ============================= PROVIDERS ============================= */
+.providers { background: var(--bg-soft); }
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin: 0 auto 28px;
+  max-width: 680px;
+}
+@media (max-width: 720px) { .provider-grid { grid-template-columns: 1fr; } }
+.provider-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 20px;
+  text-align: center;
+  position: relative;
+}
+.provider-soon { opacity: 0.55; }
+.provider-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.provider-logo svg { width: 28px; height: 28px; }
+.provider-claude { background: #C15F3C; }
+.provider-openai { background: #10A37F; }
+.provider-gemini { background: #4285F4; }
+.provider-grok { background: #1a1a1a; }
+.provider-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.provider-sub {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-bottom: 14px;
+  min-height: 32px;
+}
+.provider-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  color: var(--text-mute);
+  font-weight: 500;
+}
+.provider-badge-on {
+  background: #dcfce7;
+  color: #166534;
+}
+.provider-note {
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ============================= FAQ ============================= */
+.faq { background: var(--bg); }
+.faq-item {
+  border-bottom: 1px solid var(--border);
+  padding: 18px 0;
+}
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--text-mute);
+  font-size: 20px;
+  font-weight: 300;
+  transition: transform 200ms ease;
+}
+.faq-item[open] summary::after { content: '−'; }
+.faq-item p {
+  margin: 12px 0 0;
+  color: var(--text-soft);
+  font-size: 14.5px;
+  line-height: 1.65;
+  max-width: 720px;
+}
+
+/* ============================= DOWNLOAD ============================= */
+.download {
+  background: var(--bg-soft);
+  text-align: center;
+}
+.download-inner { max-width: 700px; }
+.download h2 {
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0 0 12px;
+  line-height: 1.1;
+}
+.download-sub {
+  font-size: 16px;
+  color: var(--text-soft);
+  margin: 0 0 32px;
+}
+.download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.download-fineprint {
+  font-size: 13px;
+  color: var(--text-mute);
+  margin: 0;
+}
+
+/* ============================= LEGAL / CONTACT PAGES ============================= */
+.legal {
+  padding: 80px 0 100px;
+  background: var(--bg);
+}
+.legal-title {
+  font-size: clamp(36px, 4.6vw, 56px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0 0 8px;
+  line-height: 1.08;
+}
+.legal-meta {
+  color: var(--text-mute);
+  font-size: 13px;
+  margin: 0 0 28px;
+  letter-spacing: 0.03em;
+}
+.legal-lede {
+  font-size: 17px;
+  color: var(--text-soft);
+  margin: 0 0 36px;
+  line-height: 1.55;
+}
+.legal h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 36px 0 12px;
+}
+.legal p {
+  color: var(--text-soft);
+  line-height: 1.65;
+  margin: 0 0 14px;
+  font-size: 15px;
+}
+.legal ul {
+  color: var(--text-soft);
+  line-height: 1.65;
+  font-size: 15px;
+  padding-left: 22px;
+  margin: 0 0 14px;
+}
+.legal ul li { margin-bottom: 6px; }
+.legal strong { color: var(--text); }
+
+/* Contact-page card grid */
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 16px 0 56px;
+}
+@media (max-width: 720px) { .contact-grid { grid-template-columns: 1fr; } }
+.contact-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.contact-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+.contact-card h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.015em;
+}
+.contact-card p {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin: 0;
+}
+.contact-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.legal-note {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  margin-top: 40px;
+}
+.legal-note h2 { margin: 0 0 8px; font-size: 16px; }
+.legal-note p { margin: 0; font-size: 14px; }
+
+/* ============================= BLOG ============================= */
+/* Blog pages reuse the .legal prose styles (same narrow column, same type
+   scale); everything below is only what's blog-specific. */
+.blog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+.blog-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 26px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.blog-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+.blog-card-date {
+  font-size: 13px;
+  color: var(--text-mute);
+  letter-spacing: 0.02em;
+}
+.blog-card h2 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  margin: 0;
+  line-height: 1.25;
+}
+.blog-card p {
+  font-size: 14.5px;
+  color: var(--text-soft);
+  margin: 0;
+  line-height: 1.55;
+}
+.blog-read {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 6px;
+}
+.post-backlink {
+  display: inline-block;
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+.post h3 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 26px 0 10px;
+}
+.post blockquote {
+  border-left: 3px solid var(--border-strong);
+  margin: 0 0 14px;
+  padding: 2px 0 2px 18px;
+  color: var(--text-soft);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.post .table-wrap {
+  overflow-x: auto;
+  margin: 0 0 14px;
+}
+.post table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.post th,
+.post td {
+  text-align: left;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+.post th {
+  background: var(--bg-card);
+  font-weight: 600;
+}
+
+/* ============================= FOOTER ============================= */
+.footer {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 64px 0 32px;
+  font-size: 14px;
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 48px;
+}
+@media (max-width: 720px) {
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+  .footer-brand { grid-column: 1 / -1; }
+}
+.footer-tag {
+  margin: 10px 0 0;
+  color: var(--text-mute);
+  font-size: 13px;
+}
+.footer-col h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-mute);
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+.footer-col a {
+  display: block;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+}
+.footer-col a:hover { color: var(--accent); }
+.footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+/* ============================= MOBILE / RESPONSIVE ============================= */
+/* Safety net: nothing should ever cause horizontal scroll on a phone. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+img, svg, video, iframe { max-width: 100%; height: auto; }
+
+/* Phones (<= 600px): single-column buttons, hide non-CTA nav links, tighter pads. */
+@media (max-width: 600px) {
+  .container { padding: 0 16px; }
+
+  /* Nav: keep only brand + Download CTA visible. The anchor links to
+     sections lower on the page are pure noise on phones where the user
+     scrolls anyway. */
+  .nav-links a:not(.nav-cta) { display: none; }
+  .nav-links { gap: 12px; }
+  .nav-cta { padding: 8px 14px; font-size: 13px; }
+
+  /* Hero & download CTAs stack to full-width so the download button is
+     obvious and always within thumb-reach. min-width:220px (designed for
+     desktop side-by-side) would overflow narrow viewports. */
+  .hero-ctas,
+  .download-buttons {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .hero-ctas .btn-large,
+  .download-buttons .btn-large {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Hero typography & spacing tightened to fit above the fold on a phone
+     — primary download button visible without scrolling on iPhone-sized
+     viewports (375–414px). */
+  .hero { padding: 64px 0 32px; }
+  .hero h1 { font-size: 30px; line-height: 1.15; }
+  .lede { font-size: 15px; margin-bottom: 24px; }
+
+  /* Footer collapses cleanly. */
+  .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+  .footer-brand { grid-column: auto; }
+}
+
+/* Tiny phones (<= 380px): even smaller padding, smaller H1. */
+@media (max-width: 380px) {
+  .container { padding: 0 12px; }
+  .hero { padding: 48px 0 24px; }
+  .hero h1 { font-size: 26px; }
+}

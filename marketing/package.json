@@ -1,0 +1,10 @@
+{
+  "name": "GridPath-marketing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marketing site for GridPath — the AI agent for Excel.",
+  "scripts": {
+    "dev": "python3 -m http.server 8000",
+    "preview": "npx serve . -l 8000"
+  }
+}

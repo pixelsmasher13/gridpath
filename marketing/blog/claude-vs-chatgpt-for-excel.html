@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude vs ChatGPT for Excel: an honest comparison — GridPath Blog</title>
+  <meta name="description" content="Anthropic and OpenAI both shipped official Excel add-ins this year. What each one actually is, what the head-to-head tests found, what accountants and FP&A practitioners report — and the version wall both add-ins share." />
+  <link rel="canonical" href="https://gridpath.dev/blog/claude-vs-chatgpt-for-excel" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Claude vs ChatGPT for Excel: an honest comparison" />
+  <meta property="og:description" content="Anthropic and OpenAI both shipped official Excel add-ins this year. What each one actually is, what the head-to-head tests found, what accountants and FP&A practitioners report — and the version wall both add-ins share." />
+  <meta property="og:url" content="https://gridpath.dev/blog/claude-vs-chatgpt-for-excel" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="article:published_time" content="2026-08-04" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Claude vs ChatGPT for Excel: an honest comparison" />
+  <meta name="twitter:description" content="Anthropic and OpenAI both shipped official Excel add-ins this year. What each one actually is, what the head-to-head tests found, what accountants and FP&A practitioners report — and the version wall both add-ins share." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "Claude vs ChatGPT for Excel: an honest comparison",
+    "description": "Anthropic and OpenAI both shipped official Excel add-ins this year. What each one actually is, what the head-to-head tests found, what accountants and FP&A practitioners report — and the version wall both add-ins share.",
+    "datePublished": "2026-08-04",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "mainEntityOfPage": "https://gridpath.dev/blog/claude-vs-chatgpt-for-excel",
+    "image": "https://gridpath.dev/og-image.png"
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="legal post">
+    <div class="container container-narrow">
+      <a class="post-backlink" href="/blog">← All posts</a>
+      <h1 class="legal-title">Claude vs ChatGPT for Excel: an honest comparison.</h1>
+      <p class="legal-meta">THE GRIDPATH TEAM · AUGUST 4, 2026</p>
+
+      <p class="legal-lede">
+        Within eight weeks this spring, Anthropic and OpenAI both took their
+        Excel add-ins to general availability — Claude for Excel in March,
+        ChatGPT for Excel in May. "Claude for Excel" is now the top rising
+        search next to "ChatGPT for Excel," which means a lot of people are
+        standing at this exact fork. We build GridPath, a spreadsheet agent
+        that runs on <em>either</em> subscription, so we genuinely don't
+        have a horse in the model race. This is the comparison we'd want to
+        read: what each add-in actually is, what the published head-to-head
+        tests found, what practitioners report once the demo glow wears off
+        — and the wall both products share that nobody puts in the launch
+        post.
+      </p>
+
+      <h2>The short version</h2>
+      <div class="table-wrap">
+        <table>
+          <tr>
+            <th></th>
+            <th>Claude for Excel</th>
+            <th>ChatGPT for Excel</th>
+          </tr>
+          <tr>
+            <td>Plans</td>
+            <td>Paid only — Pro ($20/mo) and up</td>
+            <td>All plans, including Free</td>
+          </tr>
+          <tr>
+            <td>Where it runs</td>
+            <td>Excel (Microsoft 365 builds)</td>
+            <td>Excel (Microsoft 365 builds) + Google Sheets</td>
+          </tr>
+          <tr>
+            <td>Strongest at</td>
+            <td>Model construction, error-finding, financial work</td>
+            <td>Speed, iteration volume, explaining, Sheets crossover</td>
+          </tr>
+          <tr>
+            <td>Own-admitted limits</td>
+            <td>No VBA/macros, no data tables; "not for audit-critical work"</td>
+            <td>Complex formulas need refinement; "can make unintended edits"</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>What each add-in actually is</h2>
+
+      <h3>Claude for Excel</h3>
+      <p>
+        A sidebar add-in, part of Anthropic's Claude-for-Microsoft-365 suite
+        (Word and PowerPoint are also GA; Outlook is in beta). It shipped in
+        October 2025 and went generally available in March 2026. It's
+        included with every <em>paid</em> Claude plan — Pro at $20/month and
+        up — with no separate fee, and no free tier. You can switch between
+        Opus and Sonnet models from the sidebar.
+      </p>
+      <p>
+        The capability set is aimed squarely at finance work: it navigates
+        multi-tab workbooks and answers with <strong>cell-level
+        citations</strong> that jump to the referenced cells, updates
+        assumptions while preserving formula dependencies, debugs
+        <code>#REF!</code> / <code>#VALUE!</code> / circular references, and
+        applies native Excel operations directly — sorting, filtering,
+        editing pivot tables and charts, conditional formatting, data
+        validation. It also has data connectors to S&amp;P Global, LSEG,
+        Daloopa, PitchBook, Moody's, and FactSet.
+        <a href="https://claude.com/docs/office-agents/excel" rel="noopener" target="_blank">Anthropic's
+        own docs</a> are unusually direct about the limits: no macros or
+        VBA, no data tables, and it's "not recommended" for audit-critical
+        calculations or final client deliverables without human review.
+      </p>
+
+      <h3>ChatGPT for Excel</h3>
+      <p>
+        Also a sidebar add-in — for Excel <em>and</em> Google Sheets, which
+        Claude's isn't. It went GA on May 5, 2026 on the GPT-5.5 family,
+        and the headline difference is distribution:
+        <strong>it's available on every ChatGPT plan, including
+        Free.</strong> It builds spreadsheets from a prompt, summarizes
+        across tabs, links its answers to the cells it referenced, and asks
+        permission before making changes. OpenAI shipped financial data
+        integrations alongside it (FactSet, Dow Jones Factiva, LSEG,
+        Daloopa, S&amp;P Global).
+      </p>
+      <p>
+        <a href="https://help.openai.com/en/articles/20001063-chatgpt-for-excel" rel="noopener" target="_blank">OpenAI's
+        docs</a> are similarly candid where it counts: complex formulas and
+        edge cases "may require manual refinement," VBA "may not be fully
+        supported," the add-in's chats don't sync with your chatgpt.com
+        history and have no memory, and — their words — it "can make
+        mistakes, including making unintended edits or deleting content if
+        a request is unclear."
+      </p>
+
+      <h2>What the head-to-head tests found</h2>
+      <p>
+        Most pages comparing these two products are feature tables. Two
+        authors actually ran the same tasks through both, and their results
+        agree with each other:
+      </p>
+      <ul>
+        <li>
+          <a href="https://www.f9finance.com/chatgpt-vs-claude-vs-copilot-for-excel/" rel="noopener" target="_blank">F9
+          Finance</a> ran the same FP&amp;A dataset and prompts through
+          Claude, ChatGPT, and Copilot. Claude finished first "and it
+          wasn't close" — roughly 90% usable on the first pass. ChatGPT
+          came last, with a forecast model the author called structurally
+          broken and missing a line item that was sitting in the source
+          data; his conclusion was that he "would not use the ChatGPT for
+          Excel plugin for core FP&amp;A work right now."
+        </li>
+        <li>
+          <a href="https://findskill.ai/blog/chatgpt-for-excel-vs-claude-for-excel-2026/" rel="noopener" target="_blank">FindSkill</a>
+          ran four tasks side-by-side and split the verdict: Claude for
+          serious financial modeling, ChatGPT for speed, polish, and Google
+          Sheets crossover.
+        </li>
+        <li>
+          A third test planted three errors in a model — a circular
+          reference, an inconsistent growth assumption, a hardcoded value —
+          and asked each tool to find them. Claude caught all three and
+          explained why each mattered; ChatGPT caught two; Copilot caught
+          only the circular reference, which Excel itself already flags.
+        </li>
+      </ul>
+      <p>
+        One more data point made the rounds in May: a widely shared test of
+        file <em>generation</em> where Claude produced a valid
+        <code>.xlsx</code> in one shot while ChatGPT produced a corrupt
+        file four attempts running. Whatever it says about the models, it
+        says something real about how much of this product category is the
+        unglamorous file-format layer, not the intelligence. (We've
+        <a href="/blog/same-model-benchmark">measured that layer
+        ourselves</a> — it's where tools quietly lose your data.)
+      </p>
+
+      <h2>What practitioners report</h2>
+      <p>
+        The test articles are single authors on single days. The longer
+        record is the practitioner threads — accountants, FP&amp;A analysts,
+        and data folks comparing notes over months. Read enough of them and
+        the pattern is remarkably stable:
+      </p>
+      <ul>
+        <li>
+          <strong>Claude owns the workbook-manipulation job.</strong> A
+          189-upvote r/Accounting thread on Claude's add-in is full of
+          working formulas, multi-step tasks that hold together, and messy
+          client files handled without hand-holding. The most-quoted line:
+          "Finding errors in thousands of lines of GL data, setting
+          analytics or underwriting models is a good prompt away." The
+          r/dataanalysis consensus is blunter still — "I don't think you
+          can get any better than Claude for excel."
+        </li>
+        <li>
+          <strong>ChatGPT owns volume and versatility.</strong> The same
+          threads credit it with long-form reasoning, pattern-heavy VBA
+          generation, trial-and-error debugging, explaining code, and
+          executive communication. FP&amp;A users who live in it describe it
+          as stronger for "analytical and structured work" — and it doesn't
+          hit a paid-plan wall, which matters if your whole team is on
+          Free.
+        </li>
+        <li>
+          <strong>The variable that matters most isn't the model.</strong>
+          Practitioners who get great results from either tool report the
+          same habits: well-organized files, context provided up front
+          (some maintain a dedicated notes sheet describing the workbook's
+          structure), and very specific prompts. People with chaotic
+          inherited workbooks report both tools struggling — Claude's most
+          consistent reported weakness is exactly the "highly complex,
+          poorly constructed file."
+        </li>
+        <li>
+          <strong>Nobody defends Copilot.</strong> Across every thread we
+          read, Microsoft's tool is the consensus last place — refused
+          macros, partial snippets, drift on multi-step tasks. More on it
+          below, because it still wins one thing.
+        </li>
+      </ul>
+
+      <h2>Where both of them fail</h2>
+      <p>
+        The most useful review of Claude's add-in we found wasn't a rave —
+        it was a CPA's careful post-mortem of building a pipeline-driven
+        ARR forecast purely by prompting. The model produced a
+        plausible-looking build with drivers too coarse to test assumptions
+        against, <em>static</em> formulas where dynamic ones were needed,
+        and a core logic gap — it ignored open deals outstanding per month
+        — that would have materially misstated the forecast. His
+        conclusion: getting deliverable quality from a single prompt
+        required so much prompt detail that the time saved evaporated.
+      </p>
+      <p>
+        That matches both vendors' own disclaimers, and it matches
+        everything we've <a href="/blog/dead-numbers">written before</a>:
+        these tools produce output at the quality bar of "plausible," and
+        the review pass is not optional. Claude being ahead on spreadsheet
+        work right now doesn't change the shape of the job — it changes how
+        often the review pass finds something.
+      </p>
+
+      <h2>What about Copilot?</h2>
+      <p>
+        Copilot in Excel deserves one honest paragraph. Its Agent Mode went
+        GA on desktop in January and can now run Claude models under the
+        hood — you can literally pick Anthropic from Microsoft's model
+        switcher, which tells you how the capability race is going. It
+        costs roughly $30/user/month on the commercial license, wants your
+        files in OneDrive or SharePoint, isn't available in the EU or UK,
+        and applies its changes to your workbook directly, with no review
+        step. It places last in every capability test we found — and it
+        will still be the right answer for plenty of teams, because it's
+        the only one of the three that keeps everything inside the
+        Microsoft tenancy your IT department already trusts. Weakest tool,
+        strongest compliance story.
+      </p>
+
+      <h2>The wall neither launch post mentions</h2>
+      <p>
+        Both add-ins require a Microsoft 365 <em>subscription</em> build of
+        Excel — the web app, or current Windows/Mac desktop builds. If
+        you're on a perpetual license (Excel 2016, 2019, or an LTSC build
+        your company standardized on precisely to keep AI away from its
+        data), neither add-in will install. Same if you don't run Excel at
+        all. The entire comparison above is moot for that crowd, and it's a
+        bigger crowd than either vendor acknowledges.
+      </p>
+
+      <h2>So which should you use?</h2>
+      <ul>
+        <li>
+          <strong>Financial modeling, error-hunting, inherited multi-tab
+          workbooks</strong> — Claude for Excel. Every test and every
+          practitioner thread points the same direction, and the
+          cell-level citations make its answers checkable, which is the
+          point.
+        </li>
+        <li>
+          <strong>High-volume everyday work, VBA drafting, explaining,
+          Google Sheets</strong> — ChatGPT for Excel. Faster iteration, no
+          paid-plan wall, and the only one of the two that follows you into
+          Sheets.
+        </li>
+        <li>
+          <strong>Locked-down enterprise tenancy</strong> — Copilot, eyes
+          open. You're trading capability for compliance, and that's a
+          legitimate trade.
+        </li>
+        <li>
+          <strong>Whichever you pick</strong> — organize the file, describe
+          the structure, be specific, and review everything. The
+          practitioner record says those habits move results more than the
+          logo on the sidebar does.
+        </li>
+      </ul>
+      <p>
+        And hold the ranking loosely. These two products went GA eight
+        weeks apart and both are shipping monthly. This is the snapshot,
+        not the destination.
+      </p>
+
+      <div class="legal-note">
+        <h2>Where GridPath fits</h2>
+        <p>
+          GridPath is the third path the add-in comparison skips: a local
+          desktop agent that edits your real <code>.xlsx</code> directly —
+          no Microsoft 365 requirement, no upload, every change a
+          <a href="/fidelity">reviewable diff</a> you accept or reject —
+          running on the same Claude or ChatGPT subscription you'd buy for
+          either add-in. If you're already paying the $20, you have both
+          paths. <a href="/#download">Download for Mac or Windows</a>, or
+          <a href="/blog/why-we-built-gridpath">read why we built it</a>.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The quarterly update test: 4 minutes vs 17 — GridPath Blog</title>
+  <meta name="description" content="Most spreadsheet work isn't building a model. It's updating the one you already have. We benchmarked a real quarterly roll-forward — a 663-formula Palantir model, updated with Q2 actuals — against a CLI coding agent running the same Claude model. 4 minutes vs 17, $2.34 vs $8.76, and a fidelity result you should see before you point a coding agent at a workbook you care about." />
+  <link rel="canonical" href="https://gridpath.dev/blog/why-the-harness-wins" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="The quarterly update test: 4 minutes vs 17" />
+  <meta property="og:description" content="A real 663-formula model, updated with Q2 actuals. Same Claude model on both sides. 3.9× faster, 3.7× cheaper — and the coding agent silently drops file content in 2 of 5 edit runs." />
+  <meta property="og:url" content="https://gridpath.dev/blog/why-the-harness-wins" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="article:published_time" content="2026-08-20" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="The quarterly update test: 4 minutes vs 17" />
+  <meta name="twitter:description" content="A real 663-formula model, updated with Q2 actuals. Same Claude model. 3.9× faster, 3.7× cheaper, zero data loss." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r4" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "The quarterly update test: 4 minutes vs 17",
+    "description": "Benchmarking a real quarterly model roll-forward and workbook edits against a CLI coding agent running the same Claude model. Every run, grade, and artifact published.",
+    "datePublished": "2026-08-20",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "mainEntityOfPage": "https://gridpath.dev/blog/why-the-harness-wins",
+    "image": "https://gridpath.dev/og-image.png"
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="legal post">
+    <div class="container container-narrow">
+      <a class="post-backlink" href="/blog">← All posts</a>
+      <h1 class="legal-title">The quarterly update test: 4 minutes vs 17.</h1>
+      <p class="legal-meta">THE GRIDPATH TEAM · AUGUST 20, 2026</p>
+
+      <p class="legal-lede">
+        Almost every spreadsheet benchmark tests the same thing: build a
+        model from a blank sheet. That's not the job. The job is the model
+        you already have — the one with 600 formulas, three tabs, a
+        colleague's formatting conventions and a check row that has to stay
+        at zero — and it's Tuesday, earnings dropped, and it needs the new
+        quarter in it. So we built that test instead, on a real workbook,
+        against a CLI coding agent running the <strong>same Claude
+        model</strong>. Every run and every graded artifact is public.
+      </p>
+
+      <h2>The test: roll a real model forward one quarter</h2>
+      <p>
+        We started with a quarterly Palantir model — three sheets,
+        <strong>663 live formulas</strong>, income statement driven off a
+        separate assumptions tab, segment splits, growth rows, a sources
+        tab, and a check row that reconciles two independent revenue
+        builds. Its actuals deliberately stopped at Q1 2026. To keep the
+        fixture honest we didn't author it ourselves: the coding agent
+        built it, so neither side is editing a workbook shaped to suit it.
+      </p>
+      <p>
+        Then the ask, exactly as a user would type it:
+        <em>"update this model with Palantir's Q2 2026 actual results."</em>
+      </p>
+      <p>
+        That's deceptively hard. Q2 revenue is public, but the model's
+        four-way segment split isn't a disclosed figure — it has to be
+        reconstructed the way the original author did it. The Q2 column is
+        <em>formulas</em> driven by assumptions; those specific cells have
+        to become hardcoded actuals while the derived totals below them
+        stay formulas. The column header has to flip from estimate to
+        actual. The check row has to still tie. And the other 650 formulas,
+        the charts, the formatting, the defined names — none of that is
+        allowed to move.
+      </p>
+
+      <div class="bench-legend" aria-hidden="true">
+        <span><i class="bench-dot bench-dot-gp"></i>GridPath</span>
+        <span><i class="bench-dot bench-dot-cli"></i>CLI coding agent, same model</span>
+      </div>
+      <div class="bench-grid">
+        <div class="bench-card">
+          <p class="bench-kicker">Time to roll the model forward</p>
+          <p class="bench-claim">4 minutes vs 17</p>
+          <svg viewBox="0 0 420 64" role="img" aria-label="Roll-forward time: GridPath 259 seconds, CLI agent 1014 seconds">
+            <text x="0" y="21" class="bc-lab">GridPath</text>
+            <path class="bc-gp" d="M78,6 h64 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-64 z"><title>GridPath — 259 s</title></path>
+            <text x="154" y="21" class="bc-val">259s</text>
+            <text x="0" y="53" class="bc-lab">CLI agent</text>
+            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — 1,014 s</title></path>
+            <text x="356" y="53" class="bc-val">1,014s</text>
+          </svg>
+        </div>
+        <div class="bench-card">
+          <p class="bench-kicker">API cost for that one update</p>
+          <p class="bench-claim">3.7× cheaper</p>
+          <svg viewBox="0 0 420 64" role="img" aria-label="Cost of the roll-forward: GridPath $2.34, CLI agent $8.76">
+            <text x="0" y="21" class="bc-lab">GridPath</text>
+            <path class="bc-gp" d="M78,6 h71 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-71 z"><title>GridPath — $2.34</title></path>
+            <text x="161" y="21" class="bc-val">$2.34</text>
+            <text x="0" y="53" class="bc-lab">CLI agent</text>
+            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — $8.76</title></path>
+            <text x="356" y="53" class="bc-val">$8.76</text>
+          </svg>
+        </div>
+        <div class="bench-card">
+          <p class="bench-kicker">One-row edit on a feature-dense workbook</p>
+          <p class="bench-claim">7 seconds vs 96</p>
+          <svg viewBox="0 0 420 64" role="img" aria-label="Median edit time: GridPath 7 seconds, CLI agent 96 seconds">
+            <text x="0" y="21" class="bc-lab">GridPath</text>
+            <path class="bc-gp" d="M78,6 h16 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-16 z"><title>GridPath — 7 s median</title></path>
+            <text x="106" y="21" class="bc-val">7s</text>
+            <text x="0" y="53" class="bc-lab">CLI agent</text>
+            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — 96 s median</title></path>
+            <text x="356" y="53" class="bc-val">96s</text>
+          </svg>
+        </div>
+        <div class="bench-card">
+          <p class="bench-kicker">Edit runs with every file part intact</p>
+          <p class="bench-claim">Fidelity by architecture, not luck</p>
+          <svg viewBox="0 0 420 64" role="img" aria-label="Edit runs with all original file parts intact: GridPath 5 of 5, CLI agent 3 of 5">
+            <text x="0" y="21" class="bc-lab">GridPath</text>
+            <rect class="bc-track" x="78" y="6" width="270" height="22" rx="4"/>
+            <path class="bc-gp" d="M78,6 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>GridPath — 5 of 5 runs intact</title></path>
+            <text x="356" y="21" class="bc-val">5/5</text>
+            <text x="0" y="53" class="bc-lab">CLI agent</text>
+            <rect class="bc-track" x="78" y="38" width="270" height="22" rx="4"/>
+            <path class="bc-cli" d="M78,38 h158 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-158 z"><title>CLI agent — 3 of 5 runs intact</title></path>
+            <text x="248" y="53" class="bc-val">3/5</text>
+          </svg>
+        </div>
+      </div>
+
+      <h2>What both sides got right</h2>
+      <p>
+        This is not a story about a competitor failing. Both harnesses
+        found the real Q2 figures, tied revenue to the reported
+        <strong>$1,935,464&nbsp;thousand</strong> exactly, tied net income
+        and diluted EPS, flipped the estimate column to actual, kept the
+        check row at zero, preserved all 663 formulas, and left every one
+        of the workbook's 13 internal file parts intact. Graded on ten
+        checks, the coding agent scored 10 and GridPath scored 9 — we left
+        one stale line of explanatory text on the assumptions tab reading
+        <em>"blue = forecast driver (Q2'26E–Q4'27E)"</em> when Q2 had just
+        become an actual. Fair miss. It's in the published grade report.
+      </p>
+      <p>
+        The difference is what it cost to get there. Seventeen minutes and
+        $8.76 versus four minutes and $2.34 — for one quarter, on one
+        model. Multiply by a coverage list and a reporting season.
+      </p>
+
+      <h2>The part that should worry you</h2>
+      <p>
+        On the smaller edit test — a single memo row added to a
+        feature-dense workbook, with the instruction <em>"change nothing
+        else"</em> — the coding agent completed the edit correctly and
+        <strong>silently dropped parts of the file in 2 of 5 runs.</strong>
+        Not an error. Not a warning. The edit lands, the file opens, and
+        something you didn't ask it to touch is gone.
+      </p>
+      <p>
+        This is structural, not a bug someone will fix. A coding agent
+        edits a spreadsheet by loading it through a Python library,
+        mutating objects in memory, and writing the <em>whole file</em>
+        back out. Anything the library doesn't model — plugin data,
+        printer settings, and in real files a good deal more — doesn't
+        survive the round trip. Whether your workbook comes out whole
+        depends on how careful the model happened to be on that file, that
+        run. GridPath never rewrites the file: untouched parts are copied
+        byte-for-byte, so there's no judgment call to get wrong. Five of
+        five, and five of five again on a 918&nbsp;KB institutional bank
+        model.
+      </p>
+
+      <h2>Why the gap is this large</h2>
+      <p>
+        A coding agent can't touch a spreadsheet directly. To change a
+        cell it writes a Python program, runs it, then writes another
+        program to check what happened — 77 turns for the roll-forward.
+        GridPath's agent works the sheet the way you do: it reads the
+        model's structure, writes cells and formulas through purpose-built
+        tools, and sees the recalculated result immediately, because
+        there's a real calculation engine underneath. Same model, same
+        reasoning; one of them just isn't paying a translation tax on
+        every step.
+      </p>
+
+      <h2>Run it yourself</h2>
+      <p>
+        The fixture, the tasks, the grader and every run — outputs, grades,
+        timings, tokens — are in the
+        <a href="https://github.com/pixelsmasher13/gridpath-evals">gridpath-evals
+        repo</a>. GitHub renders the workbooks in the browser, so you can
+        open the updated Palantir model and check the Q2 column against
+        the 10-Q yourself. Value checks are graded after a neutral
+        LibreOffice recalculation so neither side's caching can flatter it,
+        and the fidelity check compares the output's internal file parts
+        against the original.
+      </p>
+      <p>
+        Caveats, stated plainly: this is one machine, one model
+        (<code>claude-sonnet-5</code>) at matched effort settings, August
+        2026 — five runs per edit task and one head-to-head on the
+        roll-forward. Agents are stochastic. The CLI agent here is the
+        general-purpose baseline, not a survey of spreadsheet tools. The
+        Palantir fixture's four-way segment split is partly derived
+        (reconstructed from rounded press-release figures), which is
+        realistic for an analyst model but worth knowing when you read it.
+        If you get different numbers, we want to hear about it.
+      </p>
+
+      <p class="legal-note">
+        GridPath is a desktop AI agent for Excel: your files stay local,
+        every change lands as a reviewable diff, and saves preserve what
+        you didn't touch — byte for byte, every run.
+        <a href="/#download">Download it free</a>, or read more on the
+        <a href="/fidelity">fidelity page</a>.
+      </p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-col footer-brand">
+        <a class="brand" href="/">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">The AI spreadsheet agent that respects your files.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

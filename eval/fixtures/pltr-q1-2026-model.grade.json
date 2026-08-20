@@ -1,0 +1,82 @@
+{
+  "task": "pltr-rollforward",
+  "output": "eval/fixtures/pltr-q1-2026-model.xlsx",
+  "recalc": true,
+  "counts": {
+    "pass": 5,
+    "fail": 5,
+    "warn": 0
+  },
+  "results": [
+    {
+      "status": "fail",
+      "detail": "label found, no cell within 0.5% of 1935464",
+      "type": "label_value",
+      "label": "^total revenue$",
+      "why": "Q2 2026 reported revenue must appear — the actual work (SEC 10-Q filed 2026-08-04)"
+    },
+    {
+      "status": "fail",
+      "detail": "label found, no cell within 1% of 1061890",
+      "type": "label_value",
+      "label": "^net income$",
+      "why": "Q2 2026 reported net income ties"
+    },
+    {
+      "status": "fail",
+      "detail": "stale /Q2.{0,3}26E/i still present at Income Statement!row 5",
+      "type": "label_absent",
+      "label": "Q2.{0,3}26E",
+      "why": "the stale Q2'26 ESTIMATE header must be retired — a model that still calls actuals estimates lies to its reader"
+    },
+    {
+      "status": "fail",
+      "detail": "nothing matches /Q2.{0,3}26A/i",
+      "type": "label_exists",
+      "label": "Q2.{0,3}26A",
+      "why": "Q2'26 must be relabelled ACTUAL, following the workbook's own A/E convention"
+    },
+    {
+      "status": "pass",
+      "detail": "1 check row(s) tie to ~0",
+      "type": "check_rows_zero",
+      "label": "check",
+      "why": "the model's own check row (US+Intl vs Gov+Comm) must still tie after the edit"
+    },
+    {
+      "status": "pass",
+      "detail": "663 formula cells",
+      "type": "min_formula_cells",
+      "label": "",
+      "why": "the fixture has 663 formulas; a roll-forward that flattens derived rows to pasted values (the classic failure) drops well below this"
+    },
+    {
+      "status": "pass",
+      "detail": "Income Statement!row 17 has formulas",
+      "type": "label_formula",
+      "label": "^total revenue$",
+      "why": "Total Revenue stays a derived formula — an agent that pastes the reported total over the formula chain breaks the model"
+    },
+    {
+      "status": "pass",
+      "detail": "no error values",
+      "type": "no_error_cells",
+      "label": "",
+      "why": "no #REF!/#DIV/0! introduced by the edit"
+    },
+    {
+      "status": "pass",
+      "detail": "all 13 original parts survive",
+      "type": "parts_preserved",
+      "label": "",
+      "why": "round-trip fidelity on a real workbook — nothing dropped from the original file"
+    },
+    {
+      "status": "fail",
+      "detail": "label found, no cell within 2% of 0.41",
+      "type": "label_value",
+      "label": "^diluted eps$",
+      "why": "Q2 2026 reported diluted EPS $0.41 (SEC). 2% band deliberately excludes the fixture's stale estimate of 0.4216, so this only passes if the quarter was actually rolled forward."
+    }
+  ]
+}
