@@ -40,32 +40,9 @@ Requires **Node 20+** and **Rust** (stable, via [rustup](https://www.rust-lang.o
 
 On first launch, pick a provider: a Claude OAuth token from `claude setup-token`, a `sk-ant-api03-*` API key, or the ChatGPT sign-in flow. Credentials live in the local SQLite database and don't leave your machine.
 
-## How it works
+## Built with
 
-The agent drives a live grid backed by a real formula engine (a vendored [IronCalc](vendor/ironcalc) fork), so when it writes a formula it immediately sees the computed result and can check its own work before continuing. Tool calls — cell and range writes, bulk formatting, sheets, dimensions, structural edits, web and SEC lookups — apply to the grid as pending mutations with a captured pre-state, which is what makes reject exact rather than approximate.
-
-Saving is preservation-first. The Rust patcher edits the original `.xlsx` package in place, handling cell and format changes, sheet create/rename/delete, and row/column insert/delete including chart series references, comment anchors and cross-sheet formula shifts. When an edit falls outside what it can patch, GridPath refuses to silently overwrite a file with content at risk — it offers a reduced-fidelity copy and names exactly what that copy would lose.
-
-Worth reading first:
-
-- `src-tauri/src/engine/spreadsheet_agent/tools.rs` — tool schemas and the system prompt that drives behaviour
-- `src-tauri/src/engine/spreadsheet_agent/commands.rs` — the agent loop and provider dispatch
-- `src-tauri/src/engine/workbook/xlsx_patch/` — the surgical save
-- `src/screens/SpreadsheetScreen/agent/` — tool interpretation, context capture, script sandbox
-- `eval/` — the benchmark harness: task specs, grader, and runners for both this agent and a headless coding agent
-
-## Repository layout
-
-```
-src/                     React frontend (grid, chat, diff review, agent tool layer)
-src-tauri/               Rust core
-  engine/llm_providers/  Claude + Codex streaming providers
-  engine/spreadsheet_agent/  Agent loop, tool schemas, system prompt
-  engine/workbook/       .xlsx I/O, calc engine, surgical patcher
-eval/                    Benchmark tasks, grader, harness runners
-vendor/ironcalc/         Vendored IronCalc fork (MIT/Apache-2.0)
-marketing/               gridpath.dev static site
-```
+Tauri 2 and a Rust core, React + TypeScript frontend, a vendored [IronCalc](vendor/ironcalc) fork (MIT/Apache-2.0) for the formula engine, and SQLite for local session storage. The surgical `.xlsx` patcher is in `src-tauri/src/engine/workbook/xlsx_patch/`, the agent loop and tool schemas in `src-tauri/src/engine/spreadsheet_agent/`, and the benchmark harness in `eval/`.
 
 ## Project status
 
