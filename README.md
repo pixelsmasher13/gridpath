@@ -8,7 +8,7 @@ Open a `.xlsx`, type what you want, review the diff, accept it. Your file never 
 
 - **Multi-workbook** — Workbooks side by side, each with its own agent. Attach others as read-only references.
 - **Reversible changes** — Diff-first edits. Accept, reject or use ⌘Z. Nothing saves until you say so.
-- **Fast by design** — A native Rust core keeps edits quick on small sheets and large models.
+- **Spreadsheet-native harness** — With the same model, GridPath ran 3.9–14× faster in our [benchmarks](https://github.com/pixelsmasher13/gridpath-evals) and used 95–96% fewer output tokens on edit tasks.
 - **Workbook fidelity** — Surgical saves rewrite only what changed; charts, pivots, formatting, VBA and plugin data stay intact.
 - **Formula-first** — Writes formulas, not pasted numbers, so models stay live.
 - **Local-first** — Your `.xlsx` stays on disk. Only your prompt and the cells the agent needs go to Claude or OpenAI.
