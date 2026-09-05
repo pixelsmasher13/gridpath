@@ -4,6 +4,10 @@ A desktop AI agent for Excel that edits the workbooks you already have — and g
 
 Open a `.xlsx`, type what you want, review the diff, accept it. Your file never leaves your machine, and everything the agent didn't touch comes back byte-for-byte identical. Works with the Claude or ChatGPT subscription you're already paying for.
 
+**[Download GridPath](https://github.com/pixelsmasher13/gridpath/releases/latest)** · [Website](https://gridpath.dev) · [Benchmarks](https://github.com/pixelsmasher13/gridpath-evals)
+
+GridPath is **source-available** under the [FSL-1.1-Apache-2.0](LICENSE). Each release becomes Apache 2.0 after two years.
+
 ## What it does
 
 - **Multi-workbook** — Workbooks side by side, each with its own agent. Attach others as read-only references.
@@ -28,26 +32,11 @@ Open a `.xlsx`, type what you want, review the diff, accept it. Your file never 
 
 *Best-effort comparison as of August 2026. The "preserves" and "diff" rows for coding agents are measured, not inferred — see the [benchmark repo](https://github.com/pixelsmasher13/gridpath-evals), where a headless coding agent silently dropped parts of a workbook in 2 of 5 edit runs.*
 
-## Quick start
-
-```bash
-npm install
-npm run tauri dev
-```
-
-Requires **Node 20+** and **Rust** (stable, via [rustup](https://www.rust-lang.org/tools/install)) plus your platform's [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). `npm run tauri build` produces a local unsigned build.
-
-On first launch, pick a provider: a Claude OAuth token from `claude setup-token`, a `sk-ant-api03-*` API key, or the ChatGPT sign-in flow. Credentials live in the local SQLite database and don't leave your machine.
-
-## Built with
-
-Tauri 2 and a Rust core, React + TypeScript frontend, a vendored [IronCalc](vendor/ironcalc) fork (MIT/Apache-2.0) for the formula engine, and SQLite for local session storage. The surgical `.xlsx` patcher is in `src-tauri/src/engine/workbook/xlsx_patch/`, the agent loop and tool schemas in `src-tauri/src/engine/spreadsheet_agent/`, and the benchmark harness in `eval/`.
-
 ## Project status
 
 Under active development. Editing existing workbooks — the case above — is the strongest path and the one under continuous benchmark. Building large multi-sheet models from scratch works but is improving; the [benchmark repo](https://github.com/pixelsmasher13/gridpath-evals) publishes those results too, including the ones we lose.
 
-## License
+## Source availability and license
 
 Source-available under the [Functional Source License, Version 1.1, with Apache 2.0 Future License](LICENSE) (FSL-1.1-Apache-2.0):
 
@@ -56,3 +45,18 @@ Source-available under the [Functional Source License, Version 1.1, with Apache 
 - **In two years** every release re-licenses to Apache 2.0, no restrictions.
 
 If you want to use GridPath in a way the FSL doesn't permit, get in touch.
+
+## Build from source
+
+Requires **Node 20+**, **Rust** stable via [rustup](https://www.rust-lang.org/tools/install), and your platform's [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+```bash
+npm install
+npm run tauri dev
+```
+
+`npm run tauri build` produces a local unsigned build. On first launch, connect Claude with OAuth or an API key, or use the ChatGPT sign-in flow. Credentials stay in the local SQLite database.
+
+### Architecture
+
+GridPath uses Tauri 2 with a Rust core, React and TypeScript, a vendored [IronCalc](vendor/ironcalc) fork (MIT/Apache-2.0), and SQLite. The surgical `.xlsx` patcher is in `src-tauri/src/engine/workbook/xlsx_patch/`, the agent loop in `src-tauri/src/engine/spreadsheet_agent/`, and the benchmark harness in `eval/`.
