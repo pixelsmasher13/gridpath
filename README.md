@@ -6,13 +6,12 @@ Open a `.xlsx`, type what you want, review the diff, accept it. Your file never 
 
 ## What it does
 
-- **Edits real workbooks in place** — formulas, formatting, whole sections, on files someone else built. Updating a 663-formula quarterly model with a new quarter's actuals takes about 4 minutes ([benchmark](https://github.com/pixelsmasher13/gridpath-evals)).
-- **Every change is reversible** — each batch of edits lands live but stays pending until you accept it. Reject rewinds cell-by-cell to the exact prior values, formulas, number formats and fills. ⌘Z after that, and a `.bak` after saving.
-- **Your file comes back whole** — a Rust patcher rewrites only the cells and structure that changed inside the original package, so charts, pivot tables, conditional formatting, data validation, comments, external links, VBA and plugin data stay untouched. Not "usually" — by construction.
-- **Several workbooks at once** — each tab runs its own agent session with its own history and pending batches, in parallel. Attach up to five more files as read-only references the agent can pull ranges from.
-- **Bring your own model** — Claude Pro/Max or ChatGPT Plus/Pro via the official OAuth flows, or API keys if you prefer. Switch provider and effort level per session.
-- **Grounded in real data** — the agent can look up SEC filings and fetch source documents directly, so figures come from the filing rather than from memory.
-- **Runs on your machine** — Tauri + Rust desktop app, SQLite on disk. Only your prompt and the cells the agent reads or writes go to the model; the workbook itself never uploads.
+- **Multi-workbook** — Workbooks side by side, each with its own agent. Attach others as read-only references.
+- **Reversible changes** — Diff-first edits. Accept, reject or use ⌘Z. Nothing saves until you say so.
+- **Fast by design** — A native Rust core keeps edits quick on small sheets and large models.
+- **Workbook fidelity** — Surgical saves rewrite only what changed; charts, pivots, formatting, VBA and plugin data stay intact.
+- **Formula-first** — Writes formulas, not pasted numbers, so models stay live.
+- **Local-first** — Your `.xlsx` stays on disk. Only your prompt and the cells the agent needs go to Claude or OpenAI.
 
 ## How it compares
 
