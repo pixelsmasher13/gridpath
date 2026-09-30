@@ -1,0 +1,6 @@
+name = "heelix-continuation-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+TARGET_HOST = "bitworks-topaz.vercel.app"

@@ -1,0 +1,1 @@
+ALTER TABLE cloud_automations ADD COLUMN IF NOT EXISTS persona VARCHAR(50);

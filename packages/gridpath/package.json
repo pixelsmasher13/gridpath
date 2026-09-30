@@ -1,0 +1,63 @@
+{
+  "name": "gridpath",
+  "version": "0.1.4",
+  "description": "Let your agent edit Excel files without butchering them. MCP server + engine.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "excel",
+    "xlsx",
+    "spreadsheet",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-agent",
+    "ironcalc"
+  ],
+  "homepage": "https://gridpath.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pixelsmasher13/gridpath.git",
+    "directory": "packages/gridpath"
+  },
+  "bugs": {
+    "url": "https://github.com/pixelsmasher13/gridpath/issues"
+  },
+  "author": "GridPath",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "bin": {
+    "gridpath": "dist/bin/gridpath.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "engine",
+    "ui",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:engine": "../../crates/engine-wasm/build.sh",
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "build:ui": "cd ../.. && npx vite build -c vite.review.config.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10",
+    "@types/node": "^22.0.0",
+    "jszip": "^3.10.1",
+    "tsup": "^8.3.0"
+  }
+}

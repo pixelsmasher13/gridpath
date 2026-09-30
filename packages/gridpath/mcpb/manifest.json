@@ -1,0 +1,58 @@
+{
+  "manifest_version": "0.3",
+  "name": "gridpath",
+  "display_name": "GridPath — Excel editing with review",
+  "version": "0.1.4",
+  "description": "Let Claude edit your real .xlsx files. Every change opens a local review page: see changed cells before/after, accept or reject, then save. Untouched parts of the workbook stay byte-identical.",
+  "long_description": "GridPath gives Claude a safe way to edit the Excel files you already have.\n\n- **Edits the real file.** Saves rewrite only the parts an edit touched; charts, pivots, macros, add-in data and custom XML come back byte-identical.\n- **Real formulas.** A calculation engine runs inside the extension, so Claude reads evaluated values and writes formulas that work when the file opens in Excel.\n- **Review before save.** Each change returns a local review link with changed cells highlighted and before/after values. With *Require review* on, only that page can write the file.\n\nChoose the folders Claude may open below. Files outside them are refused.",
+  "author": { "name": "GridPath", "url": "https://gridpath.dev" },
+  "repository": { "type": "git", "url": "https://github.com/pixelsmasher13/gridpath" },
+  "homepage": "https://gridpath.dev/mcp",
+  "documentation": "https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#readme",
+  "support": "https://github.com/pixelsmasher13/gridpath/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/dist/bin/gridpath.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/dist/bin/gridpath.js", "mcp", "--allow", "${user_config.allowed_directories}"],
+      "env": { "GRIDPATH_REVIEW_REQUIRED": "${user_config.review_required}" }
+    }
+  },
+  "tools": [
+    { "name": "describe_workbook", "description": "Structural map of a workbook: sheets, headers, sections, named ranges." },
+    { "name": "find_rows", "description": "Find rows by label across sheets." },
+    { "name": "read_range", "description": "Read evaluated values and formulas from a range." },
+    { "name": "set_cell", "description": "Write a value or formula to one cell (pending until saved)." },
+    { "name": "set_range", "description": "Write a block of values or formulas (pending until saved)." },
+    { "name": "run_script", "description": "Run a sandboxed JavaScript edit against the workbook as one reviewable batch." },
+    { "name": "set_format", "description": "Number formats, fonts, fills, alignment." },
+    { "name": "insert_rows", "description": "Insert rows; references shift." },
+    { "name": "save_workbook", "description": "Write pending changes into the .xlsx through the surgical patcher." }
+  ],
+  "tools_generated": true,
+  "keywords": ["excel", "xlsx", "spreadsheet", "review", "finance", "model"],
+  "license": "FSL-1.1-Apache-2.0",
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=20.0.0" }
+  },
+  "user_config": {
+    "allowed_directories": {
+      "type": "directory",
+      "title": "Folders Claude may edit",
+      "description": "Workbooks outside these folders are refused.",
+      "multiple": true,
+      "required": true,
+      "default": ["${HOME}/Documents", "${HOME}/Downloads", "${HOME}/Desktop"]
+    },
+    "review_required": {
+      "type": "boolean",
+      "title": "Require review before saving",
+      "description": "When on, Claude cannot save; you accept and save from the review page it links you to.",
+      "default": true
+    }
+  }
+}
