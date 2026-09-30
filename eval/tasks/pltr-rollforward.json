@@ -1,0 +1,63 @@
+{
+  "id": "pltr-rollforward",
+  "prompt": "update this model with Palantir's Q2 2026 actual results",
+  "start_file": "fixtures/pltr-q1-2026-model.xlsx",
+  "notes": "THE ROLL-FORWARD TASK \u2014 the quarterly maintenance job real users actually do, and the capability a live-grid agent should dominate a code-writing one on. Fixture: a 3-sheet, 663-formula PLTR model authored by Claude Code (task pltr-q1-model) whose actuals deliberately stop at Q1'26; Q2'26 columns are formula-driven estimates off the Assumptions sheet. A CORRECT roll-forward replaces only the four segment INPUT cells (H8:H11 on 'Income Statement') with reported actuals, flips the Q2'26E header to A, and lets the derived totals / mix % / growth rows / check row recalculate. Anchors verified against SEC XBRL 2026-08-19 (10-Q filed 2026-08-04): Q2 2026 revenue $1,935,464k, net income $1,061,890k, diluted EPS $0.41. Model is in $ thousands. The prompt is deliberately terse \u2014 that's how the job arrives.",
+  "assertions": [
+    {
+      "type": "label_value",
+      "label": "^total revenue$",
+      "value": 1935464,
+      "tolerance_pct": 0.5,
+      "why": "Q2 2026 reported revenue must appear \u2014 the actual work (SEC 10-Q filed 2026-08-04)"
+    },
+    {
+      "type": "label_value",
+      "label": "^net income$",
+      "value": 1061890,
+      "tolerance_pct": 1,
+      "why": "Q2 2026 reported net income ties"
+    },
+    {
+      "type": "label_absent",
+      "label": "Q2.{0,3}26E",
+      "why": "the stale Q2'26 ESTIMATE header must be retired \u2014 a model that still calls actuals estimates lies to its reader"
+    },
+    {
+      "type": "label_exists",
+      "label": "Q2.{0,3}26A",
+      "why": "Q2'26 must be relabelled ACTUAL, following the workbook's own A/E convention"
+    },
+    {
+      "type": "check_rows_zero",
+      "label": "check",
+      "tolerance_abs": 1,
+      "why": "the model's own check row (US+Intl vs Gov+Comm) must still tie after the edit"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 600,
+      "why": "the fixture has 663 formulas; a roll-forward that flattens derived rows to pasted values (the classic failure) drops well below this"
+    },
+    {
+      "type": "label_formula",
+      "label": "^total revenue$",
+      "why": "Total Revenue stays a derived formula \u2014 an agent that pastes the reported total over the formula chain breaks the model"
+    },
+    {
+      "type": "no_error_cells",
+      "why": "no #REF!/#DIV/0! introduced by the edit"
+    },
+    {
+      "type": "parts_preserved",
+      "why": "round-trip fidelity on a real workbook \u2014 nothing dropped from the original file"
+    },
+    {
+      "type": "label_value",
+      "label": "^diluted eps$",
+      "value": 0.41,
+      "tolerance_pct": 2,
+      "why": "Q2 2026 reported diluted EPS $0.41 (SEC). 2% band deliberately excludes the fixture's stale estimate of 0.4216, so this only passes if the quarter was actually rolled forward."
+    }
+  ]
+}

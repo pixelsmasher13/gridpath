@@ -1,0 +1,86 @@
+diff --git a/node_modules/@univerjs/engine-render/lib/cjs/index.js b/node_modules/@univerjs/engine-render/lib/cjs/index.js
+index cb8606f..78ffe34 100644
+--- a/node_modules/@univerjs/engine-render/lib/cjs/index.js
++++ b/node_modules/@univerjs/engine-render/lib/cjs/index.js
+@@ -17621,8 +17621,28 @@ let SpreadsheetSkeleton = class SpreadsheetSkeleton extends _univerjs_core.Sheet
+ 	_clearCacheOutOfVisibleRange(visibleStartRow, visibleEndRow, visibleStartColumn, visibleEndColumn) {
+ 		if (this._clearTaskId) cancelIdleCallback(this._clearTaskId);
+ 		this._clearTaskId = requestIdleCallback(() => {
++			const isOutOfRange = (row, col) => row < visibleStartRow - CACHE_COUNT || row > visibleEndRow + CACHE_COUNT || col < visibleStartColumn - CACHE_COUNT || col > visibleEndColumn + CACHE_COUNT;
+ 			this._stylesCache.fontMatrix.forValue((row, col) => {
+-				if (row < visibleStartRow - CACHE_COUNT || row > visibleEndRow + CACHE_COUNT || col < visibleStartColumn - CACHE_COUNT || col > visibleEndColumn + CACHE_COUNT) this._stylesCache.fontMatrix.realDeleteValue(row, col);
++				if (isOutOfRange(row, col)) this._stylesCache.fontMatrix.realDeleteValue(row, col);
++			});
++			this._stylesCache.border.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._stylesCache.border.realDeleteValue(row, col);
++			});
++			this._stylesCache.backgroundPositions.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._stylesCache.backgroundPositions.realDeleteValue(row, col);
++			});
++			for (const rgb of Object.keys(this._stylesCache.background)) {
++				const colorMatrix = this._stylesCache.background[rgb];
++				colorMatrix.forValue((row, col) => {
++					if (isOutOfRange(row, col)) colorMatrix.realDeleteValue(row, col);
++				});
++				if (!colorMatrix.hasValue()) delete this._stylesCache.background[rgb];
++			}
++			this._handleBgMatrix.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._handleBgMatrix.realDeleteValue(row, col);
++			});
++			this._handleBorderMatrix.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._handleBorderMatrix.realDeleteValue(row, col);
+ 			});
+ 			this._clearTaskId = null;
+ 		});
+@@ -17636,6 +17656,8 @@ let SpreadsheetSkeleton = class SpreadsheetSkeleton extends _univerjs_core.Sheet
+ 		if (!this._worksheetData) return;
+ 		if (!this.rowHeightAccumulation || !this.columnWidthAccumulation) return;
+ 		this.updateVisibleRange(vpInfo);
++		const visibleRangeForClear = vpInfo && this._visibleRangeMap.get(vpInfo.viewportKey);
++		if (visibleRangeForClear) this._clearCacheOutOfVisibleRange(visibleRangeForClear.startRow, visibleRangeForClear.endRow, visibleRangeForClear.startColumn, visibleRangeForClear.endColumn);
+ 		const rowColumnSegment = this._drawingRange;
+ 		const columnWidthAccumulation = this.columnWidthAccumulation;
+ 		const styleRanges = !!vpInfo && !vpInfo.isDirty && !vpInfo.isForceDirty && (!!((_vpInfo$diffBounds = vpInfo.diffBounds) === null || _vpInfo$diffBounds === void 0 ? void 0 : _vpInfo$diffBounds.length) || !!((_vpInfo$diffCacheBoun = vpInfo.diffCacheBounds) === null || _vpInfo$diffCacheBoun === void 0 ? void 0 : _vpInfo$diffCacheBoun.length) || !!vpInfo.diffX || !!vpInfo.diffY) ? vpInfo.shouldCacheUpdate ? (_vpInfo$diffCacheBoun2 = (_vpInfo$diffCacheBoun3 = vpInfo.diffCacheBounds) === null || _vpInfo$diffCacheBoun3 === void 0 ? void 0 : _vpInfo$diffCacheBoun3.map((bound) => this.getRangeByViewBound(bound))) !== null && _vpInfo$diffCacheBoun2 !== void 0 ? _vpInfo$diffCacheBoun2 : [] : [] : [rowColumnSegment];
+diff --git a/node_modules/@univerjs/engine-render/lib/es/index.js b/node_modules/@univerjs/engine-render/lib/es/index.js
+index e019b7a..72ee38f 100644
+--- a/node_modules/@univerjs/engine-render/lib/es/index.js
++++ b/node_modules/@univerjs/engine-render/lib/es/index.js
+@@ -17596,8 +17596,28 @@ let SpreadsheetSkeleton = class SpreadsheetSkeleton extends SheetSkeleton {
+ 	_clearCacheOutOfVisibleRange(visibleStartRow, visibleEndRow, visibleStartColumn, visibleEndColumn) {
+ 		if (this._clearTaskId) cancelIdleCallback(this._clearTaskId);
+ 		this._clearTaskId = requestIdleCallback(() => {
++			const isOutOfRange = (row, col) => row < visibleStartRow - CACHE_COUNT || row > visibleEndRow + CACHE_COUNT || col < visibleStartColumn - CACHE_COUNT || col > visibleEndColumn + CACHE_COUNT;
+ 			this._stylesCache.fontMatrix.forValue((row, col) => {
+-				if (row < visibleStartRow - CACHE_COUNT || row > visibleEndRow + CACHE_COUNT || col < visibleStartColumn - CACHE_COUNT || col > visibleEndColumn + CACHE_COUNT) this._stylesCache.fontMatrix.realDeleteValue(row, col);
++				if (isOutOfRange(row, col)) this._stylesCache.fontMatrix.realDeleteValue(row, col);
++			});
++			this._stylesCache.border.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._stylesCache.border.realDeleteValue(row, col);
++			});
++			this._stylesCache.backgroundPositions.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._stylesCache.backgroundPositions.realDeleteValue(row, col);
++			});
++			for (const rgb of Object.keys(this._stylesCache.background)) {
++				const colorMatrix = this._stylesCache.background[rgb];
++				colorMatrix.forValue((row, col) => {
++					if (isOutOfRange(row, col)) colorMatrix.realDeleteValue(row, col);
++				});
++				if (!colorMatrix.hasValue()) delete this._stylesCache.background[rgb];
++			}
++			this._handleBgMatrix.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._handleBgMatrix.realDeleteValue(row, col);
++			});
++			this._handleBorderMatrix.forValue((row, col) => {
++				if (isOutOfRange(row, col)) this._handleBorderMatrix.realDeleteValue(row, col);
+ 			});
+ 			this._clearTaskId = null;
+ 		});
+@@ -17611,6 +17631,8 @@ let SpreadsheetSkeleton = class SpreadsheetSkeleton extends SheetSkeleton {
+ 		if (!this._worksheetData) return;
+ 		if (!this.rowHeightAccumulation || !this.columnWidthAccumulation) return;
+ 		this.updateVisibleRange(vpInfo);
++		const visibleRangeForClear = vpInfo && this._visibleRangeMap.get(vpInfo.viewportKey);
++		if (visibleRangeForClear) this._clearCacheOutOfVisibleRange(visibleRangeForClear.startRow, visibleRangeForClear.endRow, visibleRangeForClear.startColumn, visibleRangeForClear.endColumn);
+ 		const rowColumnSegment = this._drawingRange;
+ 		const columnWidthAccumulation = this.columnWidthAccumulation;
+ 		const styleRanges = !!vpInfo && !vpInfo.isDirty && !vpInfo.isForceDirty && (!!((_vpInfo$diffBounds = vpInfo.diffBounds) === null || _vpInfo$diffBounds === void 0 ? void 0 : _vpInfo$diffBounds.length) || !!((_vpInfo$diffCacheBoun = vpInfo.diffCacheBounds) === null || _vpInfo$diffCacheBoun === void 0 ? void 0 : _vpInfo$diffCacheBoun.length) || !!vpInfo.diffX || !!vpInfo.diffY) ? vpInfo.shouldCacheUpdate ? (_vpInfo$diffCacheBoun2 = (_vpInfo$diffCacheBoun3 = vpInfo.diffCacheBounds) === null || _vpInfo$diffCacheBoun3 === void 0 ? void 0 : _vpInfo$diffCacheBoun3.map((bound) => this.getRangeByViewBound(bound))) !== null && _vpInfo$diffCacheBoun2 !== void 0 ? _vpInfo$diffCacheBoun2 : [] : [] : [rowColumnSegment];

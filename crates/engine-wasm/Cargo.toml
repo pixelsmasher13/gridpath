@@ -1,0 +1,21 @@
+[package]
+name = "gridpath_engine"
+version = "0.1.0"
+edition = "2021"
+description = "GridPath engine for Node/browser: IronCalc evaluation + surgical xlsx patching, compiled to wasm32"
+license = "FSL-1.1-Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ironcalc = { path = "../../vendor/ironcalc/xlsx" }
+ironcalc_base = { path = "../../vendor/ironcalc/base" }
+xlsx_patch = { path = "../xlsx-patch" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
