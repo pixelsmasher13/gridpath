@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gridpath review</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">gridpath <span class="muted">review</span></div>
+        <div id="file" class="file muted">loading…</div>
+        <div class="spacer"></div>
+        <button id="accept-all" class="btn" disabled>Accept all</button>
+        <button id="save-as" class="btn" disabled>Save as…</button>
+        <button id="save" class="btn primary" disabled>Save to file</button>
+      </header>
+      <main>
+        <aside id="panel">
+          <div id="batches"></div>
+          <div id="empty" class="muted" hidden>No pending changes.</div>
+        </aside>
+        <section id="grid-wrap">
+          <div id="tabs"></div>
+          <div id="grid"></div>
+        </section>
+      </main>
+      <footer id="status" class="muted"></footer>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
