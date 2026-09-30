@@ -1,0 +1,13 @@
+{
+  "id": "p159-model-edit",
+  "prompt": "On the 'Update Log' sheet, add a row at the bottom labeled 'Eval marker' with the value 42 in the cell next to the label. Change nothing else.",
+  "start_file": "corpus/project-159.xlsx",
+  "notes": "LOCAL-ONLY edit-preservation task on a real Canalyst MSFT model (1.4 MB, 12 sheets, ~55k formulas incl. 4.4k INDIRECT, _xll add-in calls, comments, VML drawings, customXml, metadata). Trivial edit by design; what is graded is what survives the save.",
+  "assertions": [
+    { "type": "label_value", "label": "Eval marker", "value": 42, "tolerance_pct": 0, "sheet": "Update Log", "why": "the requested edit landed" },
+    { "type": "parts_preserved", "allow_removed": ["xl/calcChain.xml"], "must_keep": ["customXml/item1.xml", "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml", "xl/drawings/drawing1.xml", "xl/media/image1.png", "xl/metadata.xml", "xl/printerSettings/printerSettings1.bin"], "why": "institutional content must survive the round-trip" },
+    { "type": "min_formula_cells", "count": 50000, "why": "the model's formulas must survive AS formulas" },
+    { "type": "file_opens", "why": "output parses as a valid workbook" },
+    { "type": "no_error_cells", "sheet": "Update Log", "why": "the edited sheet gained no formula errors" }
+  ]
+}

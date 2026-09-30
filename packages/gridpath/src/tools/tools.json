@@ -1,0 +1,969 @@
+[
+  {
+    "description": "Set the value or formula of a single cell. `cell` is an Excel A1-style address (case-insensitive, e.g. \"A1\", \"B17\", \"AA42\"). For formulas, pass them in `formula` starting with '=' (e.g. \"=SUM(A1:A10)\") — do NOT put formulas in `value`.",
+    "input_schema": {
+      "properties": {
+        "cell": {
+          "description": "A1 address. Examples: \"A1\", \"B17\", \"AA42\".",
+          "type": "string"
+        },
+        "formula": {
+          "description": "Excel-style formula starting with '='. References inside use A1 notation. Example: \"=SUM(A1:A10)\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sheet": {
+          "description": "Sheet name (case-sensitive).",
+          "type": "string"
+        },
+        "value": {
+          "description": "Literal value (string, number, boolean, or null). Leave null when using `formula`."
+        }
+      },
+      "required": [
+        "sheet",
+        "cell"
+      ],
+      "type": "object"
+    },
+    "name": "set_cell"
+  },
+  {
+    "description": "Set a rectangular block of values starting at `top_left` (A1 address). `values` is a 2D array — outer rows, inner cells. Strings starting with '=' inside `values` are treated as formulas; formula references must use A1 notation pointing at the FINAL placement of cells (e.g. if `top_left` is \"A9\" and the value at row index 2 / col 0 should reference the data row just above your block at A8, write \"=A8\" — not \"=A1\" or \"=A11\"). **Off-by-one guard: if formulas will reference rows created by THIS call, split the work — write labels + hardcoded values first, read the `row_map` in this call's result, then write formulas in a second set_range against those verified row numbers.** Composing formulas in the same call that lays out their target rows is the top source of off-by-one references. Use this for bulk writes; prefer it over many set_cell calls. **`null` and empty string `\"\"` inside `values` are treated as PRESERVE — the cell is left untouched, NOT cleared.** This means you can ship `[[\"Gross Profit\", \"\", \"\", \"\"]]` to set only the label in column A without wiping the data in B–D. To actually clear cells, use `clear_range`. **Writing to a sheet name that doesn't exist CREATES that sheet automatically** (near-miss spellings of an existing sheet are rejected as probable typos) — so organize multi-section builds across purposefully named sheets (e.g. Data / Assumptions / Model / Notes) instead of piling everything onto one long sheet; a new tab costs nothing.",
+    "input_schema": {
+      "properties": {
+        "sheet": {
+          "type": "string"
+        },
+        "top_left": {
+          "description": "A1 address of the top-left cell, e.g. \"A9\".",
+          "type": "string"
+        },
+        "values": {
+          "description": "2D array — outer = rows, inner = cells. Strings beginning with '=' are formulas.",
+          "items": {
+            "items": {},
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sheet",
+        "top_left",
+        "values"
+      ],
+      "type": "object"
+    },
+    "name": "set_range"
+  },
+  {
+    "description": "Copy a rectangular range to another location with Excel copy/paste semantics, executed against the LIVE grid: relative formula references shift by the paste offset exactly like Excel ($ anchors are respected — `$B$5` stays put, `B5` shifts), and cell formatting (number format, font, fill, alignment) travels with the cells. STRONGLY PREFER this over reading a range and re-typing shifted formulas yourself — it cannot make off-by-one mistakes and costs a fraction of the tokens. Ideal for: extending a projection by one more period (copy the last full year column block to the next column), duplicating a section as a template, or seeding a new sheet from an existing block. Blank source cells leave the destination untouched (they do NOT clear it). Result reports the evaluated destination values so you can verify. Limited to 5000 cells per call.",
+    "input_schema": {
+      "properties": {
+        "dest": {
+          "description": "A1 address of the destination TOP-LEFT cell, e.g. \"BU5\". The copy lands in a rectangle of the same size starting here.",
+          "type": "string"
+        },
+        "dest_sheet": {
+          "description": "Destination sheet if different from `sheet`. Formula references shift the same way; sheet-qualified refs keep pointing at their original sheets.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "description": "\"all\" (default): shifted formulas + values + formats. \"values\": paste evaluated values only — use to freeze a calculation as hardcodes. \"formats\": formatting only, contents untouched.",
+          "enum": [
+            "all",
+            "values",
+            "formats"
+          ],
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Source sheet name (case-sensitive).",
+          "type": "string"
+        },
+        "source": {
+          "description": "A1 range to copy, e.g. \"BT5:BT120\" or a single cell \"C7\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "source",
+        "dest"
+      ],
+      "type": "object"
+    },
+    "name": "copy_range"
+  },
+  {
+    "description": "Execute a short JavaScript program against the workbook and land ALL its writes as one reviewable batch. STRONGLY PREFER this over long set_range payloads or many tool turns whenever the edit is loop-shaped: per-row conditional transforms (\"for every row where margin < 0 …\"), repeating formula patterns across many rows/columns, address arithmetic, or edits that depend on reading existing cells first. One run_script call replaces dozens of tool turns and cannot drift out of alignment mid-payload, because it computes addresses programmatically.\n\nAPI (plain synchronous JavaScript, strict mode — no async/await, no imports, no network, no DOM):\n  sheets() -> array of sheet names\n  sheet(name) -> handle for one sheet (name must match exactly; the name arg may be omitted ONLY if the workbook has a single sheet). Handle methods:\n    .get(\"B7\") -> {value, formula} — evaluated value as of BEFORE this script, overlaid with your own literal writes\n    .values(\"A2:C50\") -> 2D array of values (rows × cols)\n    .set(\"B7\", x) — write a value; strings starting with '=' are formulas; null clears the cell's content\n    .setValues(\"A9\", [[...],[...]]) — bulk write with set_range semantics: null / \"\" preserve the existing cell\n    .format(\"A1:F1\", {bold: true, number_format: \"0.0%\", background_color: \"#1F4E79\", font_color: \"#FFFFFF\"}) — same keys as set_format\n    .clear(\"B2:D10\") — empty values + formulas, formatting preserved\n    .usedRange() -> \"A1:Q48\" or null\n  log(...) — up to 100 entries, returned to you in the result as `script_logs` for debugging\n\nRules: formulas you write are NOT evaluated during the script — .get on a cell you just wrote a formula into returns {value: null, formula}; the automatic readback after the script (cells + row_map) carries the evaluated results, so verify there. Follow the same conventions as set_range: write raw numbers (never pre-formatted strings), write formulas for derived values, compose against row_map. Limits: 5-second CPU cap, 20,000 touched-cell cap. `sheet(\"NewName\")` on a name that doesn't exist AUTO-CREATES that sheet when the script's writes land — use it to organize builds across purposeful tabs. Other structural ops (insert/delete rows or columns, sheet delete/rename, merges, freeze) are NOT in the script API — use the dedicated tools for those. The script's writes flow into the same pending batch as every other tool: the user reviews and can reject them.",
+    "input_schema": {
+      "properties": {
+        "script": {
+          "description": "JavaScript source, executed as a function body. Example: const s = sheet(\"Model\"); const rows = s.values(\"A2:C50\"); rows.forEach((r, i) => { if (r[2] !== null && r[2] < 0) s.set(\"D\" + (i + 2), \"=C\" + (i + 2) + \"*-1\"); });",
+          "type": "string"
+        }
+      },
+      "required": [
+        "script"
+      ],
+      "type": "object"
+    },
+    "name": "run_script"
+  },
+  {
+    "description": "Apply formatting to one OR MANY cell ranges in a single call. STRONGLY PREFER the bulk `operations` form when you have more than one format to apply — it's one tool call instead of N, dramatically faster. Each operation's `format` is a partial object; only specified properties are applied, others are left as-is. Use this for: bold headers, currency / percent / number formatting on data columns, italic notes, alignment, font color/size/family, **text wrap via `wrap_text`** (long methodology notes / descriptions in a fixed-width column — wrap beats restructuring the layout around overflow), and **cell fill via `background_color`** (e.g. dark-blue header bars, yellow assumption highlights — see the financial-model color conventions). v1 limitation: cell borders are not yet supported.\n\nTwo equivalent shapes:\n  • Single range: { sheet, range, format }\n  • Bulk:         { sheet, operations: [ { range, format }, ... ] }",
+    "input_schema": {
+      "properties": {
+        "format": {
+          "description": "Partial format (only when using single-range form).",
+          "properties": {
+            "background_color": {
+              "description": "Cell fill color, e.g. \"#1F4E79\" for a dark-blue header bar or \"#FFFF00\" for a yellow assumption highlight. Pass null to clear. **Always pair light/white `font_color` with a contrasting `background_color` — white-on-white reads as invisible text.**",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "font_color": {
+              "description": "CSS color, e.g. \"#000000\" or \"red\".",
+              "type": "string"
+            },
+            "font_family": {
+              "description": "Font family name, e.g. \"Calibri\", \"Arial\", \"Aptos Narrow\".",
+              "type": "string"
+            },
+            "font_size": {
+              "type": "number"
+            },
+            "horizontal_align": {
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ],
+              "type": "string"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "number_format": {
+              "description": "Excel-style number format. Common: \"$#,##0.00\" currency, \"0.0%\" or \"0.00%\" percent, \"#,##0\" integers with commas, \"#,##0.00\" decimals, \"@\" plain text.",
+              "type": "string"
+            },
+            "strike": {
+              "description": "Strikethrough.",
+              "type": "boolean"
+            },
+            "underline": {
+              "type": "boolean"
+            },
+            "vertical_align": {
+              "enum": [
+                "top",
+                "middle",
+                "bottom"
+              ],
+              "type": "string"
+            },
+            "wrap_text": {
+              "description": "Wrap long text within the cell instead of overflowing. Pair with a set_column_width + vertical_align \"top\" for description/notes columns.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "operations": {
+          "description": "Bulk form — array of {range, format} pairs. Use this whenever you have ≥2 formats to apply. Example: [{\"range\":\"A1\",\"format\":{\"bold\":true,\"font_size\":16}},{\"range\":\"B8:F8\",\"format\":{\"number_format\":\"#,##0\"}},{\"range\":\"B9:F9\",\"format\":{\"number_format\":\"0.0%\"}}].",
+          "items": {
+            "properties": {
+              "format": {
+                "type": "object"
+              },
+              "range": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "range",
+              "format"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "range": {
+          "description": "A1 range (only when using single-range form). Examples: \"A1\", \"B2:B10\", \"A1:F1\".",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet"
+      ],
+      "type": "object"
+    },
+    "name": "set_format"
+  },
+  {
+    "description": "Set the pixel width of one or more columns. **Always prefer the bulk `operations` form when you need multiple widths** (e.g. label column A wide, data columns narrower) — one call instead of N. The flat single-width form is kept for trivial cases. Default Excel column is ~64px; a wide column for labels is typically 180–220.",
+    "input_schema": {
+      "properties": {
+        "columns": {
+          "description": "Single-op form (omit `operations`). Comma-separated column letters.",
+          "type": "string"
+        },
+        "operations": {
+          "description": "Bulk form. Each entry sets a width on a group of columns. Use this when you need different widths for different column groups.",
+          "items": {
+            "properties": {
+              "columns": {
+                "description": "Comma-separated column letters, e.g. \"A\" or \"B,C,D,E,F\".",
+                "type": "string"
+              },
+              "width": {
+                "description": "Pixel width.",
+                "minimum": 1,
+                "type": "number"
+              }
+            },
+            "required": [
+              "columns",
+              "width"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "width": {
+          "description": "Single-op form pixel width.",
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "sheet"
+      ],
+      "type": "object"
+    },
+    "name": "set_column_width"
+  },
+  {
+    "description": "Set the pixel height of one or more rows. **Always prefer the bulk `operations` form when you need multiple heights** (e.g. title row tall, body rows short) — one call instead of N. The flat single-height form is kept for trivial cases. Default row is ~24.",
+    "input_schema": {
+      "properties": {
+        "height": {
+          "description": "Single-op form pixel height.",
+          "minimum": 1,
+          "type": "number"
+        },
+        "operations": {
+          "description": "Bulk form. Each entry sets a height on a group of rows.",
+          "items": {
+            "properties": {
+              "height": {
+                "description": "Pixel height.",
+                "minimum": 1,
+                "type": "number"
+              },
+              "rows": {
+                "description": "Comma-separated 1-indexed row numbers, e.g. \"1\" or \"4,5,6,7,8\".",
+                "type": "string"
+              }
+            },
+            "required": [
+              "rows",
+              "height"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "description": "Single-op form (omit `operations`). Comma-separated 1-indexed row numbers.",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet"
+      ],
+      "type": "object"
+    },
+    "name": "set_row_height"
+  },
+  {
+    "description": "Merge a rectangular range into a single visible cell (e.g. for section headers). `range` is an A1 range like \"A1:F1\".",
+    "input_schema": {
+      "properties": {
+        "range": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "range"
+      ],
+      "type": "object"
+    },
+    "name": "merge_cells"
+  },
+  {
+    "description": "Unmerge a previously merged range.",
+    "input_schema": {
+      "properties": {
+        "range": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "range"
+      ],
+      "type": "object"
+    },
+    "name": "unmerge_cells"
+  },
+  {
+    "description": "Attach a note (Excel-style cell comment) to a single cell — a small indicator that shows the given text on hover. Use this for methodology callouts, source citations, or caveats that would clutter the cell's own value. Overwrites any existing note on that cell.",
+    "input_schema": {
+      "properties": {
+        "cell": {
+          "description": "A1 address, e.g. \"B7\".",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "cell",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "set_note"
+  },
+  {
+    "description": "Remove a cell's note, if it has one. No-op if the cell has no note.",
+    "input_schema": {
+      "properties": {
+        "cell": {
+          "description": "A1 address, e.g. \"B7\".",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "cell"
+      ],
+      "type": "object"
+    },
+    "name": "delete_note"
+  },
+  {
+    "description": "Stage REPORTED figures into a data sheet the moment you extract them from a source — then build the model by FORMULA REFERENCE to the staged cells (e.g. =Data!C5) instead of retyping numbers or deriving them in your head. The harness picks the placement (blocks stack down the staging sheet) and the result returns the EXACT address of every row and column keyed by the labels you passed, so referencing costs nothing. Staged blocks render with their source line; presentation sheets that reference them are auditable by construction — a reader can trace every model figure back to its filing. Use one call per source table (an income statement, a segment table, a KPI set). Values must be RAW numbers exactly as reported (rule 18) — no derived or adjusted figures here; derive those by formula in the model. Figures you stage do NOT need to be duplicated in keep_pages `extracted_notes` — the staged cells are the durable record.",
+    "input_schema": {
+      "properties": {
+        "columns": {
+          "description": "Period/header labels for the value columns, e.g. [\"FY2024A\", \"FY2025A\"]. 1–24 entries.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "description": "1–80 entries. Each row: {\"label\": \"Revenue — Products\", \"values\": [307001, 296100]} (values align with `columns`; omit/null a slot to leave it blank). Shorthand [label, v1, v2, ...] also accepted.",
+          "items": {},
+          "type": "array"
+        },
+        "sheet": {
+          "description": "Staging sheet name (default \"Data\"). Auto-created if new.",
+          "type": "string"
+        },
+        "source": {
+          "description": "REQUIRED provenance: the URL or filing name these figures come from.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Block caption, e.g. \"AAPL 10-Q Q3 FY2026 — income statement (reported)\".",
+          "type": "string"
+        },
+        "units": {
+          "description": "e.g. \"$M\", \"€m\". Rendered with the source line.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "source",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "name": "stage_data"
+  },
+  {
+    "description": "Create a new sheet (worksheet tab) in the workbook. Use a clear human-readable name like \"Assumptions\", \"Q4 2024\", \"Inputs\". The new sheet starts empty — write cells with set_cell / set_range afterwards. NOTE: writes to a not-yet-existing sheet name auto-create it, so an explicit create_sheet is only needed when you want to set a tab_color or create an empty tab ahead of time.",
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "Sheet name (must be unique in the workbook).",
+          "type": "string"
+        },
+        "tab_color": {
+          "description": "Optional CSS color for the tab, e.g. \"#22c55e\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "create_sheet"
+  },
+  {
+    "description": "Remove a sheet from the workbook. Permanent — every cell on this sheet is lost. Cross-sheet references in other sheets will become #REF!.",
+    "input_schema": {
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "delete_sheet"
+  },
+  {
+    "description": "Rename a sheet. Cross-sheet formula references in other sheets will be updated automatically by the workbook engine.",
+    "input_schema": {
+      "properties": {
+        "new_name": {
+          "type": "string"
+        },
+        "old_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "old_name",
+        "new_name"
+      ],
+      "type": "object"
+    },
+    "name": "rename_sheet"
+  },
+  {
+    "description": "Empty the values AND formulas of cells in `range`. Use this when you want to delete content (not just overwrite with new values). `range` is an A1 range like \"A1\", \"A1:F1\", or \"B2:D10\". Cell formatting is preserved.",
+    "input_schema": {
+      "properties": {
+        "range": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "range"
+      ],
+      "type": "object"
+    },
+    "name": "clear_range"
+  },
+  {
+    "description": "Insert `count` empty rows starting at (and shifting down from) row `before` (1-indexed Excel row number). Existing content at row `before` and below shifts down. Use this to make space in the middle of a model. Charts and conditional-formatting references in unrelated areas of the workbook may not auto-adjust to the new layout.",
+    "input_schema": {
+      "properties": {
+        "before": {
+          "description": "1-indexed row number to insert before.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "before"
+      ],
+      "type": "object"
+    },
+    "name": "insert_rows"
+  },
+  {
+    "description": "Delete `count` rows starting at row `start` (1-indexed). Content below shifts up. Permanent — the removed rows are gone.",
+    "input_schema": {
+      "properties": {
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "start": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sheet",
+        "start"
+      ],
+      "type": "object"
+    },
+    "name": "delete_rows"
+  },
+  {
+    "description": "Insert `count` empty columns starting at (and shifting right from) column `before` (column letter like \"C\"). Existing content shifts right.",
+    "input_schema": {
+      "properties": {
+        "before": {
+          "description": "Column letter to insert before, e.g. \"C\".",
+          "type": "string"
+        },
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "before"
+      ],
+      "type": "object"
+    },
+    "name": "insert_columns"
+  },
+  {
+    "description": "Delete `count` columns starting at column `start` (column letter like \"C\"). Content to the right shifts left. Permanent.",
+    "input_schema": {
+      "properties": {
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "start"
+      ],
+      "type": "object"
+    },
+    "name": "delete_columns"
+  },
+  {
+    "description": "Freeze the top `rows` rows and left `cols` columns of a sheet so they stay visible while scrolling. Classic financial-model setup is `freeze_rows: 1, freeze_cols: 1` (lock the header row and label column). Pass 0 to disable that axis.",
+    "input_schema": {
+      "properties": {
+        "freeze_cols": {
+          "description": "Number of left columns to freeze.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "freeze_rows": {
+          "description": "Number of top rows to freeze.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "freeze_rows",
+        "freeze_cols"
+      ],
+      "type": "object"
+    },
+    "name": "freeze_panes"
+  },
+  {
+    "description": "Remove any freeze panes from a sheet.",
+    "input_schema": {
+      "properties": {
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet"
+      ],
+      "type": "object"
+    },
+    "name": "unfreeze_panes"
+  },
+  {
+    "description": "Hide one or more rows. `rows` is a comma-separated list of 1-indexed row numbers (e.g. \"3\" or \"3,5,12\"). Hidden rows still hold data but don't display in the workbook.",
+    "input_schema": {
+      "properties": {
+        "rows": {
+          "description": "Comma-separated 1-indexed row numbers.",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "name": "hide_rows"
+  },
+  {
+    "description": "Unhide one or more rows. Same `rows` format as hide_rows.",
+    "input_schema": {
+      "properties": {
+        "rows": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "name": "show_rows"
+  },
+  {
+    "description": "Hide one or more columns. `columns` is a comma-separated list of column letters (e.g. \"D\" or \"D,F,H\").",
+    "input_schema": {
+      "properties": {
+        "columns": {
+          "description": "Comma-separated column letters.",
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "name": "hide_columns"
+  },
+  {
+    "description": "Unhide one or more columns. Same `columns` format as hide_columns.",
+    "input_schema": {
+      "properties": {
+        "columns": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "name": "show_columns"
+  },
+  {
+    "description": "Read evaluated cell values from a specific A1 range WITHOUT modifying anything. Use this to verify your own work, confirm where the assumption block actually landed before composing dependent formulas, or pull current values you need to reference. Returns each non-empty cell's value AND formula (if any) in `A1 = value` form. Costs one tool turn but is the cheapest way to prevent the formula-pointing-at-wrong-row class of bug on long sheets. Range limited to 500 cells per call. To LOCATE a row/section/header by NAME, don't probe with this — use `find_rows` or `describe_workbook` first, then read the exact range.",
+    "input_schema": {
+      "properties": {
+        "range": {
+          "description": "A1 range, e.g. \"G45:K45\", \"A1:Z10\", or a single cell \"B7\".",
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Sheet name (case-sensitive).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sheet",
+        "range"
+      ],
+      "type": "object"
+    },
+    "name": "read_range"
+  },
+  {
+    "description": "Get a structural map of the ACTIVE workbook without reading cell data. Per sheet: the used range, the detected header row with its period/column headers mapped to column letters (e.g. {\"BU\": \"FY2026E\"}), and a table of contents of sections — contiguous row bands with their titles, like {\"rows\": \"5-42\", \"title\": \"Revenue build\"}. Also lists workbook defined names. Served from an in-memory index, so it's near-instant and returns in ONE call what would take many read_range probes. Call it once to orient on any sheet whose preview is truncated. Optional `sheet` filters to a single sheet.",
+    "input_schema": {
+      "properties": {
+        "sheet": {
+          "description": "Optional: limit the map to this sheet (case-sensitive).",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "describe_workbook"
+  },
+  {
+    "description": "Search the ACTIVE workbook's row labels and column headers by name and get exact positions back — e.g. query \"total revenue\" returns each matching row's sheet, 1-indexed row number, containing section, and one evaluated sample cell (\"BT209 = =BT194 → 39001.1\") read live from the grid. Matching is case-insensitive substring plus word-prefix (\"tot rev\" matches \"Total revenue\"). Near-instant. Use this — NOT exploratory read_range probes — whenever you need to LOCATE a row or header (\"where is Subscriber ARPU?\", \"which column is FY2027E?\"); then read_range the exact range you need. Searches only the active workbook, not reference workbooks.",
+    "input_schema": {
+      "properties": {
+        "max_results": {
+          "description": "Max matches to return (default 20).",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Label text to find, e.g. \"total revenue\".",
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Optional: search only this sheet (case-sensitive).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "find_rows"
+  },
+  {
+    "description": "Read cell values from a REFERENCE workbook — one of the read-only xlsx files the user attached to this session (listed under \"Reference workbooks\" in the context, addressed by their label, e.g. \"AAPL-GS.xlsx\"). Use this to pull figures beyond the truncated previews: full estimate rows, assumption blocks, segment detail. Returns each non-empty cell's value AND formula in the same shape as read_range. References are read-only — you can never write to them; write tools always target the active workbook. Range limited to 500 cells per call.",
+    "input_schema": {
+      "properties": {
+        "range": {
+          "description": "A1 range, e.g. \"B5:N40\", or a single cell \"B7\".",
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Sheet name within the reference workbook.",
+          "type": "string"
+        },
+        "workbook": {
+          "description": "The reference workbook's label exactly as listed in the context, e.g. \"AAPL-GS.xlsx\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workbook",
+        "sheet",
+        "range"
+      ],
+      "type": "object"
+    },
+    "name": "read_reference"
+  },
+  {
+    "description": "Fetch one or more web pages in parallel and return their readable text. Use this to ground edits in fresh data: a company's latest revenue from an SEC filing, a current price, a docs page. Up to 5 URLs per call. **PDF links work too** — press releases, IR decks and filings are text-extracted automatically (tables come through as aligned text lines), so fetch the IR PDF directly instead of hunting for an HTML mirror; only scanned/image-only PDFs fail. **The result comes back PAGINATED** — numbered `PAGE 1 … PAGE N` under a short `source_id` (e.g. \"src1\"), because a filing is large. **Read every page NOW and extract every figure you'll need** — on your VERY NEXT turn you MUST call `keep_pages` first; every other tool call is refused with an error until you do. In that call you (a) name the pages worth keeping AND (b) write your extracted figures into the required `extracted_notes` field. `extracted_notes` is your DURABLE scratchpad — it stays in the assistant message forever even after pages are evicted, so it's how the figures survive the rest of the build. Pages you don't keep are evicted from context (only `read_source` can claw one back, a last resort). So review thoroughly here and plan exactly what you'll write into `extracted_notes` next turn. Content is NOT auto-inserted into the spreadsheet — you decide what to write.",
+    "input_schema": {
+      "properties": {
+        "urls": {
+          "description": "List of URLs to fetch. Each must be a full URL including scheme.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "urls"
+      ],
+      "type": "object"
+    },
+    "name": "fetch_web"
+  },
+  {
+    "description": "Look up a U.S. SEC registrant's recent filings and get EXACT primary-document URLs (10-K, 10-Q, 8-K, ...) — no guessing, no aggregators. Pass a ticker (\"AAPL\") or company name (\"Delivery Hero\" won't match — non-US companies aren't SEC registrants; use their IR page via web_search instead). Returns [{form, filed, period, url}] — then `fetch_web` the URL(s) you need: the filing IS the authoritative source for reported line items (rule 22), where aggregators round, restate, and mix bases. Prefer this over web_search for any US-listed company's financials.",
+    "input_schema": {
+      "properties": {
+        "company": {
+          "description": "Ticker symbol (best) or company name.",
+          "type": "string"
+        },
+        "count": {
+          "description": "Max filings to return, newest first. Default 6, max 12.",
+          "type": "integer"
+        },
+        "forms": {
+          "description": "Form types to include. Default [\"10-K\", \"10-Q\"]. Exact match (add \"10-K/A\" explicitly if you want amendments).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company"
+      ],
+      "type": "object"
+    },
+    "name": "edgar_lookup"
+  },
+  {
+    "description": "Prune a fetched source. **On the turn right after a `fetch_web` this call is MANDATORY and must come first — every other tool call is refused with an error until each pending source is pruned.** Pass the short `source_id` from the fetch_web result (e.g. \"src1\"), the 1-indexed page numbers worth keeping in context for the rest of the build, AND `extracted_notes` — your own bullet-style summary of every figure you'll need from this source. **`extracted_notes` is your durable scratchpad**: page text gets evicted from context after this turn, but your `extracted_notes` stays in the assistant message forever (the tool_use input is never compacted). Write enough that you can rebuild the model from notes alone if every page were dropped — actual numbers with units and years (e.g. \"FY2024A revenue $97.69B; COGS $79.11B; OpEx $10.04B; net income $7.13B\"), not vague reminders (\"revenue and costs\"). For `pages`: choose the few that hold the figures relevant to the user's request and to a high-quality output; pass `[]` only if your `extracted_notes` already captures everything you'll need. ONLY the kept pages stay in (cached) context; everything else is dropped (recoverable via `read_source`, a last resort). If you fetched several sources, call keep_pages once per `source_id`. Copy the source_id EXACTLY as given.",
+    "input_schema": {
+      "properties": {
+        "extracted_notes": {
+          "description": "Bullet-style scratchpad of every figure / fact you'll need from this source going forward. Persists in the assistant message even after pages are evicted, so write actual numbers with units and years — not vague reminders. Example: \"Tesla 10-K FY2024A: Revenue $97.69B (-1% YoY); Automotive rev $77.07B; Auto gross margin 18.4%; OpEx $10.04B; Net income $7.13B; Diluted shares 3,194M; CapEx $11.34B.\" Cap ~2 KB; if there are too many figures, prefer keeping the source page that holds them over over-stuffing this field.",
+          "type": "string"
+        },
+        "pages": {
+          "description": "1-indexed page numbers to retain. Empty array = drop the entire source (only safe if `extracted_notes` already has every figure you'll need).",
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "source_id": {
+          "description": "The short source_id returned by fetch_web, e.g. \"src1\". Copy it exactly.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "pages",
+        "extracted_notes"
+      ],
+      "type": "object"
+    },
+    "name": "keep_pages"
+  },
+  {
+    "description": "Re-surface specific pages of an already-fetched source whose pages were evicted from context. Pass the short `source_id` (e.g. \"src1\") + 1-indexed `pages`. Returns the raw page text. Two uses: (1) LAST-RESORT recovery within the current run if you genuinely under-kept during review — the normal path is to extract everything when you first see the source and `keep_pages` the rest; (2) the NORMAL path for sources fetched on EARLIER turns — fetched sources persist for the whole session and are listed under \"# Previously fetched sources\" in the user message. ALWAYS prefer read_source over re-fetching one of those URLs.",
+    "input_schema": {
+      "properties": {
+        "pages": {
+          "description": "1-indexed page numbers to recover.",
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "source_id": {
+          "description": "The short source_id returned by fetch_web, e.g. \"src1\". Copy it exactly.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "name": "read_source"
+  },
+  {
+    "description": "Create (or replace) a workbook-scoped named range so formulas can reference a cell/range by a readable name instead of a raw address — e.g. name `GrowthRate` for the assumption cell, then write `=Revenue*(1+GrowthRate)`. The name persists in the saved .xlsx. `name` must be a valid Excel name (letters, digits, underscores; can't look like a cell reference such as \"A1\"). `ref` must be sheet-qualified, e.g. \"Model!B22\" or \"Model!B5:B12\" (absolute `$` signs optional — they're added automatically). Calling again with the same `name` replaces its target.",
+    "input_schema": {
+      "properties": {
+        "name": {
+          "description": "Defined name, e.g. \"GrowthRate\" or \"Revenue\". Must not look like a cell address.",
+          "type": "string"
+        },
+        "ref": {
+          "description": "Sheet-qualified target, e.g. \"Model!B22\" or \"Assumptions!B5:B12\".",
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Optional. Only needed if `ref` is a bare range without a sheet prefix; supplies the sheet for it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "ref"
+      ],
+      "type": "object"
+    },
+    "name": "define_name"
+  },
+  {
+    "description": "Call this LAST when all edits are written and formulas evaluate cleanly. The runtime SCANS every cell you touched for #REF! / #DIV/0! / #VALUE! / #N/A / #NAME? / self-references BEFORE accepting done — if any are found, done is REJECTED and you get the error list back; fix them (compose against row_map) and call done again. Provide a short justification of what you changed and why so the user can review, plus a `turn_summary` — your durable memory for FUTURE turns in this session.",
+    "input_schema": {
+      "properties": {
+        "justification": {
+          "description": "1–3 sentence summary of the edits made and the reasoning. Shown to the user in the review panel.",
+          "type": "string"
+        },
+        "turn_summary": {
+          "description": "Structured record for YOUR OWN future turns — your tool history and reasoning are NOT replayed on the next user message; only this summary (plus a digest of the conversation) survives. Cover: (1) WHAT you built/changed and WHERE (sheets, ranges, key row numbers), (2) key DECISIONS and interpretations you made and why, (3) key FACTS/FIGURES learned from fetched sources or references, with units and years (e.g. \"FY2024A revenue $97.69B; gross margin 19.0%; source: 10-K src1\"). Write actual numbers, not vague reminders. ~2 KB max.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "justification",
+        "turn_summary"
+      ],
+      "type": "object"
+    },
+    "name": "done"
+  }
+]
