@@ -1,0 +1,147 @@
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { withAuth, AuthenticatedRequest } from '../../lib/middleware';
+
+/**
+ * Dynamic proxy endpoint for NVDA commands
+ * Routes all /api/nvda/* requests to the user's tunnel
+ *
+ * Examples:
+ * GET /api/nvda/elements → tunnelUrl/api/elements
+ * GET /api/nvda/click?id=5 → tunnelUrl/api/click?id=5
+ * POST /api/nvda/action → tunnelUrl/api/action
+ */
+async function nvdaProxyHandler(req: AuthenticatedRequest, res: VercelResponse): Promise<void> {
+  const userId = req.user.uid;
+  const { path } = req.query as { path: string[] };
+  const nvdaPath = path ? path.join('/') : '';
+
+  try {
+    // TODO: Implement workspace connections with proper database schema
+    // For now, return service unavailable
+    res.status(503).json({
+      error: 'NVDA proxy not configured',
+      message: 'This feature requires workspace connections to be configured'
+    });
+    return;
+
+    /* Commented out until database schema is implemented
+    // Get user's active connection
+    const connection = await db.workspace_connections.findFirst({
+      where: {
+        user_id: userId,
+        is_active: true
+      }
+    });
+
+    if (!connection) {
+      res.status(503).json({
+        error: 'No active workspace connection',
+        message: 'Please connect your workspace first'
+      });
+      return;
+    }
+
+    // Check if connection is recent (within last 5 minutes)
+    const lastPingAge = Date.now() - new Date(connection.last_ping).getTime();
+    if (lastPingAge > 5 * 60 * 1000) {
+      res.status(503).json({
+        error: 'Workspace connection stale',
+        message: 'Connection hasn\'t responded in 5 minutes'
+      });
+      return;
+    }
+
+    // Build target URL
+    const targetUrl = new URL(`/api/${nvdaPath}`, connection.tunnel_url);
+
+    // Copy query parameters
+    const searchParams = new URLSearchParams(req.url?.split('?')[1] || '');
+    // Remove the path parameter that Vercel adds
+    searchParams.delete('path');
+    targetUrl.search = searchParams.toString();
+
+    // Prepare request options
+    const options: RequestInit = {
+      method: req.method || 'GET',
+      headers: {
+        'Content-Type': req.headers['content-type'] || 'application/json',
+        'X-Heelix-User': userId,
+        'X-Heelix-Session': connection.id
+      },
+      signal: AbortSignal.timeout(30000) // 30 second timeout
+    };
+
+    // Add body for POST/PUT requests
+    if (req.body && ['POST', 'PUT', 'PATCH'].includes(req.method || '')) {
+      options.body = typeof req.body === 'string'
+        ? req.body
+        : JSON.stringify(req.body);
+    }
+
+    // Make request to tunnel
+    console.log(`Proxying ${req.method} ${nvdaPath} to ${targetUrl}`);
+    const response = await fetch(targetUrl.toString(), options);
+
+    // Get response data
+    const contentType = response.headers.get('content-type');
+    let data;
+
+    if (contentType?.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    // Update last ping on successful request
+    if (response.ok) {
+      await db.workspace_connections.update({
+        where: { id: connection.id },
+        data: { last_ping: new Date() }
+      });
+    }
+
+    // Forward response
+    res.status(response.status);
+
+    // Copy relevant headers
+    const headersToForward = ['content-type', 'cache-control'];
+    headersToForward.forEach(header => {
+      const value = response.headers.get(header);
+      if (value) {
+        res.setHeader(header, value);
+      }
+    });
+
+    // Send response
+    if (typeof data === 'string') {
+      res.send(data);
+    } else {
+      res.json(data);
+    }
+    */
+
+  } catch (error) {
+    console.error('NVDA proxy error:', error);
+
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        res.status(504).json({
+          error: 'Request timeout',
+          message: 'The workspace took too long to respond'
+        });
+      } else {
+        res.status(502).json({
+          error: 'Proxy error',
+          message: error.message
+        });
+      }
+    } else {
+      res.status(500).json({
+        error: 'Internal server error',
+        message: 'An unexpected error occurred'
+      });
+    }
+  }
+}
+
+export default withAuth(nvdaProxyHandler);
