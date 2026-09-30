@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GridPath MCP — let your agent edit Excel files, review before save</title>
+  <meta name="description" content="An MCP server for Claude Code, Cursor and Codex that edits real .xlsx files with a review step: see every changed cell before anything is written. One install line, Node only." />
+  <link rel="canonical" href="https://gridpath.dev/mcp" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="GridPath MCP — let your agent edit Excel files, review before save" />
+  <meta property="og:description" content="Your agent edits the real .xlsx through GridPath's tools. Every change returns a local review link: changed cells before/after, accept, reject, save. Nothing is written until you say so." />
+  <meta property="og:url" content="https://gridpath.dev/mcp" />
+  <meta property="og:image" content="https://gridpath.dev/mcp-review.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="GridPath MCP — let your agent edit Excel files, review before save" />
+  <meta name="twitter:description" content="One install line. Real .xlsx files, real formulas, a review tab before anything is saved." />
+  <meta name="twitter:image" content="https://gridpath.dev/mcp-review.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="style.css?v=20260930" />
+  <style>
+    .mcp-install { margin: 24px 0 8px; }
+    .mcp-install pre { margin: 0; padding: 14px 18px; background: #1e1e1e; color: #e5e7eb; border-radius: 10px; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+    .mcp-install pre .c { color: #8a8a8a; }
+    .mcp-host { min-width: 0; }
+    .mcp-hosts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+    .mcp-host { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--bg-soft); }
+    .mcp-host h3 { margin: 0 0 8px; font-size: 14px; }
+    .mcp-host pre { margin: 0; padding: 10px 12px; background: #1e1e1e; color: #e5e7eb; border-radius: 8px; font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+    .mcp-h2 { text-align: center; margin: 64px 0 20px; }
+    .mcp-flow ol { list-style: none; padding: 0; margin: 20px auto 0; max-width: 760px; counter-reset: step; }
+    .mcp-flow li { counter-increment: step; display: grid; grid-template-columns: 36px 1fr; gap: 14px; align-items: start; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; margin: 10px 0; font-size: 15px; line-height: 1.5; }
+    .mcp-flow li::before { content: counter(step); width: 32px; height: 32px; border-radius: 9px; background: rgba(51, 99, 173, 0.10); color: #3363AD; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; }
+    .mcp-honest { font-size: 14px; color: var(--text-muted, #6b7280); border-left: 3px solid var(--border); padding-left: 14px; margin: 24px auto 0; max-width: 760px; }
+    .mcp-install pre { text-align: left; }
+    @media (max-width: 720px) { .wide-only { display: none; } }
+    @media (max-width: 900px) { .mcp-hosts { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-inner">
+        <p class="fidelity-eyebrow" style="margin-bottom:14px">For Claude Code, Claude Desktop, Cursor and Codex</p>
+        <h1>Your agent edits the Excel file.<br class="wide-only">You review before it's saved.</h1>
+        <p class="lede">
+          GridPath's engine as an MCP server. Every change comes back with a review link: see each changed cell, reject what you don't want, save.
+        </p>
+        <div class="mcp-install" style="max-width:720px;margin:0 auto">
+          <pre>claude mcp add gridpath -- npx -y gridpath mcp --allow ~/models --review-required</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="screenshot-section">
+      <div class="container">
+        <div class="screenshot-frame">
+          <video class="hero-demo-video" src="/mcp-review.mp4" poster="/mcp-review.png" autoplay muted loop playsinline aria-label="The GridPath review page: an agent's pending edits on an operating model are accepted and saved"></video>
+        </div>
+      </div>
+    </section>
+
+    <section class="fidelity-page-points">
+      <div class="container">
+        <h2 class="section-title" style="text-align:center;margin-bottom:8px">Edits the real .xlsx. Shows you the diff.</h2>
+        <p class="section-sub" style="text-align:center">Not a Python script that rewrites your workbook and hopes. The file you had, the cells you approved, nothing else touched.</p>
+        <div class="cap-grid">
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-indigo">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16 Q16 5 28 16 Q16 27 4 16 Z"/><circle cx="16" cy="16" r="4.5"/></svg>
+            </div>
+            <h3>Review before save</h3>
+            <p>Every write returns a <code>review_url</code>: the sheet with changed cells highlighted and recomputed dependents visible, a card per agent action with before → after, and Accept, Reject, Save. With <code>--review-required</code>, only that page can write the file.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-emerald">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h11l7 7v17H8z"/><path d="M19 4v7h7"/><path d="M12 19h8M12 24h8"/></svg>
+            </div>
+            <h3>Leaves your Excel file intact</h3>
+            <p>No re-export through a Python library, no conversion into another format. Saves rewrite only the package parts an edit touched; charts, pivots, macros, add-in data and custom XML come back byte-identical — by construction, not by the model's judgment on the day.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-amber">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 26h22"/><path d="M8 22V13M14 22V8M20 22v-6M26 22V11"/></svg>
+            </div>
+            <h3>Fewer tokens as files get real</h3>
+            <p>A tool call instead of a Python script. On a 1.4&nbsp;MB, 55,000-formula model the same edit took 29&nbsp;s and 1,000 output tokens through GridPath versus 68&nbsp;s and 8,000 through the scripting path — same model, same prompt.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-rose">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6c-3 0-4 2-4 5v15"/><path d="M10 14h10"/><path d="M20 20l6 6M26 20l-6 6"/></svg>
+            </div>
+            <h3>Real formulas, in process</h3>
+            <p>A calculation engine (a fork of IronCalc, compiled to WebAssembly) runs inside the server. The agent reads evaluated values, writes formulas, and sees what they compute to before you ever open Excel.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-sky">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l11 6.5v13L16 29 5 22.5v-13z"/><path d="M16 16v13M16 16L5 9.5M16 16l11-6.5"/></svg>
+            </div>
+            <h3>Runs anywhere Node runs</h3>
+            <p>One install line. No Python environment, no openpyxl, no LibreOffice recalc pass, no Excel install — which is what the “just script it” path quietly needs. Works on the locked-down laptop.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-teal">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10l-6 6 6 6"/><path d="M20 10l6 6-6 6"/><path d="M18 7l-4 18"/></svg>
+            </div>
+            <h3>Sandboxed scripts</h3>
+            <p><code>run_script</code> runs the agent's JavaScript against the workbook in a worker with a hard timeout and lands the result as one reviewable batch — the right tool for “for every row where…”.</p>
+          </div>
+        </div>
+
+        <h2 class="section-title mcp-h2">Add it to your agent</h2>
+        <div class="mcp-hosts">
+          <div class="mcp-host">
+            <h3>Claude Desktop</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:var(--text-soft)">Download, double-click, pick the folders Claude may edit. No terminal, no Node install.</p>
+            <a class="btn btn-primary" href="https://github.com/pixelsmasher13/gridpath/releases/download/v0.1.3/gridpath-0.1.3.mcpb">Download for Claude Desktop</a>
+          </div>
+          <div class="mcp-host">
+            <h3>Cursor</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:var(--text-soft)">One click adds the server to Cursor's MCP settings.</p>
+            <a class="btn btn-primary" href="cursor://anysphere.cursor-deeplink/mcp/install?name=gridpath&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImdyaWRwYXRoIiwibWNwIiwiLS1hbGxvdyIsIn4vbW9kZWxzIiwiLS1yZXZpZXctcmVxdWlyZWQiXX0=">Add to Cursor</a>
+          </div>
+          <div class="mcp-host">
+            <h3>Claude Code</h3>
+            <pre>claude mcp add gridpath -- npx -y gridpath mcp --allow ~/models --review-required</pre>
+          </div>
+          <div class="mcp-host">
+            <h3>Cursor / Claude Desktop (manual)</h3>
+            <pre>{
+  "mcpServers": {
+    "gridpath": {
+      "command": "npx",
+      "args": ["-y", "gridpath", "mcp",
+               "--allow", "/Users/you/models"]
+    }
+  }
+}</pre>
+          </div>
+          <div class="mcp-host">
+            <h3>Codex (config.toml)</h3>
+            <pre>[mcp_servers.gridpath]
+command = "npx"
+args = ["-y", "gridpath", "mcp",
+        "--allow", "/Users/you/models"]</pre>
+          </div>
+        </div>
+
+        <div class="mcp-flow">
+          <h2 class="section-title mcp-h2">What a session looks like</h2>
+          <ol>
+            <li><span>"In <code>model.xlsx</code>, add an FY2029E column with the same formula pattern."</span></li>
+            <li><span>The agent calls <code>describe_workbook</code>, then <code>run_script</code>; the result comes back with a readback of every cell it wrote and a review link.</span></li>
+            <li><span>You open the link: the new column is highlighted, the values are already computed, the card shows each formula.</span></li>
+            <li><span>Accept, Save. The file on disk changes in exactly one part: that sheet.</span></li>
+          </ol>
+          <p class="mcp-honest">
+            Honest note: the newest coding agents, given a careful prompt, often preserve workbook parts on their own by editing the XML directly. GridPath's difference is that it always does, it shows you the diff first, and it needs nothing installed but Node. Numbers and methodology in the <a href="https://github.com/pixelsmasher13/gridpath-evals">evals repo</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="fidelity-page-cta">
+      <div class="container download-inner">
+        <h2>Don't use a coding agent?</h2>
+        <p class="download-sub">GridPath is also a desktop app with the same engine and review, and its own agent built in. Free with your Claude or ChatGPT subscription.</p>
+        <div class="download-buttons">
+          <a class="btn btn-primary btn-large" href="/download/mac">Download for Mac</a>
+          <a class="btn btn-secondary btn-large" href="/download/windows">Download for Windows</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

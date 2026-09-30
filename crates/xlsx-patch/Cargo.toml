@@ -1,0 +1,17 @@
+[package]
+name = "xlsx_patch"
+version = "0.1.0"
+edition = "2021"
+description = "Surgical .xlsx patching: rewrite only the parts an edit touched, leave every other package part byte-identical"
+license = "FSL-1.1-Apache-2.0"
+
+[features]
+# Exposes `tests::fixture()` (an in-memory workbook) to dependent crates' tests.
+fixtures = []
+
+[dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.36"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1"
