@@ -1,0 +1,63 @@
+{
+  "id": "fixture-goal-seek",
+  "start_file": "fixtures/rich-model.xlsx",
+  "prompt": "On the 'Model' sheet, change the growth rate input so that FY2028E revenue comes out at 9,000 (within 0.5%). Only the growth-rate input may change; every formula must stay a formula.",
+  "notes": "Needs evaluated values: the agent must read the formula chain (three compounding years off GrowthRate) and solve or iterate. A harness without a calc engine has to do the algebra blind.",
+  "assertions": [
+    {
+      "type": "label_value",
+      "label": "^Revenue$",
+      "value": 9000,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "FY2028E revenue hits the target"
+    },
+    {
+      "type": "label_value",
+      "label": "Growth rate",
+      "value": 0.03531,
+      "tolerance_pct": 1,
+      "sheet": "Model",
+      "why": "the input was solved, not the formula overwritten"
+    },
+    {
+      "type": "label_formula",
+      "label": "^Revenue$",
+      "sheet": "Model",
+      "why": "revenue row still formula-driven"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 16,
+      "why": "no formula replaced by a value"
+    },
+    {
+      "type": "parts_preserved",
+      "allow_removed": [
+        "xl/calcChain.xml"
+      ],
+      "must_keep": [
+        "xl/charts/chart1.xml",
+        "xl/drawings/drawing1.xml",
+        "customXml/item1.xml",
+        "xl/printerSettings/printerSettings1.bin"
+      ],
+      "why": "fidelity"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/workbook.xml",
+      "needle": "GrowthRate",
+      "why": "defined name survives"
+    },
+    {
+      "type": "file_opens",
+      "why": "valid workbook"
+    },
+    {
+      "type": "no_error_cells",
+      "sheet": "Model",
+      "why": "no errors introduced"
+    }
+  ]
+}

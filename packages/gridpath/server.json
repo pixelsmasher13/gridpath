@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.pixelsmasher13/gridpath",
+  "title": "GridPath",
+  "description": "Edit real .xlsx files with your agent: live formulas, and you review every change before it saves.",
+  "websiteUrl": "https://gridpath.dev/mcp",
+  "repository": {
+    "url": "https://github.com/pixelsmasher13/gridpath",
+    "source": "github",
+    "subfolder": "packages/gridpath"
+  },
+  "version": "0.1.9",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "gridpath",
+      "version": "0.1.9",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "named",
+          "name": "--review-required",
+          "description": "Only the review page can save the file; the agent hands you a link instead of writing."
+        }
+      ]
+    }
+  ]
+}

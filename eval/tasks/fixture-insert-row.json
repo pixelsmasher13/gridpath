@@ -1,0 +1,97 @@
+{
+  "id": "fixture-insert-row",
+  "start_file": "fixtures/rich-model.xlsx",
+  "prompt": "On the 'Model' sheet, insert a new line item 'Opex' as a row between COGS and Gross profit: FY2024A 1,030 and FY2025A 1,210 as inputs, and for the forecast years a formula equal to 20% of that year's Revenue. Update Gross profit to Revenue - COGS - Opex. Everything else in the workbook must keep working: the existing formulas, the growth-rate name, the margin color scale and the scenario dropdown.",
+  "notes": "Row insert inside a live model: every reference below shifts; CF range, DV range, the merge and freeze pane must follow. This is where XML surgery without a model of the sheet breaks.",
+  "assertions": [
+    {
+      "type": "label_exists",
+      "label": "^Opex$",
+      "sheet": "Model",
+      "why": "row added"
+    },
+    {
+      "type": "label_value",
+      "label": "^Gross profit$",
+      "value": 929,
+      "tolerance_pct": 0,
+      "sheet": "Model",
+      "why": "FY2024A GP = 5155-3196-1030"
+    },
+    {
+      "type": "label_formula",
+      "label": "^Gross profit$",
+      "sheet": "Model",
+      "why": "GP stays a formula"
+    },
+    {
+      "type": "label_value",
+      "label": "^Gross margin$",
+      "value": 0.1802,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "margin recomputes off new GP"
+    },
+    {
+      "type": "label_value",
+      "label": "^Revenue$",
+      "value": 7508.2,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "forecast revenue still resolves GrowthRate after the shift"
+    },
+    {
+      "type": "label_value",
+      "label": "^Opex$",
+      "value": 1501.6,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "forecast opex formula evaluates"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 19,
+      "why": "16 existing + 3 forecast opex"
+    },
+    {
+      "type": "parts_preserved",
+      "allow_removed": [
+        "xl/calcChain.xml"
+      ],
+      "must_keep": [
+        "xl/charts/chart1.xml",
+        "xl/drawings/drawing1.xml",
+        "customXml/item1.xml",
+        "xl/printerSettings/printerSettings1.bin"
+      ],
+      "why": "fidelity"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/worksheets/sheet2.xml",
+      "needle": "conditionalFormatting",
+      "why": "CF survives"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/worksheets/sheet2.xml",
+      "needle": "dataValidation",
+      "why": "DV survives"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/workbook.xml",
+      "needle": "GrowthRate",
+      "why": "defined name survives"
+    },
+    {
+      "type": "file_opens",
+      "why": "valid workbook"
+    },
+    {
+      "type": "no_error_cells",
+      "sheet": "Model",
+      "why": "no errors introduced"
+    }
+  ]
+}

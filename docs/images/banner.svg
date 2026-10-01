@@ -1,0 +1,96 @@
+<svg viewBox="0 0 1280 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GridPath — let AI edit the Excel files you already have. Review before save, live recalculation, file comes back intact.">
+  <defs>
+    <pattern id="cells" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#EEF0F3" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="82%" cy="18%" r="60%">
+      <stop offset="0%" stop-color="#3363AD" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#3363AD" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="frame"><rect width="1280" height="480" rx="20"/></clipPath>
+  </defs>
+
+  <!-- Background: faint spreadsheet grid, washed out behind the text -->
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="480" fill="#FFFFFF"/>
+    <rect width="1280" height="480" fill="url(#cells)"/>
+    <rect width="1280" height="480" fill="url(#fade)"/>
+    <rect width="1280" height="480" fill="url(#glow)"/>
+  </g>
+  <rect x="0.5" y="0.5" width="1279" height="479" rx="20" fill="none" stroke="#E4E4E7"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif">
+    <!-- Mark + name -->
+    <rect x="82" y="92" width="40" height="40" rx="8" fill="none" stroke="#1D1D1F" stroke-width="3"/>
+    <path d="M89 106H115M89 118H115M96 99V125M108 99V125" stroke="#1D1D1F" stroke-width="2.5" fill="none"/>
+    <text x="136" y="124" font-size="34" font-weight="700" fill="#1D1D1F" letter-spacing="-0.8">GridPath</text>
+
+    <!-- Headline -->
+    <text x="80" y="218" font-size="46" font-weight="700" fill="#1D1D1F" letter-spacing="-1.4">Let AI edit the Excel files</text>
+    <text x="80" y="272" font-size="46" font-weight="700" fill="#1D1D1F" letter-spacing="-1.4">you already have.</text>
+    <text x="80" y="318" font-size="20" font-weight="500" fill="#44444A">Faster, for fewer tokens, and you get the file back intact.</text>
+
+    <!-- Pillars -->
+    <g font-size="15" font-weight="600" fill="#3363AD" text-anchor="middle">
+      <rect x="80" y="352" width="176" height="36" rx="18" fill="#EEF3FA"/>
+      <text x="168" y="375">Review before save</text>
+      <rect x="268" y="352" width="168" height="36" rx="18" fill="#EEF3FA"/>
+      <text x="352" y="375">Live recalculation</text>
+      <rect x="448" y="352" width="204" height="36" rx="18" fill="#EEF3FA"/>
+      <text x="550" y="375">File comes back intact</text>
+    </g>
+
+    <!-- Review card -->
+    <rect x="774" y="70" width="430" height="352" rx="14" fill="#1D1D1F" opacity="0.05"/>
+    <rect x="770" y="64" width="430" height="352" rx="14" fill="#FFFFFF" stroke="#E4E4E7"/>
+    <circle cx="792" cy="84" r="5" fill="#E4E4E7"/>
+    <circle cx="808" cy="84" r="5" fill="#E4E4E7"/>
+    <circle cx="824" cy="84" r="5" fill="#E4E4E7"/>
+    <text x="985" y="89" font-size="13" font-weight="500" fill="#8A8A93" text-anchor="middle">model.xlsx · review</text>
+
+    <!-- Sheet -->
+    <rect x="770.5" y="104" width="429" height="32" fill="#F7F7F8"/>
+    <rect x="1020" y="136" width="90" height="44" fill="#E6FFEC"/>
+    <rect x="1110" y="136" width="89.5" height="44" fill="#E6FFEC"/>
+    <rect x="1020" y="180" width="90" height="44" fill="#E6FFEC"/>
+    <path d="M770.5 104H1199.5M770.5 136H1199.5M770.5 180H1199.5M770.5 224H1199.5M770.5 268H1199.5M930 104V268M1020 104V268M1110 104V268" stroke="#E4E4E7" stroke-width="1" fill="none"/>
+    <rect x="1020.75" y="180.75" width="88.5" height="42.5" fill="none" stroke="#2DA44E" stroke-width="1.5"/>
+
+    <g font-size="12" font-weight="600" fill="#8A8A93" text-anchor="middle">
+      <text x="975" y="125">FY2026</text>
+      <text x="1065" y="125">FY2027E</text>
+      <text x="1155" y="125">FY2028E</text>
+    </g>
+    <g font-size="15" font-weight="500" fill="#1D1D1F">
+      <text x="788" y="163">Revenue</text>
+      <text x="788" y="207">Growth</text>
+      <text x="788" y="251">Gross margin</text>
+    </g>
+    <g font-size="15" font-weight="500" fill="#1D1D1F" text-anchor="end">
+      <text x="1008" y="163">4,820</text>
+      <text x="1098" y="163" font-weight="700" fill="#1A7F37">5,736</text>
+      <text x="1188" y="163" font-weight="700" fill="#1A7F37">6,539</text>
+      <text x="1008" y="207">17.0%</text>
+      <text x="1098" y="207" font-weight="700" fill="#1A7F37">19.0%</text>
+      <text x="1188" y="207">14.0%</text>
+      <text x="1008" y="251">62.0%</text>
+      <text x="1098" y="251">62.0%</text>
+      <text x="1188" y="251">62.0%</text>
+    </g>
+
+    <!-- Pending change -->
+    <text x="788" y="298" font-size="11" font-weight="700" fill="#8A8A93" letter-spacing="1.2">PENDING CHANGE</text>
+    <text x="788" y="326" font-size="15" font-weight="600" fill="#1D1D1F">Growth, FY2027E</text>
+    <text x="1182" y="326" font-size="15" font-weight="600" text-anchor="end"><tspan fill="#8A8A93">17.0%</tspan><tspan fill="#8A8A93">  →  </tspan><tspan fill="#1A7F37">19.0%</tspan></text>
+    <text x="788" y="349" font-size="13" font-weight="500" fill="#8A8A93">2 dependent cells recalculated</text>
+    <rect x="788" y="366" width="96" height="32" rx="8" fill="#3363AD"/>
+    <text x="836" y="387" font-size="14" font-weight="600" fill="#FFFFFF" text-anchor="middle">Accept</text>
+    <rect x="894.5" y="366.5" width="95" height="31" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="942" y="387" font-size="14" font-weight="600" fill="#44444A" text-anchor="middle">Reject</text>
+  </g>
+</svg>

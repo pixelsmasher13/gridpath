@@ -1,0 +1,36 @@
+# Vercel projects here deploy from the repo root with a Root Directory setting
+# (site = marketing, API = proxy-server). Only those app folders may upload;
+# the monorepo is far over the CLI's 10 MB limit. Plain exclusions only —
+# Vercel's matcher does not honor gitignore-style re-includes (!pattern).
+
+/.claude/
+/.env
+/.env.build
+/.env.example
+/.env.production
+/.git/
+/.gitignore
+/.vercel/
+/CONTRIBUTING.md
+/LICENSE
+/README.md
+/crates/
+/dist/
+/docs/
+/eval/
+/index.html
+/node_modules/
+/package-lock.json
+/packages/
+/patches/
+/public/
+/scripts/
+/src/
+/src-tauri/
+/tsconfig.json
+/tsconfig.node.json
+/vendor/
+/vite.config.ts
+/vite.review.config.ts
+/yarn.lock
+**/node_modules/
