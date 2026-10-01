@@ -1,0 +1,12 @@
+{
+  "id": "gs-model-edit",
+  "prompt": "On the 'Shares Outstanding & Corporate' sheet, add a memo row at the bottom labeled 'GridPath eval marker' with the value 42 in the cell next to the label. Change nothing else.",
+  "start_file": "corpus/a0aac6d9-f059-40fc-8d1f-0aa50d848cda.xlsx",
+  "notes": "Edit-preservation task on a real GS model (external links, FactSet webextension, drawings, customXml). The edit is trivial BY DESIGN — what's being graded is what survives the save. This is the axis where harness architecture, not model intelligence, decides the outcome.",
+  "assertions": [
+    { "type": "label_value", "label": "GridPath eval marker", "value": 42, "tolerance_pct": 0, "sheet": "Shares Outstanding & Corporate", "why": "the requested edit landed" },
+    { "type": "parts_preserved", "allow_removed": ["xl/calcChain.xml"], "must_keep": ["xl/externalLinks/externalLink1.xml", "xl/webextensions/taskpanes.xml", "customXml/item1.xml", "xl/media/image1.png", "xl/drawings/drawing1.xml", "xl/printerSettings/printerSettings1.bin"], "why": "institutional content must survive the round-trip" },
+    { "type": "file_opens", "why": "output parses as a valid workbook" },
+    { "type": "no_error_cells", "sheet": "Shares Outstanding & Corporate", "why": "the edited sheet gained no formula errors" }
+  ]
+}

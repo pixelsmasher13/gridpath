@@ -1,0 +1,22 @@
+{
+  "id": "dh-forecast-2028",
+  "prompt": "build an income statement model for delivery hero: FY2021-FY2025 historicals from the company's reported results, segment/regional detail where disclosed, growth analysis (YoY on the key lines plus multi-year CAGR), and a formula-driven forecast through FY2028 with an explicit assumptions block. cite your sources",
+  "start_file": null,
+  "notes": "Explicit-scope successor to dh-income-statement (which stays as the labeled ambiguity probe — do NOT edit that task's prompt; its three rounds of baselines depend on it). Everything the round-3 judges could only score qualitatively is asserted here directly. Anchors: FY2025 IFRS revenue ~14,060 (any column), FY2024 net loss ~-882.",
+  "assertions": [
+    { "type": "label_value", "label": "revenue", "value": 14060, "tolerance_pct": 2, "why": "FY2025 IFRS revenue ~14,060 (any column may hold it)" },
+    { "type": "label_value", "label": "net income|net loss", "value": -882, "tolerance_pct": 1.5, "why": "FY2024 reported net loss ties within 1.5%" },
+    { "type": "label_exists", "label": "2021|fy21", "why": "history reaches back to FY2021 as asked" },
+    { "type": "label_exists", "label": "2028|fy28", "why": "forecast horizon reaches FY2028 as asked" },
+    { "type": "label_formula", "label": "revenue", "why": "forecast years must be formula-driven off assumptions, not typed-in projections" },
+    { "type": "label_formula", "label": "gross profit", "why": "derived line, computed not hardcoded" },
+    { "type": "label_exists", "label": "assumption", "why": "an explicit assumptions block/sheet was asked for" },
+    { "type": "label_exists", "label": "growth|yoy|y/y", "why": "growth analysis was asked for" },
+    { "type": "label_exists", "label": "cagr", "why": "multi-year CAGR was asked for explicitly" },
+    { "type": "label_exists", "label": "segment|region|europe|asia|mena|americas", "why": "segment/regional detail where disclosed" },
+    { "type": "label_exists", "label": "source", "why": "sources were asked for explicitly (rule 22)" },
+    { "type": "check_rows_zero", "label": "check", "tolerance_abs": 1, "why": "rule 21: check rows tie to ~0 (warn if none)" },
+    { "type": "min_formula_cells", "count": 30, "why": "a model, not a data dump — forecast + derivations formula-driven" },
+    { "type": "no_error_cells", "why": "no #REF!/#DIV/0!/#VALUE! anywhere" }
+  ]
+}
