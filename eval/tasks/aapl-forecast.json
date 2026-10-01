@@ -1,0 +1,51 @@
+{
+  "id": "aapl-forecast",
+  "prompt": "build an Apple (AAPL) income statement financial forecast for 2026-2028 with quarterly breakdowns",
+  "start_file": null,
+  "notes": "Blank-workbook build task (rerun of the observed trace). Anchors: FY2025A revenue ~$416.2B (416,161 in $mm), FY2025 EPS ~$7.46. Forecast structure assertions are structural, not point-estimates.",
+  "assertions": [
+    {
+      "type": "label_value",
+      "label": "revenue|net sales",
+      "value": 416161,
+      "tolerance_pct": 2,
+      "why": "FY2025A total revenue in $mm (or 416.161 in $bn \u2014 grader tries magnitude variants); 'net sales' is Apple's own P&L terminology"
+    },
+    {
+      "type": "label_value",
+      "label": "eps|earnings per share",
+      "value": 7.46,
+      "tolerance_pct": 3,
+      "why": "FY2025A diluted EPS (label accepts the issuer's own wording \u2014 Apple's 10-K says 'Earnings per share: Diluted')"
+    },
+    {
+      "type": "label_formula",
+      "label": "gross profit|gross margin",
+      "why": "derived, not hardcoded"
+    },
+    {
+      "type": "label_formula",
+      "label": "eps|earnings per share",
+      "why": "EPS must divide NI by shares, not be typed in (label accepts the issuer's own wording \u2014 Apple's 10-K says 'Earnings per share: Diluted')"
+    },
+    {
+      "type": "label_exists",
+      "label": "2027|fy27",
+      "why": "forecast years present"
+    },
+    {
+      "type": "label_exists",
+      "label": "2028|fy28",
+      "why": "forecast horizon reaches 2028"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 40,
+      "why": "quarterly x 3 years should be formula-driven"
+    },
+    {
+      "type": "no_error_cells",
+      "why": "no formula errors anywhere"
+    }
+  ]
+}

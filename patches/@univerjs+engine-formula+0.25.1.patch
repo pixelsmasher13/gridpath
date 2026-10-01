@@ -1,0 +1,62 @@
+diff --git a/node_modules/@univerjs/engine-formula/lib/cjs/index.js b/node_modules/@univerjs/engine-formula/lib/cjs/index.js
+index 5394005..0751b08 100644
+--- a/node_modules/@univerjs/engine-formula/lib/cjs/index.js
++++ b/node_modules/@univerjs/engine-formula/lib/cjs/index.js
+@@ -3338,7 +3338,7 @@ var LexerNode = class LexerNode {
+ 
+ //#endregion
+ //#region src/engine/analysis/lexer-tree-builder.ts
+-const FORMULA_CACHE_LRU_COUNT$2 = 2e3;
++const FORMULA_CACHE_LRU_COUNT$2 = 2e5;
+ const FormulaLexerNodeCache = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$2);
+ const FormulaSequenceNodeCache = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$2);
+ var LexerTreeBuilder = class extends _univerjs_core.Disposable {
+@@ -8167,7 +8167,7 @@ function isStringWrappedByDoubleQuotes(input) {
+ 
+ //#endregion
+ //#region src/engine/reference-object/base-reference-object.ts
+-const FORMULA_CACHE_LRU_COUNT$1 = 1e4;
++const FORMULA_CACHE_LRU_COUNT$1 = 2e5;
+ const FORMULA_REF_TO_ARRAY_CACHE = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$1);
+ var BaseReferenceObject = class extends ObjectClassType {
+ 	constructor(_token) {
+@@ -9966,7 +9966,7 @@ const COLUMN_LIKE_FUNCTION_NAMES = new Set(ALL_GROUPS.flatMap((g) => Object.valu
+ 
+ //#endregion
+ //#region src/engine/utils/generate-ast-node.ts
+-const FORMULA_CACHE_LRU_COUNT = 5e3;
++const FORMULA_CACHE_LRU_COUNT = 2e5;
+ const FORMULA_AST_CACHE = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT);
+ const DIRTY_DEFINED_NAME_SET_CACHE = /* @__PURE__ */ new WeakMap();
+ const DIRTY_SUPER_TABLE_PATTERN_CACHE = /* @__PURE__ */ new WeakMap();
+diff --git a/node_modules/@univerjs/engine-formula/lib/es/index.js b/node_modules/@univerjs/engine-formula/lib/es/index.js
+index 74cbd12..136de51 100644
+--- a/node_modules/@univerjs/engine-formula/lib/es/index.js
++++ b/node_modules/@univerjs/engine-formula/lib/es/index.js
+@@ -3308,7 +3308,7 @@ var LexerNode = class LexerNode {
+ 
+ //#endregion
+ //#region src/engine/analysis/lexer-tree-builder.ts
+-const FORMULA_CACHE_LRU_COUNT$2 = 2e3;
++const FORMULA_CACHE_LRU_COUNT$2 = 2e5;
+ const FormulaLexerNodeCache = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$2);
+ const FormulaSequenceNodeCache = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$2);
+ var LexerTreeBuilder = class extends Disposable {
+@@ -8137,7 +8137,7 @@ function isStringWrappedByDoubleQuotes(input) {
+ 
+ //#endregion
+ //#region src/engine/reference-object/base-reference-object.ts
+-const FORMULA_CACHE_LRU_COUNT$1 = 1e4;
++const FORMULA_CACHE_LRU_COUNT$1 = 2e5;
+ const FORMULA_REF_TO_ARRAY_CACHE = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT$1);
+ var BaseReferenceObject = class extends ObjectClassType {
+ 	constructor(_token) {
+@@ -9936,7 +9936,7 @@ const COLUMN_LIKE_FUNCTION_NAMES = new Set(ALL_GROUPS.flatMap((g) => Object.valu
+ 
+ //#endregion
+ //#region src/engine/utils/generate-ast-node.ts
+-const FORMULA_CACHE_LRU_COUNT = 5e3;
++const FORMULA_CACHE_LRU_COUNT = 2e5;
+ const FORMULA_AST_CACHE = new FormulaAstLRU(FORMULA_CACHE_LRU_COUNT);
+ const DIRTY_DEFINED_NAME_SET_CACHE = /* @__PURE__ */ new WeakMap();
+ const DIRTY_SUPER_TABLE_PATTERN_CACHE = /* @__PURE__ */ new WeakMap();
