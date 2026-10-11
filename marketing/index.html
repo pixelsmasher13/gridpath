@@ -3,26 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GridPath — Best way to build spreadsheets with AI</title>
+  <title>GridPath — AI agent for Excel: desktop app and MCP server</title>
   <meta name="description" content="GridPath is a desktop AI agent for Excel. Parallel workflows. Multi-workbook context. Reversible changes. Lightning speed. Works with your Claude and OpenAI subscription." />
   <link rel="canonical" href="https://gridpath.dev/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="GridPath" />
-  <meta property="og:title" content="GridPath — Best way to build spreadsheets with AI" />
+  <meta property="og:title" content="GridPath — AI agent for Excel: desktop app and MCP server" />
   <meta property="og:description" content="A desktop AI agent for Excel. Parallel workflows. Multi-workbook context. Reversible changes. Lightning speed. Free with your Claude or ChatGPT subscription." />
   <meta property="og:url" content="https://gridpath.dev/" />
   <meta property="og:image" content="https://gridpath.dev/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="GridPath — Best way to build spreadsheets with AI" />
+  <meta name="twitter:title" content="GridPath — AI agent for Excel: desktop app and MCP server" />
   <meta name="twitter:description" content="A desktop AI agent for Excel. Parallel workflows. Multi-workbook context. Reversible changes. Lightning speed. Free with your Claude or ChatGPT subscription." />
   <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
   <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/style.css?v=r4" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -104,6 +104,7 @@
       <nav class="nav-links">
         <a href="#capabilities">Capabilities</a>
         <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
         <a href="/fidelity">Fidelity</a>
         <a href="#providers">Models</a>
         <a href="#faq">FAQ</a>
@@ -117,7 +118,7 @@
   <!-- ============================= HERO ============================= -->
   <section class="hero">
     <div class="container hero-inner">
-      <h1>Best way to build <br>spreadsheets with AI.</h1>
+      <h1>AI agent for Excel.<br>Desktop app and MCP server.</h1>
       <p class="lede">
         Parallel workflows. Multi-workbook context. Reversible changes.
         Lightning speed. Free with your Claude or OpenAI subscription.
@@ -134,24 +135,6 @@
     <div class="container">
       <div class="screenshot-frame">
         <video class="hero-demo-video" src="https://gridpath.s3.us-east-1.amazonaws.com/hero-demo.mp4" autoplay muted loop playsinline></video>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============================= MCP ============================= -->
-  <section class="fidelity" id="mcp">
-    <div class="container">
-      <div class="fidelity-panel">
-        <div class="fidelity-copy">
-          <p class="fidelity-eyebrow">Already use Claude Code, Cursor or Codex?</p>
-          <h2 class="section-title">Same engine, your agent.</h2>
-          <p class="section-sub">GridPath is also an MCP server. Your agent edits the real <code>.xlsx</code>; every change comes back with a review link where you see changed cells before/after and save only what you accept. One install line, Node only.</p>
-          <p><code>npx gridpath mcp --allow ~/models --review-required</code></p>
-          <p><a class="btn btn-secondary" href="/mcp">How the MCP works</a></p>
-        </div>
-        <div class="mcp-shot" style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#1e1e1e">
-          <a href="/mcp"><img src="/mcp-review.png" alt="GridPath review tab with changed cells highlighted and a panel of pending changes" width="1440" height="860" style="display:block;width:100%;height:auto" loading="lazy" /></a>
-        </div>
       </div>
     </div>
   </section>
@@ -266,78 +249,21 @@
     </div>
   </section>
 
-  <!-- ============================= BENCHMARK ============================= -->
-  <section id="benchmark" class="benchmark">
+  <!-- ============================= MCP ============================= -->
+  <section class="fidelity" id="mcp">
     <div class="container">
-      <h2 class="section-title">How we stack up.</h2>
-      <p class="section-sub">
-        <strong>Same quality, faster and cheaper on updating your Excel
-        files.</strong> Benchmarked against a CLI coding agent running the
-        same Claude model — on a real 663-formula quarterly model, and on
-        a feature-dense workbook edit. Every run and graded artifact is
-        public.
-      </p>
-      <div class="bench-legend" aria-hidden="true">
-        <span><i class="bench-dot bench-dot-gp"></i>GridPath</span>
-        <span><i class="bench-dot bench-dot-cli"></i>CLI agent, same model</span>
-      </div>
-      <div class="bench-grid">
-        <div class="bench-card">
-          <p class="bench-kicker">Rolling a real model forward one quarter</p>
-          <p class="bench-claim">4 minutes vs 17</p>
-          <svg viewBox="0 0 420 64" role="img" aria-label="Roll-forward time: GridPath 259 seconds, CLI agent 1014 seconds">
-            <text x="0" y="21" class="bc-lab">GridPath</text>
-            <path class="bc-gp" d="M78,6 h64 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-64 z"><title>GridPath — 259 s</title></path>
-            <text x="154" y="21" class="bc-val">259s</text>
-            <text x="0" y="53" class="bc-lab">CLI agent</text>
-            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — 1,014 s</title></path>
-            <text x="356" y="53" class="bc-val">1,014s</text>
-          </svg>
+      <div class="fidelity-panel">
+        <div class="fidelity-copy">
+          <p class="fidelity-eyebrow">Already use Claude Code, Cursor or Codex?</p>
+          <h2 class="section-title">Same engine, your agent.</h2>
+          <p class="section-sub">GridPath is also an MCP server. Your agent edits the real <code>.xlsx</code>; every change comes back with a review link where you see changed cells before/after and save only what you accept. One install line, Node only.</p>
+          <p><code>npx gridpath mcp --allow ~/models --review-required</code></p>
+          <p><a class="btn btn-secondary" href="/mcp">How the MCP works</a></p>
         </div>
-        <div class="bench-card">
-          <p class="bench-kicker">API cost for that one update</p>
-          <p class="bench-claim">3.7× cheaper</p>
-          <svg viewBox="0 0 420 64" role="img" aria-label="Cost: GridPath $2.34, CLI agent $8.76">
-            <text x="0" y="21" class="bc-lab">GridPath</text>
-            <path class="bc-gp" d="M78,6 h71 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-71 z"><title>GridPath — $2.34</title></path>
-            <text x="161" y="21" class="bc-val">$2.34</text>
-            <text x="0" y="53" class="bc-lab">CLI agent</text>
-            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — $8.76</title></path>
-            <text x="356" y="53" class="bc-val">$8.76</text>
-          </svg>
-        </div>
-        <div class="bench-card">
-          <p class="bench-kicker">One-row edit, feature-dense workbook</p>
-          <p class="bench-claim">7 seconds vs 96</p>
-          <svg viewBox="0 0 420 64" role="img" aria-label="Median edit time: GridPath 7 seconds, CLI agent 96 seconds">
-            <text x="0" y="21" class="bc-lab">GridPath</text>
-            <path class="bc-gp" d="M78,6 h16 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-16 z"><title>GridPath — 7 s median</title></path>
-            <text x="106" y="21" class="bc-val">7s</text>
-            <text x="0" y="53" class="bc-lab">CLI agent</text>
-            <path class="bc-cli" d="M78,38 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>CLI agent — 96 s median</title></path>
-            <text x="356" y="53" class="bc-val">96s</text>
-          </svg>
-        </div>
-        <div class="bench-card">
-          <p class="bench-kicker">Edit runs with every file part intact</p>
-          <p class="bench-claim">Fidelity by architecture, not luck</p>
-          <svg viewBox="0 0 420 64" role="img" aria-label="Edit runs with all file parts intact: GridPath 5 of 5, CLI agent 3 of 5">
-            <text x="0" y="21" class="bc-lab">GridPath</text>
-            <rect class="bc-track" x="78" y="6" width="270" height="22" rx="4"/>
-            <path class="bc-gp" d="M78,6 h266 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-266 z"><title>GridPath — 5 of 5</title></path>
-            <text x="356" y="21" class="bc-val">5/5</text>
-            <text x="0" y="53" class="bc-lab">CLI agent</text>
-            <rect class="bc-track" x="78" y="38" width="270" height="22" rx="4"/>
-            <path class="bc-cli" d="M78,38 h158 a4,4 0 0 1 4,4 v14 a4,4 0 0 1 -4,4 h-158 z"><title>CLI agent — 3 of 5</title></path>
-            <text x="248" y="53" class="bc-val">3/5</text>
-          </svg>
+        <div class="mcp-shot" style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#1e1e1e">
+          <a href="/mcp"><img src="/mcp-review.png" alt="GridPath review tab with changed cells highlighted and a panel of pending changes" width="1440" height="860" style="display:block;width:100%;height:auto" loading="lazy" /></a>
         </div>
       </div>
-      <p class="bench-footer">
-        Same model, matched effort, values graded after neutral LibreOffice
-        recalculation — every run, grade and artifact public.
-        <a href="/blog/why-the-harness-wins">Read the benchmark →</a>
-      </p>
     </div>
   </section>
 
@@ -524,6 +450,7 @@
       </div>
       <div class="footer-col">
         <h4>Resources</h4>
+        <a href="/docs">Docs</a>
         <a href="#faq">FAQ</a>
         <a href="/blog">Blog</a>
         <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Desktop — GridPath Docs</title>
+  <meta name="description" content="Install GridPath in Claude Desktop by opening a .mcpb bundle. No terminal, Node included. Claude edits your Excel files and you accept and save on a review page." />
+  <link rel="canonical" href="https://gridpath.dev/docs/claude-desktop" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Claude Desktop — GridPath Docs" />
+  <meta property="og:description" content="Install GridPath in Claude Desktop by opening a .mcpb bundle. No terminal, Node included. Claude edits your Excel files and you accept and save on a review page." />
+  <meta property="og:url" content="https://gridpath.dev/docs/claude-desktop" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Claude Desktop — GridPath Docs" />
+  <meta name="twitter:description" content="Install GridPath in Claude Desktop by opening a .mcpb bundle. No terminal, Node included. Claude edits your Excel files and you accept and save on a review page." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Claude Desktop",
+    "description": "Install GridPath in Claude Desktop by opening a .mcpb bundle. No terminal, Node included. Claude edits your Excel files and you accept and save on a review page.",
+    "url": "https://gridpath.dev/docs/claude-desktop",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "Claude Desktop", "item": "https://gridpath.dev/docs/claude-desktop" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop" aria-current="page">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.1.9</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / Claude Desktop</p>
+<h1 class="legal-title">Claude Desktop.</h1>
+<p class="legal-lede">Download one file and open it. Claude Desktop installs GridPath as an extension, with Node bundled, so there is nothing else to set up.</p>
+
+<h2 id="install">Install</h2>
+<ol>
+  <li>Download the latest <code>gridpath-&lt;version&gt;.mcpb</code> from the <a href="https://github.com/pixelsmasher13/gridpath/releases/latest" rel="noopener" target="_blank">releases page</a>.</li>
+  <li>Open the file. Claude Desktop shows an install dialog with two settings.</li>
+  <li><strong>Limit Claude to these folders</strong> is optional. Leave it as is to allow your whole home directory.</li>
+  <li><strong>Require review before saving</strong> is on by default. Keep it on: Claude cannot write the file, you accept and save on the review page it links you to.</li>
+  <li>Click install.</li>
+</ol>
+<div class="docs-callout"><p>Claude Desktop shows its standard "not verified" warning for any extension installed from a file. The source is <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath" rel="noopener" target="_blank">public</a>, and nothing is written to any file until you accept and save on the review page.</p></div>
+
+<h2 id="first-edit">First edit</h2>
+<p>Start a chat and name the file by path:</p>
+<pre><code>Open ~/Documents/budget.xlsx and add a 5% contingency line under each department's total.</code></pre>
+<p>Claude reads the structure, writes the change as a pending batch, and replies with a review link. Click it. The page shows the workbook with changed cells highlighted and a panel of pending batches. Accept, reject, then Save to file or Save as a copy.</p>
+
+<h2 id="settings">Changing the settings later</h2>
+<p>Open Claude Desktop's extensions settings, find GridPath, and edit the folder list or the review setting. The review setting maps to the server's <code>--review-required</code> flag; see <a href="/docs/options">CLI options</a>.</p>
+
+<h2 id="pending">If a chat ends with changes pending</h2>
+<p>Pending batches are stored next to the workbook in a <code>.gridpath</code> folder, so they survive the chat ending. The next time Claude opens the same file they are picked up, and the review link shows them. You can also reopen the review page from a terminal if you have Node installed:</p>
+<pre><code>npx -y gridpath review ~/Documents/budget.xlsx</code></pre>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">AI agent for Excel. Desktop app and MCP server.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

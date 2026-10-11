@@ -39,8 +39,15 @@
  * `[ironcalc-engine]` console prefix.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { warn as rustWarn, info as rustInfo } from "tauri-plugin-log-api";
 
 import { extractEditedCells } from "./ironcalcShadow";
+import { journalRecordEdit } from "./journal";
+import type {
+  EngineCell as EngineSheetCell,
+  EngineSnapshot as EngineWorkbookSnapshot,
+  EngineStyle as EngineSheetStyle,
+} from "../../../packages/gridpath/src/workbook/snapshot";
 
 interface CellDelta {
   sheet: number;
@@ -84,6 +91,9 @@ export interface GridResyncCell {
 export interface GridResyncSheet {
   name: string;
   cells: GridResyncCell[];
+  /** Lazy sheet: the grid holds only a skeleton, the engine has the full
+   * content — a resync must leave this sheet's cells alone. */
+  keep?: boolean;
 }
 /** Reads the grid's full content for a resync; registered by UniverGrid
  * alongside the applier. Returns null when the grid cannot be read. */
@@ -111,6 +121,21 @@ interface TabState {
    * window are NOT mirrored — the resync snapshot (read when the task runs)
    * already contains their grid effects. */
   resyncQueued: boolean;
+  /** Open coalescing sink for cell edits (see enqueueEdits). */
+  editSink?: EditSink | null;
+}
+
+/** Consecutive cell edits merge into ONE engine batch: the grid's apply
+ * path can emit a command per cell (copy_range "all" interleaves cells and
+ * formats), and each engine batch costs a fixed ~0.35 s recalc on a 900k-
+ * formula model. The sink stays open until its task runs or any other
+ * engine task is queued behind the edits (which seals it, so ordering
+ * against sheet/structural ops is preserved). */
+interface EditSink {
+  bySheet: Map<string, Array<{ row: number; column: number; value: string }>>;
+  labels: Set<string>;
+  cells: number;
+  sealed: boolean;
 }
 
 const appliers = new Map<string, DeltaApplier>();
@@ -217,6 +242,378 @@ export async function ironcalcEngineOnOpen(tabId: string, path: string): Promise
       if (st) st.degraded = String(e);
     }
   });
+}
+
+/**
+ * Engine-fed open: loads the file into the engine like `ironcalcEngineOnOpen`
+ * and returns the engine's full workbook snapshot (cells with values and
+ * styles, sheet properties, style table) for the grid to be BUILT from,
+ * instead of applying formula values onto an ExcelJS-built grid afterwards.
+ * Resolves null when the engine is off, the path is not a file, or the load
+ * fails (the tab is then degraded exactly as the classic path would be) —
+ * the caller falls back to the ExcelJS import.
+ */
+export function ironcalcEngineOpenSnapshot(
+  tabId: string,
+  path: string,
+  opts: { lazyThreshold?: number; lazySheetMinCells?: number } = {},
+): Promise<EngineWorkbookSnapshot | null> {
+  if (!ironcalcEngineEnabled()) return Promise.resolve(null);
+  if (!path || path.startsWith("untitled-") || !/\.xls[xm]$/i.test(path)) return Promise.resolve(null);
+  activeTabId = tabId;
+  tabs.set(tabId, newTabState(path));
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      try {
+        const t0 = performance.now();
+        // deferEval: the grid is built from the file's cached values (what
+        // Excel shows on open); the first evaluate runs right after, below,
+        // and only cells whose value differs are re-applied. Saves the
+        // full-recalc time (6 s on a 900k-formula model) on the open path.
+        const res = await invoke<CalcLoadResult>("calc_engine_load", { tab: tabId, path, deferEval: true });
+        const st = tabs.get(tabId);
+        if (!st) {
+          resolve(null);
+          return; // tab closed while loading
+        }
+        st.sheets = res.sheets;
+        const t1 = performance.now();
+        const raw = await invoke<ArrayBuffer>("calc_engine_univer_snapshot", {
+          tab: tabId,
+          lazyThreshold: opts.lazyThreshold ?? null,
+          lazySheetMinCells: opts.lazySheetMinCells ?? null,
+        });
+        const t2 = performance.now();
+        const snapshot = JSON.parse(new TextDecoder().decode(new Uint8Array(raw))) as EngineWorkbookSnapshot;
+        st.ready = true;
+        engineLog(
+          "info",
+          `ready: ${path} — import ${res.load_ms}ms (evaluate deferred), ` +
+            `snapshot ${(raw.byteLength / 1e6).toFixed(0)} MB in ${(t2 - t1).toFixed(0)}ms + parse ${(performance.now() - t2).toFixed(0)}ms ` +
+            `(total ${(performance.now() - t0).toFixed(0)}ms)`,
+        );
+        resolve(snapshot);
+        queueDeferredSettle(tabId);
+      } catch (e) {
+        console.error("[ironcalc-engine] engine-fed open failed — falling back to the ExcelJS import:", e);
+        const st = tabs.get(tabId);
+        if (st) st.degraded = String(e);
+        resolve(null);
+      }
+    });
+  });
+}
+
+/** The deferred first evaluate, queued behind an open: edits that arrive
+ * meanwhile wait for it (the engine settles before any edit anyway), and
+ * the grid receives only the values that moved. */
+function queueDeferredSettle(tabId: string): void {
+  enqueue(tabId, async () => {
+    const stNow = tabs.get(tabId);
+    if (!stNow || stNow.degraded) return;
+    try {
+      const t = performance.now();
+      const settled = await invoke<CalcSnapshot>("calc_engine_evaluate_pending", { tab: tabId });
+      applyDeltas(tabId, settled.cells);
+      engineLog(
+        "info",
+        `first evaluate settled: engine ${settled.ms}ms, ${settled.cells.length} values differed from the file's cache (total ${(performance.now() - t).toFixed(0)}ms)`,
+      );
+    } catch (e) {
+      engineLog("warn", `deferred first evaluate failed: ${e}`);
+      resync(tabId, `deferred evaluate failed: ${e}`);
+    }
+  });
+}
+
+/**
+ * Viewport-grid open (big-model mode): load the file into the engine and
+ * return only the LAYOUT (sheet geometry, merges, frozen panes, style
+ * table) — no cells cross to the webview until the grid asks for the
+ * rectangles it draws. Resolves null when the engine is off or the load
+ * fails (the tab is degraded as the other open paths do).
+ */
+export function ironcalcEngineOpenLayout(tabId: string, path: string): Promise<any | null> {
+  if (!ironcalcEngineEnabled()) return Promise.resolve(null);
+  if (!path || path.startsWith("untitled-") || !/\.xls[xm]$/i.test(path)) return Promise.resolve(null);
+  activeTabId = tabId;
+  tabs.set(tabId, newTabState(path));
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      try {
+        const t0 = performance.now();
+        const res = await invoke<CalcLoadResult>("calc_engine_load", { tab: tabId, path, deferEval: true });
+        const st = tabs.get(tabId);
+        if (!st) {
+          resolve(null);
+          return;
+        }
+        st.sheets = res.sheets;
+        const t1 = performance.now();
+        const raw = await invoke<ArrayBuffer>("calc_engine_workbook_layout", { tab: tabId });
+        const layout = JSON.parse(new TextDecoder().decode(new Uint8Array(raw)));
+        st.ready = true;
+        engineLog(
+          "info",
+          `ready (viewport): ${path} — import ${res.load_ms}ms (evaluate deferred), layout ${(raw.byteLength / 1000).toFixed(0)} KB in ${(performance.now() - t1).toFixed(0)}ms (total ${(performance.now() - t0).toFixed(0)}ms)`,
+        );
+        resolve(layout);
+        // The grid starts the deferred evaluate once its first tiles are on
+        // screen (ironcalcEngineStartDeferredSettle); this is the backstop.
+        const timer = setTimeout(() => ironcalcEngineStartDeferredSettle(tabId), 10_000);
+        settleStarters.set(tabId, timer);
+      } catch (e) {
+        engineLog("warn", `viewport open failed: ${e}`);
+        const st = tabs.get(tabId);
+        if (st) st.degraded = String(e);
+        resolve(null);
+      }
+    });
+  });
+}
+
+const settleStarters = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Viewport grid: start the deferred first evaluate (idempotent). */
+export function ironcalcEngineStartDeferredSettle(tabId: string): void {
+  const timer = settleStarters.get(tabId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  settleStarters.delete(tabId);
+  queueDeferredSettle(tabId);
+}
+
+/** The layout again, after a sheet or row/column operation — queued, so it
+ * reflects every write enqueued before it. */
+export function ironcalcEngineFetchLayout(tabId: string): Promise<any | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      try {
+        const raw = await invoke<ArrayBuffer>("calc_engine_workbook_layout", { tab: tabId });
+        resolve(JSON.parse(new TextDecoder().decode(new Uint8Array(raw))));
+      } catch (e) {
+        console.error("[ironcalc-engine] layout fetch failed:", e);
+        resolve(null);
+      }
+    });
+  });
+}
+
+/** Live-vs-file divergence report for the viewport grid's calc-health
+ * line; null while the first evaluate is pending or the engine is off. */
+export async function ironcalcEngineCalcHealth(tabId: string): Promise<any | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) return null;
+  try {
+    return await invoke<any | null>("calc_engine_calc_health", { tab: tabId });
+  } catch (e) {
+    console.warn("[ironcalc-engine] calc health failed:", e);
+    return null;
+  }
+}
+
+/** Viewport grid: a partial style on a rectangle (0-based inclusive), queued
+ * behind pending edits so it lands on the cells the edits created. */
+export function ironcalcEngineSetStyle(
+  tabId: string,
+  sheetName: string,
+  r0: number,
+  c0: number,
+  r1: number,
+  c1: number,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      const sheet = tabs.get(tabId)?.sheets.indexOf(sheetName) ?? -1;
+      if (sheet < 0) {
+        resolve(false);
+        return;
+      }
+      try {
+        await invoke<number>("calc_engine_set_style", { tab: tabId, sheet, r0: r0 + 1, r1: r1 + 1, c0: c0 + 1, c1: c1 + 1, patch });
+        resolve(true);
+      } catch (e) {
+        console.warn("[ironcalc-engine] set style failed:", e);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/** Viewport grid: define a workbook name in the engine so formulas that use
+ * it evaluate; queued behind pending edits, deltas applied to the grid. */
+export function ironcalcEngineDefineName(tabId: string, name: string, formula: string): Promise<boolean> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      try {
+        const res = await invoke<CalcSnapshot>("calc_engine_define_name", { tab: tabId, name, formula });
+        applyDeltas(tabId, res.cells);
+        engineLog("info", `defined name ${name}: ${res.ms}ms, ${res.cells.length} values changed`);
+        resolve(true);
+      } catch (e) {
+        engineLog("warn", `define name ${name} failed: ${e}`);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/** Workbook-wide text search for the viewport grid (1-based hits). */
+export async function ironcalcEngineFind(
+  tabId: string,
+  query: string,
+  sheet?: number,
+  limit = 500,
+): Promise<Array<{ sheet: number; row: number; column: number; text: string }>> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) return [];
+  try {
+    return await invoke<Array<{ sheet: number; row: number; column: number; text: string }>>("calc_engine_find", { tab: tabId, query, sheet: sheet ?? null, limit });
+  } catch (e) {
+    console.warn("[ironcalc-engine] find failed:", e);
+    return [];
+  }
+}
+
+/** One rectangle of cells (1-based inclusive) for the viewport grid. */
+export async function ironcalcEngineFetchWindow(
+  tabId: string,
+  sheet: number,
+  r0: number,
+  r1: number,
+  c0: number,
+  c1: number,
+): Promise<any | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) return null;
+  try {
+    const raw = await invoke<ArrayBuffer>("calc_engine_sheet_window", { tab: tabId, sheet, r0, r1, c0, c1 });
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(raw)));
+  } catch (e) {
+    console.error("[ironcalc-engine] window fetch failed:", e);
+    return null;
+  }
+}
+
+/** Sheet names the engine holds for a tab (engine order). */
+export function ironcalcEngineSheetNames(tabId: string): string[] {
+  return tabs.get(tabId)?.sheets.slice() ?? [];
+}
+
+/** Direct cell writes from the viewport grid (no Univer command stream to
+ * mirror): journaled and coalesced exactly like mirrored edits. Values are
+ * engine inputs ("=A1*2", "42", "hello", "" clears); rows/columns 1-based. */
+export function ironcalcEngineWriteCells(
+  tabId: string,
+  sheetName: string,
+  label: string,
+  cells: Array<{ row: number; column: number; value: string }>,
+): void {
+  enqueueEdits(tabId, sheetName, label, cells);
+}
+
+/** Sheet add / rename / delete from the viewport grid. */
+export function ironcalcEngineSheetOpDirect(tabId: string, op: "add" | "rename" | "delete", name: string, newName?: string): void {
+  enqueue(tabId, () => engineSheetOp(tabId, op, name, newName));
+}
+
+/** Row/column insert or delete from the viewport grid (index 1-based). */
+export function ironcalcEngineStructuralDirect(tabId: string, op: string, sheetName: string, index1: number, count: number): void {
+  enqueue(tabId, () => engineStructural(tabId, op, sheetName, index1, count));
+}
+
+/** One lazy sheet's cells and the styles they reference (see
+ * `calc_engine_sheet_cells`). Null when the engine is off, the tab is
+ * unknown, the sheet name is not in the engine, or the fetch fails. */
+export async function ironcalcEngineFetchSheet(
+  tabId: string,
+  sheetName: string,
+): Promise<{ sheet: number; cells: EngineSheetCell[]; styles: Record<string, EngineSheetStyle> } | null> {
+  const st = tabs.get(tabId);
+  if (!st) return null;
+  const sheet = st.sheets.indexOf(sheetName);
+  if (sheet < 0) return null;
+  try {
+    const raw = await invoke<ArrayBuffer>("calc_engine_sheet_cells", { tab: tabId, sheet });
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(raw)));
+  } catch (e) {
+    console.error(`[ironcalc-engine] sheet cells fetch failed for "${sheetName}":`, e);
+    return null;
+  }
+}
+
+/** Raw bytes of one sheet's engine JSON (see ironcalcEngineFetchSheet), for
+ * consumers that parse off the main thread (run_script's sandbox). Null when
+ * the engine is off, degraded, or the sheet is unknown to it. */
+export async function ironcalcEngineFetchSheetBytes(tabId: string, sheetName: string): Promise<ArrayBuffer | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) return null;
+  const sheet = st.sheets.indexOf(sheetName);
+  if (sheet < 0) return null;
+  try {
+    return await invoke<ArrayBuffer>("calc_engine_sheet_cells", { tab: tabId, sheet });
+  } catch (e) {
+    console.error(`[ironcalc-engine] sheet bytes fetch failed for "${sheetName}":`, e);
+    return null;
+  }
+}
+
+/** Structural index of the tab's workbook built by the engine (same JSON
+ * shape as `buildWorkbookIndex`); memoized per sheet in the engine process.
+ * Null when the engine is off, degraded or not ready. */
+export async function ironcalcEngineWorkbookIndex(tabId: string): Promise<any | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) return null;
+  try {
+    const raw = await invoke<ArrayBuffer>("calc_engine_workbook_index", { tab: tabId });
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(raw)));
+  } catch (e) {
+    console.error("[ironcalc-engine] workbook index failed:", e);
+    return null;
+  }
+}
+
+/** `query_rows` served by the engine. Resolves the sheet name to the
+ * engine's index; rejects with a readable message on an unknown sheet. */
+export async function ironcalcEngineQueryRows(
+  tabId: string,
+  sheetName: string,
+  query: Record<string, unknown>,
+): Promise<{ ok: true; result: any } | { ok: false; error: string; message: string }> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !st.ready) {
+    return {
+      ok: false,
+      error: "engine_unavailable",
+      message:
+        "query_rows needs the calculation engine, which is not running for this workbook" +
+        (st?.degraded ? ` (${st.degraded})` : "") +
+        ". Use run_script or read_range instead.",
+    };
+  }
+  const sheet = st.sheets.indexOf(sheetName);
+  if (sheet < 0) {
+    return { ok: false, error: "unknown_sheet", message: `No sheet named "${sheetName}". Sheets: ${st.sheets.join(", ")}` };
+  }
+  try {
+    const result = await invoke<any>("calc_engine_query_rows", { tab: tabId, query: { ...query, sheet } });
+    return { ok: true, result };
+  } catch (e) {
+    return { ok: false, error: "bad_query", message: String(e) };
+  }
+}
+
+/** True when the tab's engine mirror is loaded and healthy. */
+export function ironcalcEngineIsReady(tabId: string): boolean {
+  const st = tabs.get(tabId);
+  return !!st && st.ready && !st.degraded;
 }
 
 /** Registers an EMPTY model for a fresh untitled workbook (the LLM-builds-
@@ -337,14 +734,42 @@ export function ironcalcEngineOnClose(tabId: string): void {
   void invoke("calc_engine_unload", { tab: tabId }).catch(() => {});
 }
 
+/** Console + the Rust log file (GridPath.log): engine-state transitions
+ * must be readable after the fact, without the webview console open. */
+function engineLog(level: "info" | "warn", msg: string): void {
+  const line = `[ironcalc-engine] ${msg}`;
+  if (level === "warn") console.warn(line);
+  else console.log(line);
+  try {
+    void (level === "warn" ? rustWarn(line) : rustInfo(line)).catch(() => {});
+  } catch {
+    /* log plugin unavailable (tests) */
+  }
+}
+
+const degradedListeners = new Set<(tabId: string, reason: string) => void>();
+/** Notified when a tab's engine mirror gives up (values freeze until the
+ * workbook is reopened). The screen shows it; silently frozen values made
+ * an agent conclude the engine "doesn't evaluate new sheets". */
+export function onIroncalcEngineDegraded(cb: (tabId: string, reason: string) => void): () => void {
+  degradedListeners.add(cb);
+  return () => degradedListeners.delete(cb);
+}
+/** Why a tab's mirror is degraded, or null while it is healthy. */
+export function ironcalcEngineDegradedReason(tabId: string): string | null {
+  return tabs.get(tabId)?.degraded ?? null;
+}
+
 function degrade(tabId: string, reason: string): void {
   const st = tabs.get(tabId);
   if (!st || st.degraded) return;
   st.degraded = reason;
-  console.error(
-    `[ironcalc-engine] DEGRADED (${reason}) — values frozen for this tab; ` +
-      `reopen the workbook to resync the engine`,
-  );
+  engineLog("warn", `DEGRADED (${reason}) — values frozen for this tab; reopen the workbook to resync the engine`);
+  for (const cb of degradedListeners) {
+    try {
+      cb(tabId, reason);
+    } catch {}
+  }
 }
 
 /** Safety valve for resync itself: a grid too big to dump falls back to the
@@ -366,9 +791,12 @@ const RESYNC_MAX_CELLS = 2_000_000;
  */
 function resync(tabId: string, reason: string): void {
   const st = tabs.get(tabId);
+  // The journal cannot describe this change (sort, range move…): mark it
+  // so a later recovery is honest about being partial.
+  journalRecordEdit(tabId, { k: "resync", reason });
   if (!st || st.degraded || st.resyncQueued) return;
   st.resyncQueued = true;
-  console.warn(`[ironcalc-engine] RESYNC (${reason}) — rebuilding the model from the grid`);
+  engineLog("warn", `RESYNC queued (${reason}) — rebuilding the model from the grid`);
   enqueue(tabId, async () => {
     const stNow = tabs.get(tabId);
     if (!stNow) return;
@@ -392,9 +820,9 @@ function resync(tabId: string, reason: string): void {
       stNow.sheets = res.sheets;
       stNow.ready = true;
       applyDeltas(tabId, res.cells);
-      console.log(
-        `[ironcalc-engine] resynced (${reason}): ${res.seeded} cells seeded → ` +
-          `${res.cells.length} formula values re-applied ` +
+      engineLog(
+        "info",
+        `resynced (${reason}): ${res.seeded} cells seeded → ${res.cells.length} formula values re-applied ` +
           `(engine ${res.ms}ms, total ${(performance.now() - t0).toFixed(0)}ms)`,
       );
     } catch (e) {
@@ -403,8 +831,17 @@ function resync(tabId: string, reason: string): void {
   });
 }
 
-/** Chains engine work for a tab so operations apply strictly in order. */
+/** Chains engine work for a tab so operations apply strictly in order.
+ * Any non-edit task seals the open edit sink: edits queued after it must
+ * not merge into a batch that runs before it. */
 function enqueue(tabId: string, work: () => Promise<void>): void {
+  const st = tabs.get(tabId);
+  if (!st) return;
+  if (st.editSink) st.editSink.sealed = true;
+  st.queue = st.queue.then(work).catch(() => {});
+}
+
+function enqueueRaw(tabId: string, work: () => Promise<void>): void {
   const st = tabs.get(tabId);
   if (!st) return;
   st.queue = st.queue.then(work).catch(() => {});
@@ -456,9 +893,94 @@ interface EditCellWire {
 
 const MAX_EDIT_CELLS = 50_000;
 
+/** Queue a batch of cell edits on a sheet named by the grid; the engine's
+ * sheet index is resolved when the task RUNS, after any queued sheet-op
+ * that creates or renames it. */
+function enqueueEdits(
+  tabId: string,
+  sheetName: string,
+  label: string,
+  cells: Array<{ row: number; column: number; value: string }>,
+): void {
+  if (cells.length === 0) return;
+  const st = tabs.get(tabId);
+  if (!st) return;
+  const open = st.editSink;
+  if (open && !open.sealed && open.cells + cells.length <= MAX_EDIT_CELLS) {
+    let list = open.bySheet.get(sheetName);
+    if (!list) open.bySheet.set(sheetName, (list = []));
+    list.push(...cells);
+    open.cells += cells.length;
+    open.labels.add(label);
+    return;
+  }
+  const sink: EditSink = { bySheet: new Map([[sheetName, [...cells]]]), labels: new Set([label]), cells: cells.length, sealed: false };
+  st.editSink = sink;
+  enqueueRaw(tabId, async () => {
+    sink.sealed = true;
+    const stNow = tabs.get(tabId);
+    if (stNow?.editSink === sink) stNow.editSink = null;
+    const merged = sink.bySheet.size > 1 || sink.labels.size > 1 || Array.from(sink.bySheet.values())[0].length > cells.length;
+    for (const [name, cs] of sink.bySheet) {
+      const lbl = merged ? `${name} (${sink.labels.size} commands coalesced)` : label;
+      await enqueueEditsNow(tabId, name, lbl, cs);
+    }
+  });
+}
+
+async function enqueueEditsNow(
+  tabId: string,
+  sheetName: string,
+  label: string,
+  cells: Array<{ row: number; column: number; value: string }>,
+): Promise<void> {
+  {
+    const stNow = tabs.get(tabId);
+    if (!stNow) return;
+    let sheet = stNow.sheets.indexOf(sheetName);
+    if (sheet < 0) {
+      // The grid is writing to a sheet the engine has not seen. That is
+      // not drift: a write names a sheet the grid has, so the sheet exists
+      // and only the add has not reached the engine yet — e.g. a script
+      // that auto-creates its destination sheet and writes in the same
+      // apply pass, or an insert-sheet mutation still in the one-tick
+      // buffer. Add it here instead of resyncing: a resync on a grid over
+      // RESYNC_MAX_CELLS degrades the tab and silently freezes every value
+      // for the rest of the session.
+      engineLog("warn", `edit for sheet "${sheetName}" the engine does not know — adding it`);
+      await engineSheetOp(tabId, "add", sheetName, undefined);
+      const after = tabs.get(tabId);
+      sheet = after ? after.sheets.indexOf(sheetName) : -1;
+      if (sheet < 0) {
+        resync(tabId, `unknown sheet "${sheetName}" (add failed)`);
+        return;
+      }
+    }
+    await engineEditBatch(tabId, label, cells.map((c) => ({ sheet, row: c.row, column: c.column, value: c.value })));
+  }
+}
+
 async function engineEditBatch(tabId: string, label: string, edits: EditCellWire[]): Promise<void> {
   const st = tabs.get(tabId);
-  if (!st || st.degraded || st.resyncQueued || edits.length === 0) return;
+  if (!st || edits.length === 0) return;
+  // Unsaved-work journal: every cell write the mirror sees, user or agent,
+  // with sheet NAMES (the engine indices are only meaningful in-session).
+  // Recorded before the degraded/resync guards — the grid changed either way.
+  if (label !== "restored draft seed") {
+    const bySheet = new Map<string, Array<{ r: number; c: number; v: string }>>();
+    for (const e of edits) {
+      const name = st.sheets[e.sheet];
+      if (!name) continue;
+      let list = bySheet.get(name);
+      if (!list) bySheet.set(name, (list = []));
+      list.push({ r: e.row - 1, c: e.column - 1, v: e.value });
+    }
+    for (const [sheet, cells] of bySheet) journalRecordEdit(tabId, { k: "cells", sheet, cells });
+  }
+  if (st.degraded || st.resyncQueued) {
+    engineLog("warn", `${label}: ${edits.length} cells NOT mirrored (${st.degraded ? `degraded: ${st.degraded}` : "resync pending"})`);
+    return;
+  }
   try {
     const res = await invoke<CalcEditResult>("calc_engine_edit_batch", { tab: tabId, edits });
     console.log(
@@ -481,6 +1003,13 @@ async function engineStructural(
   count: number,
 ): Promise<void> {
   const st = tabs.get(tabId);
+  journalRecordEdit(tabId, {
+    k: op.includes("row") ? "rows" : "cols",
+    op: op.startsWith("insert") ? "insert" : "delete",
+    sheet: sheetName,
+    at: index1 - 1,
+    count,
+  });
   if (!st || st.degraded || st.resyncQueued) return;
   const sheet = st.sheets.indexOf(sheetName);
   if (sheet < 0) {
@@ -692,7 +1221,15 @@ async function engineSheetOp(
   newName: string | undefined,
 ): Promise<void> {
   const st = tabs.get(tabId);
-  if (!st || st.degraded || st.resyncQueued) return;
+  if (op === "add" || op === "delete" || op === "rename") journalRecordEdit(tabId, { k: "sheet", op, name, newName });
+  if (!st) return;
+  if (st.degraded || st.resyncQueued) {
+    engineLog("warn", `sheet ${op} "${name}" NOT mirrored (${st.degraded ? `degraded: ${st.degraded}` : "resync pending"})`);
+    return;
+  }
+  // Idempotent add: the unknown-sheet fallback in enqueueEdits and a late
+  // insert-sheet mutation can both ask for the same sheet.
+  if (op === "add" && st.sheets.includes(name)) return;
   try {
     const res = await invoke<{ sheets: string[]; cells: CellDelta[] }>("calc_engine_sheet_op", {
       tab: tabId,
@@ -701,10 +1238,7 @@ async function engineSheetOp(
       newName: newName ?? null,
     });
     st.sheets = res.sheets;
-    console.log(
-      `[ironcalc-engine] sheet ${op} "${name}"${newName ? ` -> "${newName}"` : ""} → ` +
-        `sheets [${res.sheets.join(", ")}], ${res.cells.length} values re-applied`,
-    );
+    engineLog("info", `sheet ${op} "${name}"${newName ? ` -> "${newName}"` : ""} → ${res.sheets.length} sheets, ${res.cells.length} values changed`);
     applyDeltas(tabId, res.cells);
   } catch (e) {
     resync(tabId, `sheet ${op} failed: ${e}`);
@@ -792,66 +1326,47 @@ export function ironcalcEngineOnCommand(
       resync(tabId, "unparsed or oversized set-range-values params");
       return;
     }
-    const sheet = st.sheets.indexOf(sheetName);
-    if (sheet < 0 && st.ready) {
-      resync(tabId, `unknown sheet "${sheetName}"`);
-      return;
-    }
-    const edits: EditCellWire[] = cells.map((c) => ({
-      sheet,
-      row: c.row0 + 1,
-      column: c.col0 + 1,
-      value: c.input,
-    }));
-    if (edits.length > MAX_EDIT_CELLS) {
+    if (cells.length > MAX_EDIT_CELLS) {
       resync(tabId, `edit over ${MAX_EDIT_CELLS} cells`);
       return;
     }
-    if (!st.ready) {
-      // Sheets unknown until the load finishes; re-resolve inside the queue.
-      enqueue(tabId, async () => {
-        const stNow = tabs.get(tabId);
-        if (!stNow) return;
-        const sheetNow = stNow.sheets.indexOf(sheetName);
-        if (sheetNow < 0) {
-          resync(tabId, `unknown sheet "${sheetName}"`);
-          return;
-        }
-        await engineEditBatch(
-          tabId,
-          sheetName,
-          edits.map((e) => ({ ...e, sheet: sheetNow })),
-        );
-      });
-    } else {
-      enqueue(tabId, () => engineEditBatch(tabId, sheetName, edits));
-    }
+    // Resolve the sheet index INSIDE the queue, never here. A sheet created
+    // a moment ago (agent create_sheet followed by set_range) reaches the
+    // engine through a queued sheet-op that may not have run yet; checking
+    // st.sheets synchronously called it unknown and fired a resync — and on
+    // a grid over RESYNC_MAX_CELLS a resync degrades the tab, freezing every
+    // value for the rest of the session (the "=1+1 is null" symptom).
+    enqueueEdits(tabId, sheetName, sheetName, cells.map((c) => ({ row: c.row0 + 1, column: c.col0 + 1, value: c.input })));
     return;
   }
 
-  // Clearing a selection = writing empty over the range.
+  // Clearing a selection = writing empty over the range(s). The facade's
+  // range.clearContent() (the clear_range tool) sends `ranges: [...]`; the
+  // keyboard path sends a single `range`. Reading only `range` made every
+  // agent clear_range fall back to a resync — on a grid over
+  // RESYNC_MAX_CELLS that degrades the tab and freezes all later values.
   if (cmd.id.includes("clear-selection")) {
-    const range = p.range as Record<string, unknown> | undefined;
-    if (!sheetName || !range || typeof range.startRow !== "number") {
+    const isRect = (r: unknown): r is { startRow: number; endRow: number; startColumn: number; endColumn: number } =>
+      !!r && typeof (r as any).startRow === "number" && typeof (r as any).endRow === "number" &&
+      typeof (r as any).startColumn === "number" && typeof (r as any).endColumn === "number";
+    const ranges = (Array.isArray(p.ranges) ? p.ranges : [p.range]).filter(isRect);
+    if (!sheetName || ranges.length === 0) {
       resync(tabId, cmd.id);
       return;
     }
-    const sheet = st.sheets.indexOf(sheetName);
-    if (sheet < 0) {
-      resync(tabId, `${cmd.id}: unknown sheet "${sheetName}"`);
-      return;
-    }
-    const edits: EditCellWire[] = [];
-    for (let r = range.startRow as number; r <= (range.endRow as number); r++) {
-      for (let c = range.startColumn as number; c <= (range.endColumn as number); c++) {
-        edits.push({ sheet, row: r + 1, column: c + 1, value: "" });
-        if (edits.length > MAX_EDIT_CELLS) {
-          resync(tabId, `${cmd.id} over ${MAX_EDIT_CELLS} cells`);
-          return;
+    const cleared: Array<{ row: number; column: number; value: string }> = [];
+    for (const range of ranges) {
+      for (let r = range.startRow; r <= range.endRow; r++) {
+        for (let c = range.startColumn; c <= range.endColumn; c++) {
+          cleared.push({ row: r + 1, column: c + 1, value: "" });
+          if (cleared.length > MAX_EDIT_CELLS) {
+            resync(tabId, `${cmd.id} over ${MAX_EDIT_CELLS} cells`);
+            return;
+          }
         }
       }
     }
-    enqueue(tabId, () => engineEditBatch(tabId, `${sheetName} clear`, edits));
+    enqueueEdits(tabId, sheetName, `${sheetName} clear`, cleared);
     return;
   }
 
@@ -879,7 +1394,13 @@ export function ironcalcEngineOnCommand(
   // undecodable means the grid changed in a way we can't reproduce: resync.
   const verdict = classifyClaimedMutations(st.sheets, claimed, sheetNamesById);
   if (verdict.kind === "edits") {
-    enqueue(tabId, () => engineEditBatch(tabId, `mirror ${cmd.id}`, verdict.edits));
+    const bySheet = new Map<string, Array<{ row: number; column: number; value: string }>>();
+    for (const e of verdict.edits) {
+      let list = bySheet.get(e.sheetName);
+      if (!list) bySheet.set(e.sheetName, (list = []));
+      list.push({ row: e.row, column: e.column, value: e.value });
+    }
+    for (const [sheetName, cells] of bySheet) enqueueEdits(tabId, sheetName, `mirror ${cmd.id}`, cells);
   } else if (verdict.kind === "opaque") {
     resync(tabId, `${cmd.id} (${verdict.why})`);
   }
@@ -893,14 +1414,14 @@ export function ironcalcEngineOnCommand(
  * unknown sheets) — the caller must resync.
  */
 function classifyClaimedMutations(
-  sheets: string[],
+  _sheets: string[],
   claimed: BufferedMutation[],
   sheetNamesById: Map<string, string>,
 ):
   | { kind: "none" }
-  | { kind: "edits"; edits: EditCellWire[] }
+  | { kind: "edits"; edits: Array<{ sheetName: string; row: number; column: number; value: string }> }
   | { kind: "opaque"; why: string } {
-  const edits: EditCellWire[] = [];
+  const edits: Array<{ sheetName: string; row: number; column: number; value: string }> = [];
   for (const m of claimed) {
     if (CONTENT_MOVER_MUTATIONS.has(m.id) || SHEET_OP_MUTATIONS.has(m.id)) {
       return { kind: "opaque", why: m.id };
@@ -911,12 +1432,12 @@ function classifyClaimedMutations(
     if (m.id !== "sheet.mutation.set-range-values") continue;
     const sheetName = resolveSheet(m.params, sheetNamesById);
     if (!sheetName) return { kind: "opaque", why: "unresolvable sheet" };
-    const sheet = sheets.indexOf(sheetName);
-    if (sheet < 0) return { kind: "opaque", why: `unknown sheet "${sheetName}"` };
+    // Sheet NAMES here; the index is resolved when the queued task runs
+    // (a just-created sheet may not have reached the engine yet).
     const decoded = decodeMutationCells(m.params);
     if (decoded.fail) return { kind: "opaque", why: decoded.fail };
     for (const c of decoded.cells) {
-      edits.push({ sheet, row: c.row0 + 1, column: c.col0 + 1, value: c.input });
+      edits.push({ sheetName, row: c.row0 + 1, column: c.col0 + 1, value: c.input });
       if (edits.length > MAX_EDIT_CELLS) {
         return { kind: "opaque", why: `over ${MAX_EDIT_CELLS} cells` };
       }

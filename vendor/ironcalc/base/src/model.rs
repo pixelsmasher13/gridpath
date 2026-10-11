@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::expressions::parser::static_analysis::run_static_analysis_on_node;
+use crate::worksheet::WorksheetDimension;
 use crate::{
     calc_result::{CalcResult, Range},
     cell::CellValue,
@@ -176,6 +177,137 @@ pub(crate) enum CellOrRange {
     Range((u32, i32, i32, i32, i32)),
 }
 
+/// Inverse of `Model::support` — dependency → readers — kept across
+/// incremental evaluations. Building it costs a walk over every formula's
+/// dependencies (~450 ms on a 922k-formula model), which used to be paid on
+/// EVERY `evaluate_edited` call regardless of how many cells changed; now
+/// it is built once after a full evaluate and patched for the cells each
+/// incremental pass re-evaluates.
+///
+/// Range deps are bucketed so a dirty cell only scans ranges that can
+/// contain it: narrow ranges (lookup columns, small rects) under each
+/// covered (sheet, column), row bands under each covered (sheet, row), and
+/// wide rects in a small per-sheet list.
+#[derive(Default)]
+pub(crate) struct ReaderIndex {
+    point_readers: HashMap<(u32, i32, i32), Vec<CellReferenceIndex>>,
+    col_ranges: HashMap<(u32, i32), Vec<(i32, i32, CellReferenceIndex)>>,
+    row_ranges: HashMap<(u32, i32), Vec<(i32, i32, CellReferenceIndex)>>,
+    wide_ranges: HashMap<u32, Vec<(i32, i32, i32, i32, CellReferenceIndex)>>,
+    pub(crate) range_count: usize,
+}
+
+const READER_INDEX_NARROW: i32 = 8;
+
+impl ReaderIndex {
+    pub(crate) fn build(support: &HashMap<CellReferenceIndex, Vec<CellOrRange>>) -> Self {
+        let mut idx = ReaderIndex::default();
+        for (reader, deps) in support {
+            for dep in deps {
+                idx.add(*reader, dep);
+            }
+        }
+        idx
+    }
+
+    pub(crate) fn add(&mut self, reader: CellReferenceIndex, dep: &CellOrRange) {
+        match dep {
+            CellOrRange::Cell(t) => self.point_readers.entry(*t).or_default().push(reader),
+            CellOrRange::Range((s, r1, c1, r2, c2)) => {
+                self.range_count += 1;
+                if c2 - c1 < READER_INDEX_NARROW {
+                    for c in *c1..=*c2 {
+                        self.col_ranges.entry((*s, c)).or_default().push((*r1, *r2, reader));
+                    }
+                } else if r2 - r1 < READER_INDEX_NARROW {
+                    for r in *r1..=*r2 {
+                        self.row_ranges.entry((*s, r)).or_default().push((*c1, *c2, reader));
+                    }
+                } else {
+                    self.wide_ranges.entry(*s).or_default().push((*r1, *c1, *r2, *c2, reader));
+                }
+            }
+        }
+    }
+
+    /// Drops every entry `reader` contributed through `deps` (its support
+    /// list as recorded by the previous evaluation).
+    pub(crate) fn remove_reader(&mut self, reader: CellReferenceIndex, deps: &[CellOrRange]) {
+        for dep in deps {
+            match dep {
+                CellOrRange::Cell(t) => {
+                    if let Some(v) = self.point_readers.get_mut(t) {
+                        v.retain(|r| *r != reader);
+                    }
+                }
+                CellOrRange::Range((s, r1, c1, r2, c2)) => {
+                    self.range_count = self.range_count.saturating_sub(1);
+                    if c2 - c1 < READER_INDEX_NARROW {
+                        for c in *c1..=*c2 {
+                            if let Some(v) = self.col_ranges.get_mut(&(*s, c)) {
+                                v.retain(|(_, _, r)| *r != reader);
+                            }
+                        }
+                    } else if r2 - r1 < READER_INDEX_NARROW {
+                        for r in *r1..=*r2 {
+                            if let Some(v) = self.row_ranges.get_mut(&(*s, r)) {
+                                v.retain(|(_, _, rd)| *rd != reader);
+                            }
+                        }
+                    } else if let Some(v) = self.wide_ranges.get_mut(s) {
+                        v.retain(|(_, _, _, _, r)| *r != reader);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Readers whose value may change when cell `t` changes.
+    pub(crate) fn readers_of(&self, t: (u32, i32, i32), hit: &mut Vec<CellReferenceIndex>) {
+        if let Some(readers) = self.point_readers.get(&t) {
+            hit.extend_from_slice(readers);
+        }
+        if let Some(list) = self.col_ranges.get(&(t.0, t.2)) {
+            for (r1, r2, reader) in list {
+                if *r1 <= t.1 && t.1 <= *r2 {
+                    hit.push(*reader);
+                }
+            }
+        }
+        if let Some(list) = self.row_ranges.get(&(t.0, t.1)) {
+            for (c1, c2, reader) in list {
+                if *c1 <= t.2 && t.2 <= *c2 {
+                    hit.push(*reader);
+                }
+            }
+        }
+        if let Some(list) = self.wide_ranges.get(&t.0) {
+            for (r1, c1, r2, c2, reader) in list {
+                if *r1 <= t.1 && t.1 <= *r2 && *c1 <= t.2 && t.2 <= *c2 {
+                    hit.push(*reader);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn point_targets(&self) -> usize {
+        self.point_readers.len()
+    }
+
+    pub(crate) fn wide_count(&self) -> usize {
+        self.wide_ranges.values().map(|v| v.len()).sum()
+    }
+}
+
+/// Which cells of a criteria range satisfy one criterion: `matched` holds
+/// the row-major offsets (ascending), `bits` the same set as a bitset for
+/// O(1) membership when several criteria are intersected.
+#[derive(Debug)]
+pub(crate) struct IfsMatch {
+    pub(crate) matched: Vec<u32>,
+    pub(crate) bits: Vec<u64>,
+}
+
 /// A dynamical IronCalc model.
 ///
 /// Its is composed of a `Workbook`. Everything else are dynamical quantities:
@@ -221,6 +353,9 @@ pub struct Model<'a> {
     pub(crate) spill_cells: Vec<CellReferenceIndex>,
     /// A dictionary to keep track of which cells or ranges support a given cell.
     pub(crate) support: HashMap<CellReferenceIndex, Vec<CellOrRange>>,
+    /// Inverse of `support`, kept across incremental evaluations; `None`
+    /// after a full evaluate until the next `evaluate_edited` rebuilds it.
+    pub(crate) reader_index: Option<ReaderIndex>,
     /// Evaluated CF results per cell, keyed by (sheet_index, row, column).
     /// Rebuilt from scratch on every call to evaluate_conditional_formatting().
     pub(crate) cf_cache: HashMap<(u32, i32, i32), Vec<CfCellResult>>,
@@ -233,6 +368,19 @@ pub struct Model<'a> {
     /// found position (None = #N/A). Canalyst-style sheets repeat identical
     /// MATCH lookups across whole rows/columns of cells.
     pub(crate) match_cache: HashMap<(u32, i32, i32, i32, i32, i32, LookupKeyValue), Option<f64>>,
+    /// Per-pass SUMIFS/AVERAGEIFS/… criteria index: (sheet, top row, left
+    /// column, height, width, criterion) → which cells of that criteria
+    /// range satisfy the criterion. 200k SUMIFS over the same 7k-row type /
+    /// company / region columns otherwise re-walk those columns cell by cell
+    /// (4 billion cell visits per recalc on a real supply-demand model);
+    /// with the index each (range, criterion) pair is walked once. Same
+    /// lifecycle as `range_cache`.
+    pub(crate) ifs_cache: HashMap<(u32, i32, i32, i32, i32, String), Arc<IfsMatch>>,
+    /// Per-pass memo of `Worksheet::dimension()`, which scans every cell of
+    /// the sheet. Whole-column references (`SUMIFS(T:T, …)`, `SUM(A:A)`) ask
+    /// for it once per formula; on an 800k-cell sheet that scan was 98% of a
+    /// 51 s recalculation. Same lifecycle as `range_cache`.
+    pub(crate) dimension_cache: HashMap<u32, WorksheetDimension>,
     /// Lazily-filled: (sheet, formula_index) → the parsed formula contains an
     /// unknown function or a parse error. Such cells keep their imported
     /// cached value instead of being recomputed into #NAME?. Session-safe:
@@ -887,15 +1035,46 @@ impl<'a> Model<'a> {
             ),
             CompareKind { kind, left, right } => self.handle_comparison(left, right, cell, kind),
             UnaryKind { kind, right } => {
-                let r = match self.get_number(right, cell) {
-                    Ok(f) => f,
-                    Err(s) => {
-                        return s;
-                    }
+                let apply = |v: f64| match kind {
+                    OpUnary::Minus => -v,
+                    OpUnary::Percentage => v / 100.0,
                 };
-                match kind {
-                    OpUnary::Minus => CalcResult::Number(-r),
-                    OpUnary::Percentage => CalcResult::Number(r / 100.0),
+                let operand = match self.evaluate_node_in_context(right, cell) {
+                    // `-(B1:B6)` in an array context negates the range element-wise.
+                    CalcResult::Range { left, right: r } if left.sheet == r.sheet && (left.row != r.row || left.column != r.column) => {
+                        CalcResult::Array(self.evaluate_range(left, r))
+                    }
+                    other => other,
+                };
+                match operand {
+                    // Element-wise over arrays: `--(A1:A6<>"")` inside
+                    // SUMPRODUCT is the standard way to turn a boolean array
+                    // into 1/0, and `-(array)` must broadcast like `0-array`.
+                    CalcResult::Array(array) => {
+                        let mut out = Vec::with_capacity(array.len());
+                        for row in array {
+                            let mut out_row = Vec::with_capacity(row.len());
+                            for item in row {
+                                let node = match item {
+                                    ArrayNode::Number(n) => ArrayNode::Number(apply(n)),
+                                    ArrayNode::Boolean(b) => ArrayNode::Number(apply(if b { 1.0 } else { 0.0 })),
+                                    ArrayNode::Empty => ArrayNode::Number(apply(0.0)),
+                                    ArrayNode::String(text) => match self.cast_number(&text) {
+                                        Some(n) => ArrayNode::Number(apply(n)),
+                                        None => ArrayNode::Error(Error::VALUE),
+                                    },
+                                    ArrayNode::Error(e) => ArrayNode::Error(e),
+                                };
+                                out_row.push(node);
+                            }
+                            out.push(out_row);
+                        }
+                        CalcResult::Array(out)
+                    }
+                    other => match self.cast_to_number(other, cell) {
+                        Ok(r) => CalcResult::Number(apply(r)),
+                        Err(s) => s,
+                    },
                 }
             }
             ErrorKind(kind) => CalcResult::new_error(kind.clone(), cell, "".to_string()),
@@ -1524,6 +1703,18 @@ impl<'a> Model<'a> {
         result
     }
 
+    /// The sheet's used dimension, memoised for the current recalculation
+    /// pass (see `dimension_cache`). Formula code must use this rather than
+    /// `Worksheet::dimension()` directly.
+    pub(crate) fn cached_dimension(&mut self, sheet: u32) -> Result<WorksheetDimension, String> {
+        if let Some(d) = self.dimension_cache.get(&sheet) {
+            return Ok(*d);
+        }
+        let d = self.workbook.worksheet(sheet)?.dimension();
+        self.dimension_cache.insert(sheet, d);
+        Ok(d)
+    }
+
     #[inline(always)]
     fn fetch_cell(&self, cell_reference: CellReferenceIndex) -> Option<&Cell> {
         self.workbook.worksheets[cell_reference.sheet as usize]
@@ -1897,9 +2088,12 @@ impl<'a> Model<'a> {
             last_lambda_id: 0,
             spill_cells: Vec::new(),
             support: HashMap::new(),
+            reader_index: None,
             cf_cache: HashMap::new(),
             range_cache: HashMap::new(),
             match_cache: HashMap::new(),
+            ifs_cache: HashMap::new(),
+            dimension_cache: HashMap::new(),
             unevaluable_cache: HashMap::new(),
             import_wrongref_frozen: std::collections::HashSet::new(),
         };
@@ -2917,19 +3111,36 @@ impl<'a> Model<'a> {
     /// depend on them), so the model is reseeded in place, never rebuilt
     /// from scratch.
     pub fn resync_clear_contents(&mut self) {
-        for ws in self.workbook.worksheets.iter_mut() {
+        self.resync_clear_contents_except(&[]);
+    }
+
+    /// GRIDPATH: `resync_clear_contents` leaving the listed sheets' cells and
+    /// parsed formulas intact (lazy sheets whose content lives only in the
+    /// engine). Evaluation state and caches are still reset for the whole
+    /// workbook; the full `evaluate()` that follows a resync rebuilds them.
+    pub fn resync_clear_contents_except(&mut self, keep: &[u32]) {
+        for (idx, ws) in self.workbook.worksheets.iter_mut().enumerate() {
+            if keep.contains(&(idx as u32)) {
+                continue;
+            }
             ws.sheet_data.clear();
             ws.shared_formulas.clear();
         }
-        for parsed in self.parsed_formulas.iter_mut() {
+        for (idx, parsed) in self.parsed_formulas.iter_mut().enumerate() {
+            if keep.contains(&(idx as u32)) {
+                continue;
+            }
             parsed.clear();
         }
         self.cells.clear();
         self.spill_cells.clear();
         self.support.clear();
+        self.reader_index = None;
         self.cf_cache.clear();
         self.range_cache.clear();
         self.match_cache.clear();
+        self.ifs_cache.clear();
+        self.dimension_cache.clear();
         self.unevaluable_cache.clear();
         self.import_wrongref_frozen.clear();
     }
@@ -3121,6 +3332,27 @@ impl<'a> Model<'a> {
                     });
                 Ok(formatted_value)
             }
+            None => Ok("".to_string()),
+        }
+    }
+
+    /// `get_formatted_cell_value` with the number format supplied by the
+    /// caller, for bulk readers that already know each style's `num_fmt`:
+    /// skips the per-cell `Style` construction (font, fill, border clones)
+    /// that `get_style_for_cell` does.
+    pub fn get_formatted_cell_value_using(
+        &self,
+        sheet_index: u32,
+        row: i32,
+        column: i32,
+        num_fmt: &str,
+    ) -> Result<String, String> {
+        match self.workbook.worksheet(sheet_index)?.cell(row, column) {
+            Some(cell) => Ok(cell.formatted_value(
+                &self.workbook.shared_strings,
+                self.language,
+                |value| format_number(value, num_fmt, self.locale).text,
+            )),
             None => Ok("".to_string()),
         }
     }
@@ -3334,8 +3566,11 @@ impl<'a> Model<'a> {
             retry = false;
             self.cells.clear();
             self.support.clear();
+            self.reader_index = None;
             self.range_cache.clear();
             self.match_cache.clear();
+            self.ifs_cache.clear();
+            self.dimension_cache.clear();
             self.clear_variable_stack();
             self.clear_lambdas();
 
@@ -3346,6 +3581,19 @@ impl<'a> Model<'a> {
 
                 // Find every cell position written by this spill (anchor + spill cells).
                 let spill_area = self.get_spill_area(spill_cell);
+
+                // GRIDPATH: a dynamic formula whose result is a single cell
+                // writes nothing but its own anchor, and an earlier spill cell
+                // that reads the anchor evaluated it on demand (the usual
+                // dependency walk). Only a multi-cell spill can hand a
+                // dependant a position that was not yet written, so only
+                // those need the ordering check. Without this, a workbook with
+                // tens of thousands of scalar dynamic-array formulas (every
+                // agent-written formula is saved as one) ran the O(n²)
+                // restart loop below for hours.
+                if spill_area.len() <= 1 {
+                    continue;
+                }
 
                 // If any of those positions is a dependency of a spill cell that was
                 // evaluated earlier (index j < i), the current cell must come first.
@@ -3370,6 +3618,8 @@ impl<'a> Model<'a> {
         // Spill evaluation may have rewritten cells cached during phase 1.
         self.range_cache.clear();
         self.match_cache.clear();
+        self.ifs_cache.clear();
+        self.dimension_cache.clear();
         let all_cells = self.get_all_cells();
         for cell in all_cells {
             self.evaluate_cell(CellReferenceIndex {
@@ -3465,55 +3715,22 @@ impl<'a> Model<'a> {
     pub fn evaluate_edited(&mut self, edited: &[(u32, i32, i32)]) -> Vec<(u32, i32, i32)> {
         let debug = std::env::var("IC_DEBUG").is_ok();
         let t0 = crate::debug_timer::DebugTimer::start();
-        // Invert the runtime dependency map: dependency -> readers. Range deps
-        // are indexed for the closure walk: narrow ranges (lookup columns,
-        // small rects) bucket under each covered (sheet, column) so a dirty
-        // cell only scans ranges that can contain it; wide rects (whole-row
-        // references, big tables) go to a small per-sheet list. A flat list
-        // was O(dirty x all-ranges): ~1s on a 9.6k-cell closure.
-        const NARROW: i32 = 8;
-        let mut point_readers: HashMap<(u32, i32, i32), Vec<CellReferenceIndex>> = HashMap::new();
-        let mut col_ranges: HashMap<(u32, i32), Vec<(i32, i32, CellReferenceIndex)>> =
-            HashMap::new();
-        // Row-band ranges (a defined name like MO_RIS_OtherOPEX = one model row
-        // across ~90 columns) bucket under each covered (sheet, row).
-        let mut row_ranges: HashMap<(u32, i32), Vec<(i32, i32, CellReferenceIndex)>> =
-            HashMap::new();
-        let mut wide_ranges: HashMap<u32, Vec<(i32, i32, i32, i32, CellReferenceIndex)>> =
-            HashMap::new();
-        let mut range_count = 0usize;
-        for (reader, deps) in &self.support {
-            for dep in deps {
-                match dep {
-                    CellOrRange::Cell(t) => point_readers.entry(*t).or_default().push(*reader),
-                    CellOrRange::Range((s, r1, c1, r2, c2)) => {
-                        range_count += 1;
-                        if c2 - c1 < NARROW {
-                            for c in *c1..=*c2 {
-                                col_ranges.entry((*s, c)).or_default().push((*r1, *r2, *reader));
-                            }
-                        } else if r2 - r1 < NARROW {
-                            for r in *r1..=*r2 {
-                                row_ranges.entry((*s, r)).or_default().push((*c1, *c2, *reader));
-                            }
-                        } else {
-                            wide_ranges
-                                .entry(*s)
-                                .or_default()
-                                .push((*r1, *c1, *r2, *c2, *reader));
-                        }
-                    }
-                }
-            }
-        }
+        // Inverted dependency map (dependency -> readers), cached on the
+        // model: built on the first incremental pass after a full evaluate,
+        // then patched below for the cells this pass re-evaluates.
+        let rebuilt = self.reader_index.is_none();
+        let mut index = self
+            .reader_index
+            .take()
+            .unwrap_or_else(|| ReaderIndex::build(&self.support));
         if debug {
-            let wide: usize = wide_ranges.values().map(|v| v.len()).sum();
             eprintln!(
-                "[ic] invert: {} ms ({} point targets, {} range deps, {} wide)",
+                "[ic] reader index: {} ms ({}; {} point targets, {} range deps, {} wide)",
                 t0.ms(),
-                point_readers.len(),
-                range_count,
-                wide
+                if rebuilt { "rebuilt" } else { "cached" },
+                index.point_targets(),
+                index.range_count,
+                index.wide_count()
             );
         }
         let t1 = crate::debug_timer::DebugTimer::start();
@@ -3542,30 +3759,7 @@ impl<'a> Model<'a> {
 
         while let Some(t) = frontier.pop() {
             let mut hit: Vec<CellReferenceIndex> = Vec::new();
-            if let Some(readers) = point_readers.get(&t) {
-                hit.extend_from_slice(readers);
-            }
-            if let Some(list) = col_ranges.get(&(t.0, t.2)) {
-                for (r1, r2, reader) in list {
-                    if *r1 <= t.1 && t.1 <= *r2 {
-                        hit.push(*reader);
-                    }
-                }
-            }
-            if let Some(list) = row_ranges.get(&(t.0, t.1)) {
-                for (c1, c2, reader) in list {
-                    if *c1 <= t.2 && t.2 <= *c2 {
-                        hit.push(*reader);
-                    }
-                }
-            }
-            if let Some(list) = wide_ranges.get(&t.0) {
-                for (r1, c1, r2, c2, reader) in list {
-                    if *r1 <= t.1 && t.1 <= *r2 && *c1 <= t.2 && t.2 <= *c2 {
-                        hit.push(*reader);
-                    }
-                }
-            }
+            index.readers_of(t, &mut hit);
             for reader in hit {
                 let key = (reader.sheet, reader.row, reader.column);
                 if dirty.insert(key) {
@@ -3586,22 +3780,30 @@ impl<'a> Model<'a> {
             );
         }
         if dirty.is_empty() {
+            self.reader_index = Some(index);
             return Vec::new();
         }
         let t2 = crate::debug_timer::DebugTimer::start();
 
         for key in &dirty {
             self.cells.remove(key);
-            self.support.remove(&CellReferenceIndex {
+            let reader = CellReferenceIndex {
                 sheet: key.0,
                 row: key.1,
                 column: key.2,
-            });
+            };
+            // The cell's old dependency edges leave the index with it; the
+            // ones its re-evaluation records are added back below.
+            if let Some(deps) = self.support.remove(&reader) {
+                index.remove_reader(reader, &deps);
+            }
         }
         self.clear_variable_stack();
         self.clear_lambdas();
         self.range_cache.clear();
         self.match_cache.clear();
+        self.ifs_cache.clear();
+        self.dimension_cache.clear();
 
         // Dirty spill anchors first, in the order fixed up by the last full
         // evaluation: spill positions hold no formula, so lazy recursion from a
@@ -3615,6 +3817,8 @@ impl<'a> Model<'a> {
         // Spill re-evaluation may have rewritten cells cached above.
         self.range_cache.clear();
         self.match_cache.clear();
+        self.ifs_cache.clear();
+        self.dimension_cache.clear();
         for key in &dirty {
             self.evaluate_cell(CellReferenceIndex {
                 sheet: key.0,
@@ -3625,6 +3829,23 @@ impl<'a> Model<'a> {
         if debug {
             eprintln!("[ic] re-evaluate: {} ms", t2.ms());
         }
+        // Re-index the re-evaluated cells' new dependency edges. A dirty
+        // cell's evaluation can recursively evaluate another DIRTY cell
+        // (removed from `cells` above); every cell that recorded support
+        // this pass is therefore in `dirty`.
+        for key in &dirty {
+            let reader = CellReferenceIndex {
+                sheet: key.0,
+                row: key.1,
+                column: key.2,
+            };
+            if let Some(deps) = self.support.get(&reader) {
+                for dep in deps {
+                    index.add(reader, dep);
+                }
+            }
+        }
+        self.reader_index = Some(index);
         let t3 = crate::debug_timer::DebugTimer::start();
         self.evaluate_conditional_formatting();
         if debug {

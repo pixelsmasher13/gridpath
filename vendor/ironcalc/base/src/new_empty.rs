@@ -48,6 +48,7 @@ impl<'a> Model<'a> {
             views.insert(
                 **id,
                 WorksheetView {
+                    zoom: 100,
                     row: 1,
                     column: 1,
                     range: [1, 1, 1, 1],
@@ -73,6 +74,11 @@ impl<'a> Model<'a> {
             show_grid_lines: true,
             views,
             conditional_formatting: vec![],
+            row_outline: HashMap::new(),
+            col_outline: HashMap::new(),
+            outline_summary_below: true,
+            outline_summary_right: true,
+            auto_filter: None,
         }
     }
 
@@ -184,8 +190,10 @@ impl<'a> Model<'a> {
         self.parsed_defined_names = parsed_defined_names;
     }
 
-    /// Reparses all formulas and defined names
-    pub(crate) fn reset_parsed_structures(&mut self) {
+    /// Reparses all formulas and defined names. GRIDPATH: public, so a
+    /// defined name added after load makes the formulas that already
+    /// referenced it (parsed as #NAME?) resolve.
+    pub fn reset_parsed_structures(&mut self) {
         let defined_names = self.workbook.get_defined_names_with_scope();
         self.parser
             .set_worksheets_and_names(self.workbook.get_worksheet_names(), defined_names);
@@ -701,9 +709,12 @@ impl<'a> Model<'a> {
             last_lambda_id: 0,
             spill_cells: Vec::new(),
             support: HashMap::new(),
+            reader_index: None,
             cf_cache: HashMap::new(),
             range_cache: HashMap::new(),
             match_cache: HashMap::new(),
+            ifs_cache: HashMap::new(),
+            dimension_cache: HashMap::new(),
             unevaluable_cache: HashMap::new(),
             import_wrongref_frozen: std::collections::HashSet::new(),
         };

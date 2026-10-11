@@ -184,11 +184,53 @@ fn formula_written_without_cached_value() {
     );
     let out = apply_patch_json(&base, &p).unwrap();
     let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
+    // Formulas are written as dynamic-array formulas (see metadata.rs).
     assert!(
-        sheet.contains(r#"<c r="B1"><f>SUM(A1:A2)</f></c>"#),
+        sheet.contains(r#"<c r="B1" cm="1"><f t="array" ref="B1">SUM(A1:A2)</f></c>"#),
         "sheet: {sheet}"
     );
-    assert!(!sheet.contains(r#"<c r="B1"><f>SUM(A1:A2)</f><v>"#));
+    assert!(!sheet.contains(r#">SUM(A1:A2)</f><v>"#));
+}
+
+/// Every formula the patch writes is a dynamic-array formula: `cm` points at
+/// the XLDAPR record in xl/metadata.xml and the `<f>` is `t="array"` over
+/// the cell itself, so Excel evaluates arrays the way the engine does
+/// (no implicit intersection — the legacy mode that blanked every
+/// `MATCH(1,(rng="x")*(rng2<>"y"),0)` row-finder). The part is created once
+/// and reused by later saves; literal values never trigger it.
+#[test]
+fn formulas_are_dynamic_array_formulas_with_shared_metadata() {
+    let base = fixture();
+    assert!(!entries(&base).iter().any(|(n, _)| n == "xl/metadata.xml"));
+    // A value-only patch leaves the package without a metadata part.
+    let values_only = apply_patch_json(&base, &patch(r#""sheets":[{"name":"Alpha","cells":[{"r":9,"c":0,"v":{"t":"n","n":1}}]}]"#)).unwrap();
+    assert!(!entries(&values_only).iter().any(|(n, _)| n == "xl/metadata.xml"));
+
+    let p = patch(r##""sheets":[{"name":"Alpha","cells":[
+        {"r":0,"c":1,"f":"=IF($D1=\"\",\"\",INDEX(Beta!A:A,$D1))","v":{"t":"n","n":7}},
+        {"r":0,"c":3,"f":"=IFERROR(MATCH(1,(Beta!A1:A9=\"x\")*(Beta!B1:B9<>\"y\"),0),\"\")","v":{"t":"n","n":3}}
+    ]}]"##);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(sheet.contains(r#"<c r="B1" cm="1"><f t="array" ref="B1">IF($D1=&quot;&quot;,&quot;&quot;,INDEX(Beta!A:A,$D1))</f><v>7</v></c>"#), "{sheet}");
+    assert!(sheet.contains(r#"<c r="D1" cm="1"><f t="array" ref="D1">"#), "{sheet}");
+    let meta = entry_str(&out, "xl/metadata.xml");
+    assert!(meta.contains(r#"<metadataType name="XLDAPR""#) && meta.contains(r#"xda:dynamicArrayProperties fDynamic="1""#) && meta.contains(r#"<cellMetadata count="1"><bk><rc t="1" v="0"/></bk></cellMetadata>"#), "{meta}");
+    let ct = entry_str(&out, "[Content_Types].xml");
+    assert!(ct.contains(r#"PartName="/xl/metadata.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml""#), "{ct}");
+    let rels = entry_str(&out, "xl/_rels/workbook.xml.rels");
+    assert!(rels.contains(r#"relationships/sheetMetadata" Target="metadata.xml""#), "{rels}");
+    // Untouched parts stay byte-identical; only the expected ones change.
+    assert_untouched_identical(&base, &out, &["xl/worksheets/sheet1.xml", "[Content_Types].xml", "xl/_rels/workbook.xml.rels", "xl/workbook.xml"], &["xl/calcChain.xml"]);
+
+    // Second save on the result: the existing record is reused, nothing duplicated.
+    let p2 = patch(r#""sheets":[{"name":"Alpha","cells":[{"r":2,"c":1,"f":"=B1*2"}]}]"#);
+    let out2 = apply_patch_json(&out, &p2).unwrap();
+    let sheet2 = entry_str(&out2, "xl/worksheets/sheet1.xml");
+    assert!(sheet2.contains(r#"<c r="B3" cm="1"><f t="array" ref="B3">B1*2</f></c>"#), "{sheet2}");
+    assert_eq!(entry_str(&out2, "xl/metadata.xml"), meta);
+    assert_eq!(entry_str(&out2, "xl/_rels/workbook.xml.rels").matches("sheetMetadata").count(), 1);
+    assert_eq!(entry_str(&out2, "[Content_Types].xml").matches("metadata.xml").count(), 1);
 }
 
 /// `f` + `v` in one cell patch = formula with its evaluated result cached,
@@ -208,19 +250,19 @@ fn formula_with_cached_value_written_and_typed() {
     let out = apply_patch_json(&base, &p).unwrap();
     let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
     assert!(
-        sheet.contains(r#"<c r="B1"><f>SUM(A1:A2)</f><v>6</v></c>"#),
+        sheet.contains(r#"<c r="B1" cm="1"><f t="array" ref="B1">SUM(A1:A2)</f><v>6</v></c>"#),
         "number cache: {sheet}"
     );
     assert!(
-        sheet.contains(r#"<c r="A5" t="str"><f>CONCAT(D1,&quot;!&quot;)</f><v>hello!</v></c>"#),
+        sheet.contains(r#"<c r="A5" t="str" cm="1"><f t="array" ref="A5">CONCAT(D1,&quot;!&quot;)</f><v>hello!</v></c>"#),
         "string cache: {sheet}"
     );
     assert!(
-        sheet.contains(r#"<c r="B5" t="b"><f>A1&gt;0</f><v>1</v></c>"#),
+        sheet.contains(r#"<c r="B5" t="b" cm="1"><f t="array" ref="B5">A1&gt;0</f><v>1</v></c>"#),
         "bool cache: {sheet}"
     );
     assert!(
-        sheet.contains(r#"<c r="C5" t="e"><f>1/0</f><v>#DIV/0!</v></c>"#),
+        sheet.contains(r#"<c r="C5" t="e" cm="1"><f t="array" ref="C5">1/0</f><v>#DIV/0!</v></c>"#),
         "error cache: {sheet}"
     );
 }
@@ -515,6 +557,10 @@ mod structural {
         let mut w = ZipWriter::new(Cursor::new(Vec::new()));
         for i in 0..ar.len() {
             let raw = ar.by_index_raw(i).unwrap();
+            // A part named in `extra` replaces the fixture's copy.
+            if extra.iter().any(|(n, _)| *n == raw.name()) {
+                continue;
+            }
             w.raw_copy_file(raw).unwrap();
         }
         for (name, data) in extra {
@@ -1123,4 +1169,114 @@ fn validate_package_ignores_zip_directory_entries() {
 
     super::validate::validate_package(&with_dirs)
         .expect("directory entries must not fail content-type validation");
+}
+
+#[test]
+fn hiding_a_grouped_row_keeps_its_outline_level() {
+    // Outline groups (Excel's +/- bars) live on <row outlineLevel> / <col outlineLevel>;
+    // the viewport grid collapses a group by hiding its rows, which must not drop them.
+    let sheet = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A3"/><sheetFormatPr defaultRowHeight="15" outlineLevelRow="1" outlineLevelCol="1"/><cols><col min="2" max="3" width="9" outlineLevel="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2" outlineLevel="1"><c r="A2"><v>2</v></c></row><row r="3" outlineLevel="1" hidden="1"><c r="A3"><v>3</v></c></row></sheetData></worksheet>"#;
+    let base = structural::fixture_with(&[("xl/worksheets/sheet1.xml", sheet)]);
+    let wb = entry_str(&base, "xl/workbook.xml");
+    let first = crate::structure::list_sheets(wb.as_bytes()).unwrap().into_iter().next().unwrap().0;
+    let p = patch(&format!(r#""sheets":[{{"name":"{first}","hiddenRows":[{{"r":1,"hidden":true}},{{"r":2,"hidden":false}}],"hiddenCols":[{{"c":1,"hidden":true}}]}}]"#));
+    let out = apply_patch_json(&base, &p).unwrap();
+    let xml = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(xml.contains(r#"<row r="2" outlineLevel="1" hidden="1">"#), "{xml}");
+    assert!(xml.contains(r#"<row r="3" outlineLevel="1">"#), "{xml}");
+    let col_b = xml.find(r#"min="2" max="2""#).map(|i| &xml[i.saturating_sub(5)..(i + 60).min(xml.len())]).unwrap_or("");
+    assert!(col_b.contains("outlineLevel=\"1\"") && col_b.contains("hidden=\"1\""), "{xml}");
+}
+
+#[test]
+fn auto_filter_with_criteria_round_trips() {
+    let base = structural::fixture();
+    let names: Vec<String> = crate::structure::list_sheets(entry_str(&base, "xl/workbook.xml").as_bytes()).unwrap().into_iter().map(|(n, _, _)| n).collect();
+    let first = &names[0];
+    let p = patch(&format!(r#""sheets":[{{"name":"{first}","autoFilter":{{"ref":"A1:C9","columns":[{{"colId":0,"values":["North","South"],"blank":true}},{{"colId":2,"custom":{{"and":true,"items":[{{"operator":"greaterThan","val":"5"}},{{"operator":"lessThanOrEqual","val":"10"}}]}}}}]}}}}]"#));
+    let out = apply_patch_json(&base, &p).unwrap();
+    let parts = crate::workbook_xml::sheet_part_paths(entry_str(&base, "xl/workbook.xml").as_bytes(), entry_str(&base, "xl/_rels/workbook.xml.rels").as_bytes()).unwrap();
+    let part = parts.iter().find(|(n, _)| n == first).map(|(_, p)| if p.starts_with("xl/") { p.clone() } else { format!("xl/{p}") }).unwrap();
+    let xml = entry_str(&out, &part);
+    assert!(xml.contains(r#"<autoFilter ref="A1:C9"><filterColumn colId="0"><filters blank="1"><filter val="North"/><filter val="South"/></filters></filterColumn><filterColumn colId="2"><customFilters and="1"><customFilter operator="greaterThan" val="5"/><customFilter operator="lessThanOrEqual" val="10"/></customFilters></filterColumn></autoFilter>"#), "{xml}");
+    // It sits before mergeCells / pageMargins and after sheetData.
+    let pos = |t: &str| xml.find(t).unwrap_or(usize::MAX);
+    assert!(pos("</sheetData>") < pos("<autoFilter") && pos("</autoFilter>") < pos("<pageMargins"), "{xml}");
+    // A bare range still works and replaces the criteria; null clears.
+    let p2 = patch(&format!(r#""sheets":[{{"name":"{first}","autoFilter":"A1:C9"}}]"#));
+    let out2 = apply_patch_json(&out, &p2).unwrap();
+    let xml2 = entry_str(&out2, &part);
+    assert!(xml2.contains(r#"<autoFilter ref="A1:C9"/>"#) && !xml2.contains("filterColumn"), "{xml2}");
+    let p3 = patch(&format!(r#""sheets":[{{"name":"{first}","autoFilter":null}}]"#));
+    let out3 = apply_patch_json(&out2, &p3).unwrap();
+    assert!(!entry_str(&out3, &part).contains("<autoFilter"));
+}
+
+#[test]
+fn duplicate_create_in_one_patch_is_one_sheet() {
+    let base = structural::fixture();
+    let p = patch(r#""sheetOps":[{"op":"create","name":"Notes"},{"op":"create","name":"Notes"}],"sheets":[{"name":"Notes","cells":[{"r":0,"c":0,"v":{"t":"s","s":"hi"}}]}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert_eq!(wb.matches(r#"name="Notes""#).count(), 1, "{wb}");
+    // Creating a sheet the file already has is idempotent too (a patch may
+    // be re-applied after a save that did not refresh client state).
+    let p2 = patch(r#""sheetOps":[{"op":"create","name":"Notes"}]"#);
+    let out2 = apply_patch_json(&out, &p2).unwrap();
+    assert_eq!(entry_str(&out2, "xl/workbook.xml").matches(r#"name="Notes""#).count(), 1);
+}
+
+#[test]
+fn sheet_tab_color_sets_replaces_and_clears() {
+    let base = structural::fixture();
+    let wb = entry_str(&base, "xl/workbook.xml");
+    let rels = entry_str(&base, "xl/_rels/workbook.xml.rels");
+    let parts = crate::workbook_xml::sheet_part_paths(wb.as_bytes(), rels.as_bytes()).unwrap();
+    let (_, part) = parts.iter().find(|(n, _)| n == "Data").unwrap();
+    let part = if part.starts_with("xl/") { part.clone() } else { format!("xl/{part}") };
+    let p = patch(r##""sheetOps":[{"op":"setTabColor","name":"Data","color":"#ff8800"}]"##);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let xml = entry_str(&out, &part);
+    assert!(xml.contains(r#"<sheetPr><tabColor rgb="FFFF8800"/></sheetPr>"#), "{xml}");
+    let pr = xml.find("<sheetPr").unwrap();
+    let dim = xml.find("<dimension").or_else(|| xml.find("<sheetData")).unwrap();
+    assert!(pr < dim, "sheetPr must precede the sheet body: {xml}");
+    // Replacing keeps a single tabColor.
+    let p2 = patch(r##""sheetOps":[{"op":"setTabColor","name":"Data","color":"#0000ff"}]"##);
+    let out2 = apply_patch_json(&out, &p2).unwrap();
+    let xml2 = entry_str(&out2, &part);
+    assert_eq!(xml2.matches("<tabColor").count(), 1, "{xml2}");
+    assert!(xml2.contains(r#"rgb="FF0000FF""#), "{xml2}");
+    // Clearing removes it.
+    let p3 = patch(r#""sheetOps":[{"op":"setTabColor","name":"Data","color":null}]"#);
+    let out3 = apply_patch_json(&out2, &p3).unwrap();
+    let xml3 = entry_str(&out3, &part);
+    assert!(!xml3.contains("<tabColor"), "{xml3}");
+    // Bad colours are rejected.
+    let p4 = patch(r#""sheetOps":[{"op":"setTabColor","name":"Data","color":"orange"}]"#);
+    assert!(apply_patch_json(&base, &p4).is_err());
+}
+
+#[test]
+fn sheet_visibility_sets_and_clears_state_and_keeps_one_visible() {
+    let base = structural::fixture();
+    let p = patch(r#""sheetOps":[{"op":"setVisibility","name":"Data","hidden":true}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains(r#"name="Data""#) && wb.contains(r#"state="hidden""#), "{wb}");
+    // Showing it again removes the attribute.
+    let p2 = patch(r#""sheetOps":[{"op":"setVisibility","name":"Data","hidden":false}]"#);
+    let out2 = apply_patch_json(&out, &p2).unwrap();
+    let wb2 = entry_str(&out2, "xl/workbook.xml");
+    assert!(!wb2.contains(r#"state="hidden""#), "{wb2}");
+    // The last visible sheet cannot be hidden.
+    let names: Vec<String> = crate::structure::list_sheets(wb.as_bytes()).unwrap().into_iter().map(|(n, _, _)| n).collect();
+    let mut ops = String::new();
+    for n in &names {
+        if !ops.is_empty() { ops.push(','); }
+        ops.push_str(&format!(r#"{{"op":"setVisibility","name":"{n}","hidden":true}}"#));
+    }
+    let p3 = patch(&format!(r#""sheetOps":[{ops}]"#));
+    assert!(apply_patch_json(&base, &p3).is_err());
 }

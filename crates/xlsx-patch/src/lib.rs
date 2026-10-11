@@ -5,7 +5,8 @@
 //! touch is copied raw. See docs/surgical-save-plan.md for the design.
 
 pub mod package;
-pub mod patch;
+pub mod metadata;
+mod patch;
 pub mod refs;
 pub mod row_col;
 pub mod sheet_xml;
@@ -109,6 +110,20 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                 &wb_rels_path,
                 name,
             )?,
+            SheetOp::SetVisibility { name, hidden } => structure::set_sheet_visibility(
+                &mut store,
+                &workbook_path,
+                name,
+                *hidden,
+            )?,
+            SheetOp::SetTabColor { name, color } => structure::set_tab_color(
+                &mut store,
+                &workbook_path,
+                &wb_rels_path,
+                &wb_dir,
+                name,
+                color.as_deref(),
+            )?,
         }
     }
     for op in &patch.row_col_ops {
@@ -119,6 +134,15 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
     let workbook_xml = store.read(&workbook_path)?;
     let wb_rels_xml = store.read(&wb_rels_path)?;
     let sheet_paths = workbook_xml::sheet_part_paths(&workbook_xml, &wb_rels_xml)?;
+
+    // Every formula the patch writes is marked as a dynamic-array formula
+    // (see `metadata.rs`): one metadata record per workbook, created here
+    // when the first formula needs it.
+    let dyn_cm = if patch.sheets.iter().any(|sp| sp.cells.iter().any(|c| c.f.is_some())) {
+        metadata::ensure_dynamic_array_cm(&mut store, &wb_dir, &wb_rels_path)?
+    } else {
+        None
+    };
 
     // Lazily-created styles editor, shared across sheets so interned indices
     // are consistent.
@@ -150,6 +174,7 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                 CellAction {
                     style: None,
                     content: cell_content(cp)?,
+                    cm: if cp.f.is_some() { dyn_cm } else { None },
                 },
             );
             content_cells.insert((cp.r, cp.c));
@@ -178,6 +203,7 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                     CellAction {
                         style: None,
                         content: CellContent::MaterializeFormula(translated),
+                        cm: None,
                     },
                 );
             }
@@ -204,6 +230,7 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                     .or_insert(CellAction {
                         style: None,
                         content: CellContent::Keep,
+                        cm: None,
                     });
                 cell.style = Some(new_s);
             }
@@ -242,10 +269,13 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
 
     // --- calc chain + fullCalcOnLoad ---
     if patch.has_content_changes() {
-        if let Some(calc_target) = find_rel_target(&wb_rels_xml, "/calcChain", &wb_dir) {
+        // Re-read: the dynamic-array metadata step above may have added a
+        // relationship since `wb_rels_xml` was captured.
+        let wb_rels_now = store.read(&wb_rels_path)?;
+        if let Some(calc_target) = find_rel_target(&wb_rels_now, "/calcChain", &wb_dir) {
             if store.exists(&calc_target) {
                 store.remove(&calc_target);
-                store.write(&wb_rels_path, workbook_xml::strip_calc_chain_rel(&wb_rels_xml)?);
+                store.write(&wb_rels_path, workbook_xml::strip_calc_chain_rel(&wb_rels_now)?);
                 let ct = store.read("[Content_Types].xml")?;
                 let stripped =
                     workbook_xml::strip_content_type_override(&ct, &format!("/{calc_target}"))?;

@@ -39,13 +39,22 @@ export type ScriptModel = {
   /** Sheet names in tab order. */
   sheetNames: string[];
   sheets: Record<string, ScriptSheetData>;
+  /** Sheets whose cells were NOT loaded into this model (engine-sourced
+   * runs preload only the sheets the script names). Reading one throws an
+   * agent-readable error instead of returning blanks; writing is fine. */
+  unloaded?: string[];
 };
+
+/** How much engine JSON a single script run may pull into its sandbox. */
+export const SCRIPT_MAX_SOURCE_BYTES = 400 * 1024 * 1024;
 
 export type ScriptLimits = {
   /** Cap on cells touched by set/setValues/format/clear combined. */
   maxTouched: number;
   /** Cap on log() entries retained. */
   maxLogs: number;
+  maxLogChars: number;
+  maxLogBytes: number;
 };
 
 export type ScriptCoreResult =
@@ -54,6 +63,10 @@ export type ScriptCoreResult =
 
 export const SCRIPT_MAX_TOUCHED = 20_000;
 export const SCRIPT_MAX_LOGS = 100;
+/** Per-entry cap; a cut entry ends with "… [+N chars]" so the model knows. */
+export const SCRIPT_MAX_LOG_CHARS = 4_000;
+/** Total log budget across entries; one final entry says when it was hit. */
+export const SCRIPT_MAX_LOG_BYTES = 64 * 1024;
 export const SCRIPT_TIMEOUT_MS = 5_000;
 /** Backstop against pathological snapshots — structured-cloning a multi-
  * million-cell model into the worker would stall the UI thread. */
@@ -125,9 +138,20 @@ export function scriptCore(payload: {
   const handles: Record<string, unknown> = {};
   const makeHandle = (name: string) => {
     const data = model.sheets[name];
+    const unloaded = Array.isArray(model.unloaded) && model.unloaded.indexOf(name) !== -1;
+    const assertReadable = (what: string) => {
+      if (unloaded) {
+        throw new Error(
+          `${what}: sheet "${name}" was not loaded for this script. Only sheets named as string literals in the ` +
+            `script (e.g. sheet("${name}")) are loaded before it runs — name every sheet you read, or call sheets() ` +
+            `in the script to load them all.`,
+        );
+      }
+    };
     /** Script's own writes, overlaid on reads. */
     const written: Record<string, { v: string | number | boolean | null; f: string | null }> = {};
     const getCell = (addr: unknown): { value: string | number | boolean | null; formula: string | null } => {
+      assertReadable(`get(${String(addr)})`);
       const { row, col } = parseAddr(addr);
       const w = written[`${row},${col}`];
       // A formula written by this script has no evaluated value yet — the
@@ -158,6 +182,7 @@ export function scriptCore(payload: {
       get: getCell,
       set: setCell,
       values: (range: unknown): (string | number | boolean | null)[][] => {
+        assertReadable(`values(${String(range)})`);
         const { r0, c0, r1, c1 } = parseRange(range);
         const out: (string | number | boolean | null)[][] = [];
         for (let r = r0; r <= r1; r++) {
@@ -203,6 +228,7 @@ export function scriptCore(payload: {
         ops.push({ kind: "clear", sheet: name, range: String(range) });
       },
       usedRange: (): string | null => {
+        assertReadable("usedRange()");
         // Pre-script extent — the script's own writes don't move it.
         let maxR = -1;
         let maxC = -1;
@@ -240,9 +266,11 @@ export function scriptCore(payload: {
     return (handles[resolved] ??= makeHandle(resolved));
   };
   const sheetsFn = () => model.sheetNames.slice();
+  let logBytes = 0;
+  let logBudgetNoted = false;
   const logFn = (...args: unknown[]) => {
     if (logs.length >= limits.maxLogs) return;
-    const line = args
+    const full = args
       .map((a) => {
         if (typeof a === "string") return a;
         try {
@@ -251,8 +279,17 @@ export function scriptCore(payload: {
           return String(a);
         }
       })
-      .join(" ")
-      .slice(0, 500);
+      .join(" ");
+    // Cuts are visible: a row dump that lost its tail used to look complete.
+    const line = full.length > limits.maxLogChars ? `${full.slice(0, limits.maxLogChars)}… [+${full.length - limits.maxLogChars} chars]` : full;
+    if (logBytes + line.length > limits.maxLogBytes) {
+      if (!logBudgetNoted) {
+        logBudgetNoted = true;
+        logs.push(`(log budget of ${Math.round(limits.maxLogBytes / 1024)} KB reached — later log() calls were dropped; use query_rows / read_range for bulk reads)`);
+      }
+      return;
+    }
+    logBytes += line.length;
     logs.push(line);
   };
 
@@ -265,6 +302,48 @@ export function scriptCore(payload: {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg, logs };
   }
+}
+
+/**
+ * Build the script's read model from the ENGINE's per-sheet JSON
+ * (`calc_engine_sheet_cells` / wasm `sheetCells`: `{sheet, cells:[{r,c,f,v}]}`,
+ * 1-based) for the sheets that were fetched; every other sheet is listed but
+ * marked unloaded. Engine-sourced: the model is the truth regardless of what
+ * the grid holds (lazy sheets), and nothing is copied out of the grid.
+ * SELF-CONTAINED like scriptCore: its source is stringified into the worker.
+ */
+export function buildScriptModelFromEngineSheets(sheetNames: string[], loaded: Record<string, string>): ScriptModel {
+  const sheets: Record<string, ScriptSheetData> = {};
+  const unloaded: string[] = [];
+  for (const name of sheetNames) {
+    const raw = loaded[name];
+    if (raw === undefined) {
+      sheets[name] = {};
+      unloaded.push(name);
+      continue;
+    }
+    const parsed = JSON.parse(raw) as { cells?: Array<{ r: number; c: number; f?: string; v?: unknown }> };
+    const data: ScriptSheetData = {};
+    for (const cell of parsed.cells ?? []) {
+      const f = typeof cell.f === "string" && cell.f ? cell.f : null;
+      const v = cell.v === undefined ? null : (cell.v as string | number | boolean | null);
+      if (v === null && f === null) continue;
+      data[`${cell.r - 1},${cell.c - 1}`] = { v, f };
+    }
+    sheets[name] = data;
+  }
+  return { sheetNames: sheetNames.slice(), sheets, unloaded };
+}
+
+/**
+ * Which sheets a script reads: those named as string literals in its source.
+ * `sheets()` (enumeration) or a non-literal `sheet(expr)` means "could be
+ * any" and loads them all.
+ */
+export function sheetsReferencedByScript(code: string, sheetNames: string[]): { names: string[]; all: boolean } {
+  const all = /\bsheets\s*\(/.test(code) || /\bsheet\s*\(\s*[^"'`)\s]/.test(code);
+  if (all) return { names: sheetNames.slice(), all: true };
+  return { names: sheetNames.filter((n) => code.includes(n)), all: false };
 }
 
 /**
@@ -390,9 +469,20 @@ export function buildWorkerSource(): string {
   return (
     WORKER_PREAMBLE +
     `const __core = ${scriptCore.toString()};\n` +
+    `const __fromEngine = ${buildScriptModelFromEngineSheets.toString()};\n` +
     `self.onmessage = (e) => {\n` +
     `  let r;\n` +
-    `  try { r = __core(e.data); } catch (err) { r = { ok: false, error: String((err && err.message) || err), logs: [] }; }\n` +
+    `  try {\n` +
+    `    const d = e.data;\n` +
+    `    if (d.sheetBuffers) {\n` +
+    `      const dec = new TextDecoder();\n` +
+    `      const loaded = {};\n` +
+    `      for (const name of Object.keys(d.sheetBuffers)) loaded[name] = dec.decode(new Uint8Array(d.sheetBuffers[name]));\n` +
+    `      d.model = __fromEngine(d.sheetNames, loaded);\n` +
+    `      d.sheetBuffers = null;\n` +
+    `    }\n` +
+    `    r = __core(d);\n` +
+    `  } catch (err) { r = { ok: false, error: String((err && err.message) || err), logs: [] }; }\n` +
     `  self.postMessage(r);\n` +
     `};\n`
   );
@@ -403,30 +493,75 @@ export function buildWorkerSource(): string {
  * recorded ops to mutations. Never rejects — every failure mode returns
  * `{ok: false}` with an agent-readable error so the model can fix and retry.
  */
+/** Engine-backed source for a script's read model: the engine's per-sheet
+ * JSON as bytes, fetched only for the sheets the script names. */
+export type ScriptEngineSource = {
+  sheetNames: string[];
+  fetchSheet: (name: string) => Promise<ArrayBuffer | null>;
+};
+
 export async function executeSheetScript(
   grid: { getWorkbookSnapshot: () => any | null },
   code: string,
-  opts?: { timeoutMs?: number; maxTouched?: number },
+  opts?: { timeoutMs?: number; maxTouched?: number; source?: ScriptEngineSource },
 ): Promise<ScriptExecResult> {
   const timeoutMs = opts?.timeoutMs ?? SCRIPT_TIMEOUT_MS;
   const limits: ScriptLimits = {
     maxTouched: opts?.maxTouched ?? SCRIPT_MAX_TOUCHED,
     maxLogs: SCRIPT_MAX_LOGS,
+    maxLogChars: SCRIPT_MAX_LOG_CHARS,
+    maxLogBytes: SCRIPT_MAX_LOG_BYTES,
   };
-  let model: ScriptModel;
-  try {
-    model = buildScriptModelFromSnapshot(grid.getWorkbookSnapshot());
-  } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e), logs: [] };
+  // Engine-sourced run: bytes per named sheet, transferred into the worker,
+  // parsed there. The grid is never copied, so workbook size stops being a
+  // reason to refuse (the whole-snapshot clone below is capped at 1M cells).
+  let engineBuffers: Record<string, ArrayBuffer> | null = null;
+  if (opts?.source) {
+    const { names, all } = sheetsReferencedByScript(code, opts.source.sheetNames);
+    engineBuffers = {};
+    let bytes = 0;
+    for (const name of names) {
+      const buf = await opts.source.fetchSheet(name);
+      if (!buf) continue;
+      bytes += buf.byteLength;
+      if (bytes > SCRIPT_MAX_SOURCE_BYTES) {
+        return {
+          ok: false,
+          error:
+            `this script would load ${Math.round(bytes / 1e6)} MB of sheet data (${all ? "it enumerates every sheet" : `${names.length} sheets`}); ` +
+            `name only the sheets you actually read, as string literals, and split the work across scripts if needed`,
+          logs: [],
+        };
+      }
+      engineBuffers[name] = buf;
+    }
   }
 
-  const payload = { code, model, limits };
+  let model: ScriptModel | null = null;
+  if (!engineBuffers) {
+    try {
+      model = buildScriptModelFromSnapshot(grid.getWorkbookSnapshot());
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), logs: [] };
+    }
+  }
+
   let core: ScriptCoreResult;
   if (typeof Worker === "undefined") {
     // Test / headless environments only — the shipped webview always has
     // Worker. Direct execution has no kill switch, so it never runs in prod.
-    core = scriptCore(payload);
+    if (engineBuffers) {
+      const dec = new TextDecoder();
+      const loaded: Record<string, string> = {};
+      for (const name of Object.keys(engineBuffers)) loaded[name] = dec.decode(new Uint8Array(engineBuffers[name]));
+      model = buildScriptModelFromEngineSheets(opts!.source!.sheetNames, loaded);
+    }
+    core = scriptCore({ code, model: model!, limits });
   } else {
+    const payload: any = engineBuffers
+      ? { code, limits, sheetNames: opts!.source!.sheetNames, sheetBuffers: engineBuffers }
+      : { code, model, limits };
+    const transfer = engineBuffers ? Object.values(engineBuffers) : [];
     const url = URL.createObjectURL(new Blob([buildWorkerSource()], { type: "application/javascript" }));
     const worker = new Worker(url);
     core = await new Promise<ScriptCoreResult>((resolve) => {
@@ -446,7 +581,7 @@ export async function executeSheetScript(
         clearTimeout(timer);
         resolve({ ok: false, error: `script worker error: ${e.message || "unknown"}`, logs: [] });
       };
-      worker.postMessage(payload);
+      worker.postMessage(payload, transfer);
     }).finally(() => {
       worker.terminate();
       URL.revokeObjectURL(url);

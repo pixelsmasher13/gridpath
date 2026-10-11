@@ -13,12 +13,32 @@ import { fileURLToPath } from "node:url";
 import type { CellFormatShape, UniverMutation, ChangeBatch } from "../core/types";
 import { buildCellBaseline, buildWorkbookPatch, type BaselineCell } from "../core/surgicalPatch";
 import { buildSaveMirror } from "../core/saveMirror";
-import { cellKey, mapSnapshot, parseA1Range, type EngineSnapshot, type MappedSnapshot, type WorkbookSnapshot } from "./snapshot";
+import {
+  cellKey,
+  mapCell,
+  mapSnapshot,
+  newStyleCache,
+  parseA1Range,
+  sheetIdOf,
+  stripImplicitIntersection,
+  type EngineCell,
+  type EngineSnapshot,
+  type EngineStyle,
+  type MappedSnapshot,
+  type WorkbookSnapshot,
+} from "./snapshot";
+import { buildWorkbookIndex, type WorkbookIndex } from "../core/workbookIndex";
 
 // ---- engine loading ----
 
+/** What `evaluateEdited` returns: refresh everything, or just these cells. */
+type EngineDelta =
+  | { full: true }
+  | { full: false; cells: Array<EngineCell & { sheet: number }>; styles: Record<string, EngineStyle> };
+
 type EngineWorkbook = {
   evaluate(): void;
+  evaluateEdited(): string;
   sheetNames(): string[];
   snapshot(): string;
   cell(sheet: number, row: number, col: number): string;
@@ -39,6 +59,10 @@ type EngineWorkbook = {
   setColumnsHidden(sheet: number, start: number, end: number, hidden: boolean): void;
   setRowsHidden(sheet: number, start: number, end: number, hidden: boolean): void;
   newDefinedName(name: string, formula: string): void;
+  /** Structural index (engine-built; same shape as buildWorkbookIndex). */
+  workbookIndex?(): string;
+  /** query_rows reply JSON for a query whose `sheet` is an index. */
+  queryRows?(query: string): string;
 };
 type Engine = {
   Workbook: { open(bytes: Uint8Array): EngineWorkbook };
@@ -161,6 +185,27 @@ export class WorkbookSession {
     return this.wb.sheetNames();
   }
 
+  /**
+   * Structural index of the workbook, built by the engine from its own
+   * model (`gridpath_engine_core::index`). Falls back to the TypeScript
+   * builder over the snapshot when the engine binary predates the export.
+   */
+  workbookIndex(): WorkbookIndex {
+    if (typeof this.wb.workbookIndex === "function") {
+      return JSON.parse(this.wb.workbookIndex()) as WorkbookIndex;
+    }
+    return buildWorkbookIndex(this.snapshot());
+  }
+
+  /** `query_rows` served by the engine; `sheet` is a sheet NAME here. */
+  queryRows(sheet: string, query: Record<string, unknown>): unknown {
+    if (typeof this.wb.queryRows !== "function") {
+      throw new Error("query_rows needs a newer engine build — run `npm run build:engine`");
+    }
+    const idx = this.sheetIndex(sheet);
+    return JSON.parse(this.wb.queryRows(JSON.stringify({ ...query, sheet: idx })));
+  }
+
   sheetIndex(name: string): number {
     const i = this.wb.sheetNames().indexOf(name);
     if (i < 0) throw new Error(`Sheet not found: ${name}`);
@@ -171,7 +216,7 @@ export class WorkbookSession {
   cell(sheet: string, row: number, col: number): ReadCell {
     const idx = this.sheetIndex(sheet);
     const c = JSON.parse(this.wb.cell(idx, row + 1, col + 1)) as { content: string; value: any; display: string };
-    const formula = typeof c.content === "string" && c.content.startsWith("=") ? c.content : null;
+    const formula = typeof c.content === "string" && c.content.startsWith("=") ? stripImplicitIntersection(c.content) : null;
     const out: ReadCell = { cell: a1Of(row, col), value: c.value ?? null, formula };
     if (c.display && String(c.value) !== c.display) out.display = c.display;
     return out;
@@ -217,9 +262,11 @@ export class WorkbookSession {
   // -- writes --
 
   /**
-   * Apply a batch of mutations to the engine, evaluate once, invalidate the
-   * snapshot. Throws on the first mutation the engine rejects; the batch is
-   * recorded only if every mutation applied.
+   * Apply a batch of mutations to the engine and evaluate once. Cell edits
+   * recalculate only their dependency closure and the cached snapshot is
+   * patched in place; structural edits fall back to a full recalculation and
+   * a fresh snapshot. Throws on the first mutation the engine rejects; the
+   * batch is recorded only if every mutation applied.
    */
   apply(batch: Omit<ChangeBatch, "status" | "created_at"> & Partial<Pick<ChangeBatch, "status" | "created_at">>): ChangeBatch {
     // Capture the pre-edit state on each cell mutation so the review UI can
@@ -227,11 +274,49 @@ export class WorkbookSession {
     // undid. Tool calls arrive with old_* unset (no grid to read from).
     const mutations = batch.mutations.map((m) => this.withOldState(m));
     for (const m of mutations) this.applyOne(m);
-    this.wb.evaluate();
-    this.mapped = null;
+    const delta = JSON.parse(this.wb.evaluateEdited()) as EngineDelta;
+    if (delta.full || !this.mapped) this.mapped = null;
+    else this.patchMapped(delta);
     const rec: ChangeBatch = { status: "pending", created_at: new Date().toISOString(), ...batch, mutations };
     this.batches.push(rec);
     return rec;
+  }
+
+  /**
+   * Fold an incremental delta into the cached snapshot: the same per-cell
+   * mapping `mapSnapshot` uses, applied to just the cells the engine says
+   * changed. A 2M-cell workbook no longer re-serialises per edit.
+   */
+  private patchMapped(delta: Extract<EngineDelta, { full: false }>): void {
+    const mapped = this.mapped;
+    if (!mapped) return;
+    const names = this.wb.sheetNames();
+    const cache = newStyleCache();
+    for (const ec of delta.cells) {
+      const name = names[ec.sheet];
+      const sheet = name !== undefined ? mapped.workbook.sheets[sheetIdOf(name)] : undefined;
+      if (!sheet) {
+        // A sheet the snapshot doesn't know: safer to rebuild than to guess.
+        this.mapped = null;
+        return;
+      }
+      const r0 = ec.r - 1;
+      const c0 = ec.c - 1;
+      const key = cellKey(name!, r0, c0);
+      const { cell, format, display } = mapCell(ec, delta.styles, cache);
+      if (cell) {
+        (sheet.cellData[r0] ??= {})[c0] = cell;
+        if (r0 + 100 > sheet.rowCount) sheet.rowCount = r0 + 100;
+        if (c0 + 20 > sheet.columnCount) sheet.columnCount = c0 + 20;
+      } else if (sheet.cellData[r0]) {
+        delete sheet.cellData[r0][c0];
+        if (Object.keys(sheet.cellData[r0]).length === 0) delete sheet.cellData[r0];
+      }
+      if (format) mapped.formats.set(key, format);
+      else mapped.formats.delete(key);
+      if (display !== null) mapped.display.set(key, display);
+      else mapped.display.delete(key);
+    }
   }
 
   private withOldState(m: UniverMutation): UniverMutation {

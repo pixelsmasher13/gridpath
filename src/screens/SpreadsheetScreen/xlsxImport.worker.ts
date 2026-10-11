@@ -12,9 +12,11 @@ import {
   xlsxBytesToWorkbook,
 } from "./xlsxImport";
 
-self.onmessage = async (e: MessageEvent<{ bytes: Uint8Array }>) => {
+self.onmessage = async (e: MessageEvent<{ bytes: Uint8Array; metaOnly?: boolean }>) => {
   try {
-    const { excelJs, univerData, styleOps, outlines, featureCounts } = await xlsxBytesToWorkbook(e.data.bytes);
+    const { excelJs, univerData, styleOps, outlines, featureCounts } = await xlsxBytesToWorkbook(e.data.bytes, {
+      metaOnly: !!e.data.metaOnly,
+    });
     const result = {
       univerData,
       styleOps,

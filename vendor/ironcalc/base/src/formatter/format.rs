@@ -3,7 +3,7 @@ use chrono::Datelike;
 use crate::{locale::Locale, number_format::to_precision};
 
 use super::{
-    dates::{date_to_serial_number, from_excel_date},
+    dates::{date_to_serial_number, excel_display_date},
     parser::{ParsePart, Parser, TextToken},
 };
 
@@ -171,7 +171,7 @@ pub fn format_number(value_original: f64, format: &str, locale: &Locale) -> Form
             let hours = (time_fract * 24.0).floor();
             let minutes = ((time_fract * 24.0 - hours) * 60.0).floor();
             let seconds = ((((time_fract * 24.0 - hours) * 60.0) - minutes) * 60.0).round();
-            let date = from_excel_date(value as i64).ok();
+            let date = excel_display_date(value as i64).ok();
             for token in tokens {
                 match token {
                     TextToken::Literal(c) => {

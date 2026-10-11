@@ -1,0 +1,68 @@
+<!-- title: Formatting and layout -->
+<!-- description: Formatting Excel cells through GridPath: set_format keys and bulk operations, column widths, row heights, freeze panes, merges, hidden rows and columns, cell notes and named ranges. -->
+<h1 class="legal-title">Formatting and layout.</h1>
+<p class="legal-lede">Number formats, fonts, fills, alignment and wrap through <code>set_format</code>, plus the layout tools: widths, heights, freezes, merges, hidden rows and columns, notes and defined names.</p>
+
+<h2 id="set-format"><code>set_format</code></h2>
+<p>Applies a partial format to one range, or to many ranges in one call. Only the keys you pass change; everything else on the cell is left as it is.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "operations": [
+    { "range": "A1",      "format": { "bold": true, "font_size": 16 } },
+    { "range": "A4:F4",   "format": { "bold": true, "background_color": "#1F4E79", "font_color": "#FFFFFF" } },
+    { "range": "B5:F41",  "format": { "number_format": "#,##0" } },
+    { "range": "B44:F44", "format": { "number_format": "0.0%" } },
+    { "range": "H5:H41",  "format": { "wrap_text": true, "vertical_align": "top" } }
+  ]
+}</code></pre>
+<p>The single-range form is <code>{ sheet, range, format }</code>. Prefer <code>operations</code> whenever there is more than one format to apply: one call instead of many.</p>
+
+<h3 id="format-keys">Format keys</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>Type</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>number_format</code></td><td>string</td><td>Excel format code. <code>"$#,##0.00"</code>, <code>"0.0%"</code>, <code>"#,##0"</code>, <code>"@"</code> for text.</td></tr>
+<tr><td><code>bold</code>, <code>italic</code>, <code>underline</code>, <code>strike</code></td><td>boolean</td><td></td></tr>
+<tr><td><code>font_size</code></td><td>number</td><td>Points.</td></tr>
+<tr><td><code>font_family</code></td><td>string</td><td><code>"Calibri"</code>, <code>"Arial"</code>, <code>"Aptos Narrow"</code>.</td></tr>
+<tr><td><code>font_color</code></td><td>string</td><td>CSS color, <code>"#000000"</code> or <code>"red"</code>.</td></tr>
+<tr><td><code>background_color</code></td><td>string or null</td><td>Cell fill. <code>null</code> clears it. Pair light font colors with a dark fill.</td></tr>
+<tr><td><code>horizontal_align</code></td><td>left, center, right</td><td></td></tr>
+<tr><td><code>vertical_align</code></td><td>top, middle, bottom</td><td></td></tr>
+<tr><td><code>wrap_text</code></td><td>boolean</td><td>Wrap instead of overflow. Pair with a wider column and <code>vertical_align: "top"</code> for notes columns.</td></tr>
+</tbody>
+</table></div>
+<div class="docs-callout"><p>Cell borders are not supported in this version. Existing borders in the file are preserved; the agent cannot add or change them yet.</p></div>
+
+<h2 id="widths">Column widths and row heights</h2>
+<p><code>set_column_width</code> and <code>set_row_height</code> take pixels. Both have a single form and a bulk <code>operations</code> form; use bulk when groups need different sizes. The default Excel column is about 64 px and a label column is typically 180 to 220; the default row is about 24.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "operations": [
+    { "columns": "A", "width": 220 },
+    { "columns": "B,C,D,E,F", "width": 96 }
+  ]
+}</code></pre>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "operations": [ { "rows": "1", "height": 36 } ] }</code></pre>
+
+<h2 id="freeze">Freeze panes</h2>
+<p><code>freeze_panes</code> locks the top <code>freeze_rows</code> rows and left <code>freeze_cols</code> columns. The classic model setup is one row and one column. Pass 0 to leave an axis unfrozen. <code>unfreeze_panes</code> removes any freeze on the sheet.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "freeze_rows": 4, "freeze_cols": 1 }</code></pre>
+
+<h2 id="merge">Merges</h2>
+<p><code>merge_cells</code> merges a rectangular range into one visible cell, typically for a section header spanning the columns. <code>unmerge_cells</code> reverses it.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "range": "A1:F1" }</code></pre>
+
+<h2 id="hide">Hidden rows and columns</h2>
+<p><code>hide_rows</code> and <code>show_rows</code> take a comma-separated list of 1-indexed row numbers; <code>hide_columns</code> and <code>show_columns</code> take column letters. Hidden cells keep their data.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "columns": "D,F,H" }</code></pre>
+
+<h2 id="notes">Cell notes</h2>
+<p><code>set_note</code> attaches an Excel-style comment to a cell, for methodology callouts, source citations or caveats that would clutter the cell itself. It overwrites any existing note. <code>delete_note</code> removes it.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Assumptions", "cell": "B7", "text": "Statutory rate per FY2025 10-K, p. 84." }</code></pre>
+
+<h2 id="names">Named ranges</h2>
+<p><code>define_name</code> creates or replaces a workbook-scoped defined name so formulas can say <code>=Revenue*(1+GrowthRate)</code> instead of <code>=B42*(1+Assumptions!B5)</code>. The name must be a valid Excel name and must not look like a cell address; <code>ref</code> is sheet-qualified. The name persists in the saved file.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "name": "GrowthRate", "ref": "Assumptions!B5" }</code></pre>

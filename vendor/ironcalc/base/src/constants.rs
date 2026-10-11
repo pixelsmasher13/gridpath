@@ -32,8 +32,10 @@ pub(crate) const EXCEL_PRECISION: usize = 15;
 /// The 2 days offset is because of Excel 1900 bug
 pub(crate) const EXCEL_DATE_BASE: i32 = 693_594;
 
-/// We do not support dates before 1899-12-31.
-pub(crate) const MINIMUM_DATE_SERIAL_NUMBER: i32 = 1;
+/// Serial 0 is Excel's "0 January 1900" (shown as 1/0/1900): a valid, if
+/// fictional, date that blank or zero date cells produce. Negative serials
+/// are #NUM! in Excel and here.
+pub(crate) const MINIMUM_DATE_SERIAL_NUMBER: i32 = 0;
 
 /// Excel can handle dates until the year 9999-12-31
 /// 2958465 is the number of days from 1900-01-01 to 9999-12-31

@@ -24,6 +24,7 @@ export type ToolResult =
   | { kind: "read_reference"; workbook: string; sheet: string; range: string }
   | { kind: "describe_workbook"; sheet: string | null }
   | { kind: "find_rows"; query: string; sheet: string | null; max_results: number }
+  | { kind: "query_rows"; sheet: string; query: Record<string, unknown> }
   | { kind: "script"; code: string }
   | {
       kind: "stage";
@@ -600,6 +601,41 @@ export function interpretToolCall(name: string, input: any): ToolResult {
       const rawMax = Number(input?.max_results);
       const max_results = Number.isFinite(rawMax) ? Math.min(50, Math.max(1, Math.trunc(rawMax))) : 20;
       return { kind: "find_rows", query, sheet, max_results };
+    }
+    case "query_rows": {
+      const sheet = String(input?.sheet ?? "").trim();
+      if (!sheet) {
+        return { kind: "ignored", reason: `query_rows: missing sheet` };
+      }
+      // Array-valued args occasionally arrive JSON-encoded as strings.
+      const arr = (v: unknown): unknown => {
+        if (typeof v === "string" && v.trim().startsWith("[")) {
+          try {
+            return JSON.parse(v);
+          } catch {
+            return v;
+          }
+        }
+        return v;
+      };
+      const obj = (v: unknown): unknown => {
+        if (typeof v === "string" && v.trim().startsWith("{")) {
+          try {
+            return JSON.parse(v);
+          } catch {
+            return v;
+          }
+        }
+        return v;
+      };
+      const query: Record<string, unknown> = {};
+      const keys = ["header_row", "start_row", "end_row", "limit", "group_by", "include_formulas"];
+      for (const k of keys) if (input?.[k] !== undefined && input[k] !== null) query[k] = input[k];
+      if (input?.where !== undefined) query.where = arr(input.where);
+      if (input?.columns !== undefined) query.columns = arr(input.columns);
+      if (input?.aggregate !== undefined) query.aggregate = arr(input.aggregate);
+      if (input?.order_by !== undefined) query.order_by = obj(input.order_by);
+      return { kind: "query_rows", sheet, query };
     }
     case "run_script": {
       // Execution needs the live grid (snapshot for the read model), so it

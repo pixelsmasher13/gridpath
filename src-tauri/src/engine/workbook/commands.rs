@@ -288,3 +288,177 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// Unsaved-work journal (see src/screens/SpreadsheetScreen/journal.ts).
+//
+// Small JSON files under <app_data>/journals, one per open file-backed
+// workbook, holding the edits made since the last save so a crash (the app
+// running out of memory on a 2M-cell model, a kernel panic…) does not lose
+// them. Written atomically (temp file + rename) so a crash mid-write leaves
+// the previous journal intact.
+// ---------------------------------------------------------------------------
+
+fn journal_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir failed: {}", e))?
+        .join("journals");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create journals dir failed: {}", e))?;
+    Ok(dir)
+}
+
+fn journal_path(app_handle: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        || name.starts_with('.')
+    {
+        return Err(format!("invalid journal name: {name:?}"));
+    }
+    Ok(journal_dir(app_handle)?.join(name))
+}
+
+#[tauri::command]
+pub async fn journal_write(app_handle: AppHandle, name: String, json: String) -> Result<(), String> {
+    let path = journal_path(&app_handle, &name)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json.as_bytes()).map_err(|e| format!("journal write failed: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("journal rename failed: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn journal_read(app_handle: AppHandle, name: String) -> Result<Option<String>, String> {
+    let path = journal_path(&app_handle, &name)?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("journal read failed: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub async fn journal_delete(app_handle: AppHandle, name: String) -> Result<(), String> {
+    let path = journal_path(&app_handle, &name)?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("journal delete failed: {}", e)),
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct FileStamp {
+    pub size: u64,
+    pub mtime_ms: u64,
+}
+
+/// Size and modification time of a workbook file: the journal's fingerprint
+/// of the file it belongs to, so a journal is never replayed onto a file
+/// that changed underneath it (saved from another app, replaced…).
+#[tauri::command]
+pub async fn workbook_file_stamp(app_handle: AppHandle, path: String) -> Result<FileStamp, String> {
+    let resolved = resolve_workbook_path(&app_handle, &path)?;
+    let meta = std::fs::metadata(&resolved).map_err(|e| format!("stat failed: {}", e))?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    Ok(FileStamp { size: meta.len(), mtime_ms })
+}
+
+
+// ---------------------------------------------------------------------------
+// Memory report. The calc engine lives in this process; the grid (Univer)
+// and everything JavaScript keeps around it live in WebKit's content
+// process, which macOS terminates under pressure — that, not the engine, is
+// what dies on a 2M-cell workbook. The content process is not our child
+// (WebKit spawns it over XPC), so we ask the WKWebView for its pid.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+pub struct MemoryReport {
+    /// Resident size of this (Rust / engine) process, bytes.
+    pub app_rss: u64,
+    pub webview_pid: Option<u32>,
+    /// Resident size of the WebKit content process hosting the grid, bytes.
+    pub webview_rss: Option<u64>,
+}
+
+#[cfg(target_os = "macos")]
+async fn webview_process_id(app_handle: &AppHandle) -> Option<u32> {
+    use tauri::Manager;
+    let window = app_handle.get_webview_window("main")?;
+    let (tx, rx) = std::sync::mpsc::channel::<Option<u32>>();
+    let dispatched = window
+        .with_webview(move |pw| {
+            // WKWebView's `_webProcessIdentifier` (what Safari's own
+            // diagnostics use). Private, stable since 10.13.
+            let obj: *mut objc2::runtime::AnyObject = pw.inner().cast();
+            let pid: i32 = unsafe { objc2::msg_send![obj, _webProcessIdentifier] };
+            let _ = tx.send(if pid > 0 { Some(pid as u32) } else { None });
+        })
+        .is_ok();
+    if !dispatched {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(2)).ok().flatten())
+        .await
+        .ok()
+        .flatten()
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn webview_process_id(_app_handle: &AppHandle) -> Option<u32> {
+    None
+}
+
+#[tauri::command]
+pub async fn memory_report(app_handle: AppHandle) -> Result<MemoryReport, String> {
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+    let webview_pid = webview_process_id(&app_handle).await;
+    let app_pid = std::process::id();
+    let mut pids = vec![Pid::from_u32(app_pid)];
+    if let Some(p) = webview_pid {
+        pids.push(Pid::from_u32(p));
+    }
+    // macOS: `ps` is the reliable reader here. sysinfo's per-process memory
+    // from a fresh System reported 25–55 MB for a process holding a 2.3M-cell
+    // model, interleaved with correct GB readings, so the monitor's series
+    // was noise. ps costs ~5 ms every 10 s.
+    #[cfg(target_os = "macos")]
+    {
+        let args: Vec<String> = pids.iter().map(|p| p.as_u32().to_string()).collect();
+        if let Ok(out) = std::process::Command::new("ps").arg("-o").arg("pid=,rss=").arg("-p").arg(args.join(",")).output() {
+            let mut by_pid = std::collections::HashMap::new();
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let mut it = line.split_whitespace();
+                if let (Some(pid), Some(kb)) = (it.next().and_then(|s| s.parse::<u32>().ok()), it.next().and_then(|s| s.parse::<u64>().ok())) {
+                    by_pid.insert(pid, kb * 1024);
+                }
+            }
+            if by_pid.contains_key(&app_pid) {
+                return Ok(MemoryReport {
+                    app_rss: by_pid[&app_pid],
+                    webview_pid,
+                    webview_rss: webview_pid.and_then(|p| by_pid.get(&p).copied()),
+                });
+            }
+        }
+    }
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::Some(&pids), true);
+    let rss = |pid: u32| sys.process(Pid::from_u32(pid)).map(|p| p.memory());
+    Ok(MemoryReport {
+        app_rss: rss(app_pid).unwrap_or(0),
+        webview_pid,
+        webview_rss: webview_pid.and_then(rss),
+    })
+}

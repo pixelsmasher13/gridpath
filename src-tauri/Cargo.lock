@@ -1960,11 +1960,13 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "futures-util",
+ "gridpath_engine_core",
  "ironcalc",
  "ironcalc_base",
  "lazy_static",
  "log",
  "nix 0.28.0",
+ "objc2 0.5.2",
  "once_cell",
  "pdf-extract",
  "quick-xml 0.36.2",
@@ -1994,6 +1996,15 @@ dependencies = [
  "xlsx_patch",
  "xxhash-rust",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "gridpath_engine_core"
+version = "0.1.0"
+dependencies = [
+ "ironcalc_base",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

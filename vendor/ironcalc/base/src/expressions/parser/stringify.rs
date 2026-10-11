@@ -969,7 +969,6 @@ fn stringify(
                     | WrongReferenceKind { .. }
                     | WrongRangeKind { .. }
                     | OpRangeKind { .. }
-                    | OpConcatenateKind { .. }
                     | OpProductKind { .. }
                     | FunctionKind { .. }
                     | NamedFunctionKind { .. }
@@ -981,12 +980,16 @@ fn stringify(
                     | NamedVariableKind { .. }
                     | ImplicitIntersection { .. }
                     | SpillRangeOperator { .. }
-                    | CompareKind { .. }
                     | ErrorKind(_)
                     | ParseErrorKind { .. }
-                    | EmptyArgKind => false,
+                    | EmptyArgKind
+                    // `--x` round-trips as written (a nested minus adds its own
+                    // parentheses when its operand needs them).
+                    | UnaryKind { .. } => false,
 
-                    OpPowerKind { .. } | OpSumKind { .. } | UnaryKind { .. } => true,
+                    // `-(a<>b)` and `-(a&b)` are not `-a<>b` / `-a&b`: unary
+                    // minus binds tighter than comparison and concatenation.
+                    OpPowerKind { .. } | OpSumKind { .. } | CompareKind { .. } | OpConcatenateKind { .. } => true,
                 };
                 if needs_parentheses {
                     format!(

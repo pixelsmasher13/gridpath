@@ -274,12 +274,22 @@ checksum = "35b4e837a1d133645d1dcf283e146a4b9901e390a1c13545f959cfed3a72f24f"
 name = "gridpath_engine"
 version = "0.1.0"
 dependencies = [
+ "gridpath_engine_core",
  "ironcalc",
  "ironcalc_base",
  "serde",
  "serde_json",
  "wasm-bindgen",
  "xlsx_patch",
+]
+
+[[package]]
+name = "gridpath_engine_core"
+version = "0.1.0"
+dependencies = [
+ "ironcalc_base",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

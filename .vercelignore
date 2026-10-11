@@ -34,3 +34,7 @@
 /vite.review.config.ts
 /yarn.lock
 **/node_modules/
+
+# Docs sources and the generator: only marketing/docs/ (the built pages) should be served.
+/marketing/docs-src/
+/marketing/scripts/

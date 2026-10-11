@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GridPath documentation — GridPath Docs</title>
+  <meta name="description" content="Documentation for the GridPath Excel MCP server: install it in Claude Code, Claude Desktop, Cursor or Codex, let your agent edit real .xlsx files, and review every change before it is saved." />
+  <link rel="canonical" href="https://gridpath.dev/docs" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="GridPath documentation — GridPath Docs" />
+  <meta property="og:description" content="Documentation for the GridPath Excel MCP server: install it in Claude Code, Claude Desktop, Cursor or Codex, let your agent edit real .xlsx files, and review every change before it is saved." />
+  <meta property="og:url" content="https://gridpath.dev/docs" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="GridPath documentation — GridPath Docs" />
+  <meta name="twitter:description" content="Documentation for the GridPath Excel MCP server: install it in Claude Code, Claude Desktop, Cursor or Codex, let your agent edit real .xlsx files, and review every change before it is saved." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "GridPath documentation",
+    "description": "Documentation for the GridPath Excel MCP server: install it in Claude Code, Claude Desktop, Cursor or Codex, let your agent edit real .xlsx files, and review every change before it is saved.",
+    "url": "https://gridpath.dev/docs",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs" aria-current="page">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.1.9</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a></p>
+<h1 class="legal-title">GridPath docs.</h1>
+<p class="legal-lede">GridPath is an MCP server that lets an agent edit the <code>.xlsx</code> and <code>.xlsm</code> files you already have, with a review step before anything is written. It runs wherever Node runs, evaluates formulas in process, and saves by patching the original file so charts, pivots, macros and everything else come back byte-identical.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<p>One line in Claude Code:</p>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p>Then ask the agent to change a workbook. It reads the file, writes the change as a pending batch, and hands you a local review link. Open it, look at every changed cell before and after, reject what you don't want, and save.</p>
+
+<div class="docs-cards">
+  <a href="/docs/claude-code"><strong>Claude Code</strong><span>One command, works in every project.</span></a>
+  <a href="/docs/claude-desktop"><strong>Claude Desktop</strong><span>Download a bundle, no terminal needed.</span></a>
+  <a href="/docs/cursor"><strong>Cursor</strong><span>One-click install or a line in mcp.json.</span></a>
+  <a href="/docs/codex"><strong>Codex</strong><span>Three lines in config.toml.</span></a>
+</div>
+
+<h2 id="how-it-works">How it works</h2>
+<ol>
+  <li><strong>Open.</strong> The first call on a file parses it into an in-process calculation engine, a fork of <a href="https://github.com/ironcalc/IronCalc" rel="noopener" target="_blank">IronCalc</a> compiled to WebAssembly. No Excel, no LibreOffice, no Python.</li>
+  <li><strong>Read.</strong> The agent orients with <code>describe_workbook</code> and <code>find_rows</code>, filters data with <code>query_rows</code>, and reads exact cells with <code>read_range</code>. Values are evaluated, so the agent sees what Excel would show.</li>
+  <li><strong>Write.</strong> Every write tool lands as a pending batch in memory and returns a readback of what it wrote, plus a <code>review_url</code>. The file on disk is untouched.</li>
+  <li><strong>Review.</strong> The review page shows the workbook with changed cells highlighted and before/after for each one. Accept or reject per batch or per cell.</li>
+  <li><strong>Save.</strong> <code>save_workbook</code> diffs the model against the file as loaded and patches only the zip parts an edit touched. Everything else is copied through unchanged.</li>
+</ol>
+
+<h2 id="guides">Guides</h2>
+<div class="docs-cards">
+  <a href="/docs/review"><strong>Review before save</strong><span>Batches, the review page, review-required mode, save and save-as.</span></a>
+  <a href="/docs/reading-a-workbook"><strong>Reading a workbook</strong><span>The four read tools and the order to call them.</span></a>
+  <a href="/docs/writing-cells"><strong>Writing cells and formulas</strong><span>set_cell, set_range, copy_range, and what the readback tells you.</span></a>
+  <a href="/docs/run-script"><strong>run_script</strong><span>Sandboxed JavaScript for loop-shaped edits, one batch.</span></a>
+  <a href="/docs/formatting-and-layout"><strong>Formatting and layout</strong><span>Number formats, fills, widths, freezes, merges, notes, names.</span></a>
+  <a href="/docs/structure"><strong>Rows, columns and sheets</strong><span>Insert, delete, create, rename, and what shifts.</span></a>
+</div>
+
+<h2 id="reference">Reference</h2>
+<ul>
+  <li><a href="/docs/tools">All tools</a>: every tool with parameters, generated from the server's definitions.</li>
+  <li><a href="/docs/options">CLI options and limits</a>: flags, allowed folders, supported files, limits.</li>
+</ul>
+
+<h2 id="other-hosts">Other hosts</h2>
+<p>Gemini CLI, Windsurf, VS Code and any other MCP host that speaks stdio use the same command and arguments in that host's MCP settings:</p>
+<pre><code>{ "mcpServers": { "gridpath": { "command": "npx", "args": ["-y", "gridpath", "mcp", "--review-required"] } } }</code></pre>
+
+<h2 id="requirements">Requirements</h2>
+<ul>
+  <li>Node 20 or newer, on macOS, Windows or Linux. The Claude Desktop bundle ships its own Node.</li>
+  <li>Files: <code>.xlsx</code> and <code>.xlsm</code>. Macros, pivots, charts and add-in data are preserved, not edited.</li>
+</ul>
+<p>Source is public at <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath" rel="noopener" target="_blank">github.com/pixelsmasher13/gridpath</a> under FSL-1.1-Apache-2.0. GridPath is also a <a href="/">desktop app</a> with the same engine and review and its own agent built in.</p>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">AI agent for Excel. Desktop app and MCP server.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

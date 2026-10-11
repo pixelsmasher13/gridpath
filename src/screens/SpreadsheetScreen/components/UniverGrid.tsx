@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { info as rustInfo } from "tauri-plugin-log-api";
 import ExcelJS from "exceljs";
 import { applyExcelJsPatches } from "../exceljsPatches";
 import { addXlfnPrefixes } from "../xlfnCompat";
@@ -15,6 +16,8 @@ import {
   type SheetOutline,
   type StyleOp,
 } from "../xlsxImport";
+import type { ParsedWorkbook } from "../xlsxImport";
+import { mapCell, mapSnapshot, newStyleCache } from "../../../../packages/gridpath/src/workbook/snapshot";
 import {
   ironcalcShadowOnCommand,
   registerUniverIdleWaiter,
@@ -24,6 +27,9 @@ import {
   ironcalcEngineEnabled,
   ironcalcEngineOnCommand,
   ironcalcEngineSettled,
+  ironcalcEngineOpenSnapshot,
+  ironcalcEngineFetchSheet,
+  ironcalcEngineSetActiveTab,
   registerIroncalcApplier,
   registerIroncalcSnapshotter,
   unregisterIroncalcApplier,
@@ -69,7 +75,17 @@ export type { CellFormatShape, SaveMirror, BorderSide, BordersShape } from "../t
 export interface UniverGridHandle {
   /** `onProgress` receives coarse stage labels ("Parsing workbook…") for a
    *  loading overlay — big models take seconds and used to look frozen. */
-  loadBytes: (bytes: Uint8Array, onProgress?: (stage: string) => void) => Promise<void>;
+  /**
+   * Load an .xlsx. With `source` and the IronCalc engine on, the grid is
+   * built from the engine's snapshot (one native parse) and the result
+   * reports `engineLoaded: true` — the caller must then NOT start the
+   * engine again. Otherwise the ExcelJS import builds the grid.
+   */
+  loadBytes: (
+    bytes: Uint8Array,
+    onProgress?: (stage: string) => void,
+    source?: { tabId: string; path: string },
+  ) => Promise<{ engineLoaded: boolean }>;
   /**
    * Write the workbook back to xlsx bytes. Optional `mirror` carries the
    * agent's format/width/height/merge mutations so the saved file actually
@@ -117,6 +133,39 @@ export interface UniverGridHandle {
   /** Sheet names currently in the workbook (empty when not ready). */
   getSheetNames: () => string[];
   /**
+   * Lazy sheets (large workbooks opened through the engine): the grid holds
+   * only a skeleton of the sheet until it is shown or written to. Callers
+   * that read or write a sheet by name await `ensureSheetLoaded` first; the
+   * grid itself does so on tab activation.
+   */
+  isSheetLazy: (sheetName: string) => boolean;
+  ensureSheetLoaded: (sheetName: string) => Promise<boolean>;
+  /**
+   * Viewport grid only: land one rectangle (0-based, inclusive) of a sheet
+   * before it is read cell by cell. The Univer grid holds whole sheets and
+   * leaves this undefined.
+   */
+  prefetchRange?: (sheetName: string, startRow: number, startCol: number, endRow: number, endCol: number) => Promise<void>;
+  /**
+   * Viewport grid only: a Univer-shaped snapshot of the preview region of
+   * every sheet (plus every cell changed this session), assembled from
+   * engine windows, with a reader bound to that data. The agent's opening
+   * context is captured from it in the same format the Univer grid yields.
+   */
+  getPreviewSnapshot?: () => Promise<{ snapshot: any; reader: import("../agent/captureContext").CellReader } | null>;
+  /**
+   * Viewport grid only: the sheet's used extent (1-based last row/column,
+   * 0 when empty) from the engine layout, for callers that otherwise scan
+   * a workbook snapshot for the last used row (stage_data).
+   */
+  getUsedExtent?: (sheetName: string) => { lastRow: number; lastCol: number } | null;
+  /**
+   * Opaque key that changes whenever the grid's content may have changed
+   * (any sheet mutation, load, lazy-sheet landing). Memos keyed on it skip
+   * re-hashing the whole snapshot — seconds per tool call on 2M cells.
+   */
+  getContentVersion: () => string;
+  /**
    * Max outline (grouping) depth of a sheet's columns/rows, from the file's
    * outlineLevel attributes. {cols: 0, rows: 0} when the sheet has no groups.
    */
@@ -158,7 +207,7 @@ export interface UniverGridHandle {
     sheet: string,
     row: number,
     col: number,
-  ) => { value: any; display?: string; formula: string | null } | null;
+  ) => { value: any; display?: string; formula: string | null; fileSaved?: boolean } | null;
   /**
    * The cell as the FILE last saved it ({f: formula sans '=', v: cached
    * value}), from the load-time baseline. null when the workbook wasn't
@@ -432,7 +481,9 @@ export interface UniverGridHandle {
 export type ManualSheetOp =
   | { kind: "create"; name: string }
   | { kind: "delete"; name: string }
-  | { kind: "rename"; oldName: string; newName: string };
+  | { kind: "rename"; oldName: string; newName: string }
+  | { kind: "visibility"; name: string; hidden: boolean }
+  | { kind: "tabColor"; name: string; color: string | null };
 
 export const UniverGrid = React.memo(React.forwardRef<
   UniverGridHandle,
@@ -462,6 +513,24 @@ export const UniverGrid = React.memo(React.forwardRef<
     const univerRef = useRef<any>(null);
     /** Formula-calculation worker; terminated alongside Univer's dispose. */
     const calcWorkerRef = useRef<Worker | null>(null);
+    /** Resource-manager accessor captured at boot: `{ id, sheetType }` so
+     * the feature baseline can read plugin resources (CF / DV / notes)
+     * without `getSnapshot()`, which deep-clones every cell (2.1 s on a
+     * 2.3M-cell workbook) just to hand back the `resources` array. */
+    const resourceManagerRef = useRef<{ id: any; sheetType: number } | null>(null);
+    const readResources = (api: any): any[] | undefined => {
+      const wb = api?.getActiveWorkbook?.();
+      const inj = (univerRef.current as any)?.__getInjector?.();
+      const rm = resourceManagerRef.current;
+      if (wb && inj && rm) {
+        try {
+          return inj.get(rm.id).getResources(wb.getId(), rm.sheetType);
+        } catch (e) {
+          console.warn("[univer] resource manager read failed, falling back to snapshot:", e);
+        }
+      }
+      return wb?.getSnapshot?.()?.resources;
+    };
     /** @univerjs/core's covertCellValue, captured at lazy-init time. */
     const covertCellValueRef = useRef<((v: any) => any) | null>(null);
     // Bumped >0 while any handle mutator runs so the command-stream listener can
@@ -530,6 +599,114 @@ export const UniverGrid = React.memo(React.forwardRef<
      * we see an id we don't know yet.
      */
     const sheetNamesByIdRef = useRef<Map<string, string>>(new Map());
+    /** Sheets whose cells are still only in the engine (see ensureSheetLoaded). */
+    const lazySheetsRef = useRef<Set<string>>(new Set());
+    /** See UniverGridHandle.getContentVersion. Per-mount nonce so a memo from
+     * an earlier open of the same path can never match. */
+    const contentVersionRef = useRef(0);
+    const mountNonce = useRef(Math.random().toString(36).slice(2, 8));
+    const bumpContentVersion = () => {
+      contentVersionRef.current++;
+    };
+    const sheetLoadsRef = useRef<Map<string, Promise<boolean>>>(new Map());
+    /**
+     * Fetch a lazy sheet's cells from the engine and land them in Univer as
+     * one raw set-range-values mutation (no undo entry, invisible to the
+     * engine mirror), record the sheet's save baseline from that content
+     * (nothing could have written to it before — writers await this), then
+     * flush any engine values that queued while the sheet was lazy.
+     */
+    const ensureSheetLoaded = (sheetName: string): Promise<boolean> => {
+      if (!lazySheetsRef.current.has(sheetName)) return Promise.resolve(true);
+      const inflight = sheetLoadsRef.current.get(sheetName);
+      if (inflight) return inflight;
+      const task = (async () => {
+        const t0 = performance.now();
+        const data = await ironcalcEngineFetchSheet(tabId, sheetName);
+        const tFetch = performance.now();
+        if (!data) return false;
+        const api = univerAPIRef.current;
+        const wb = api?.getActiveWorkbook?.();
+        const sheet = wb?.getSheetByName?.(sheetName);
+        if (!api || !wb || !sheet) return false;
+        const cache = newStyleCache();
+        const cellData: Record<number, Record<number, unknown>> = {};
+        // Row-major from the engine, so chunks land top rows first.
+        const entries: Array<[number, number, Record<string, unknown>]> = [];
+        let maxR = 0;
+        let maxC = 0;
+        for (const ec of data.cells) {
+          const { cell } = mapCell(ec, data.styles, cache);
+          if (!cell) continue;
+          const r0 = ec.r - 1;
+          const c0 = ec.c - 1;
+          entries.push([r0, c0, { v: cell.v ?? null, f: cell.f ?? null, s: cell.s ?? null }]);
+          (cellData[r0] ??= {})[c0] = cell;
+          if (r0 > maxR) maxR = r0;
+          if (c0 > maxC) maxC = c0;
+        }
+        const tMap = performance.now();
+        ensureSheetCapacity(sheet, maxR, maxC);
+        const unitId = wb.getId?.();
+        const subUnitId = sheet.getSheetId?.();
+        const rawWrite = (cellValue: Record<number, Record<number, unknown>>) =>
+          api.executeCommand(
+            "sheet.mutation.set-range-values",
+            { unitId, subUnitId, cellValue, __ironcalc: true },
+            { onlyLocal: true, fromFormula: true } as any,
+          );
+        // Two ingest paths, timed, so a real tab click decides which stays:
+        //  - "mutation" (default): chunks of raw set-range-values mutations,
+        //    yielding to the event loop between chunks — the tab paints at
+        //    once and fills in top-down; Univer's plugins see every cell.
+        //  - "matrix" (localStorage gridpath.lazyIngest = "matrix"): write
+        //    straight into the worksheet's cell matrix, then one tiny
+        //    mutation so Univer repaints. Bypasses the command pipeline and
+        //    its interceptors, which is where the time goes if the mutation
+        //    path is slow.
+        let mode = "mutation";
+        try {
+          if (localStorage.getItem("gridpath.lazyIngest") === "matrix") mode = "matrix";
+        } catch { /* no localStorage */ }
+        const matrix = mode === "matrix" ? sheet.getSheet?.()?.getCellMatrix?.() : null;
+        let chunks = 0;
+        if (matrix && typeof matrix.setValue === "function") {
+          for (const [r0, c0, dataCell] of entries) matrix.setValue(r0, c0, dataCell);
+          // Nudge Univer: re-apply the first cell through the normal mutation
+          // so dirty flags, the render unit and the formula bar refresh.
+          const [r0, c0, dataCell] = entries[0] ?? [0, 0, {}];
+          if (entries.length) rawWrite({ [r0]: { [c0]: dataCell } });
+          chunks = 1;
+        } else {
+          mode = "mutation";
+          for (let i = 0; i < entries.length; i += LAZY_INGEST_CHUNK) {
+            const cellValue: Record<number, Record<number, unknown>> = {};
+            for (const [r0, c0, dataCell] of entries.slice(i, i + LAZY_INGEST_CHUNK)) (cellValue[r0] ??= {})[c0] = dataCell;
+            rawWrite(cellValue);
+            chunks++;
+            // Let the frame paint before the next chunk.
+            await new Promise<void>((r) => setTimeout(r, 0));
+          }
+        }
+        const tIngest = performance.now();
+        const sid = subUnitId ?? sheetName;
+        const base = buildCellBaseline({ sheetOrder: [sid], sheets: { [sid]: { name: sheetName, cellData } } });
+        const cells = base.get(sheetName);
+        if (cells && baselineCellsRef.current) baselineCellsRef.current.set(sheetName, cells);
+        lazySheetsRef.current.delete(sheetName);
+        bumpContentVersion();
+        // Engine deltas for this sheet were refused while it was lazy and sit
+        // in the engine bridge's pending queue; this flushes them.
+        ironcalcEngineSetActiveTab(tabId);
+        console.log(
+          `[univer] lazy sheet loaded: "${sheetName}" — ${data.cells.length} cells via ${mode} in ${(performance.now() - t0).toFixed(0)}ms ` +
+            `(fetch+parse ${(tFetch - t0).toFixed(0)}, map ${(tMap - tFetch).toFixed(0)}, ingest ${(tIngest - tMap).toFixed(0)} in ${chunks} chunk${chunks === 1 ? "" : "s"}, baseline ${(performance.now() - tIngest).toFixed(0)})`,
+        );
+        return true;
+      })().finally(() => sheetLoadsRef.current.delete(sheetName));
+      sheetLoadsRef.current.set(sheetName, task);
+      return task;
+    };
     /** Rebuild the sheet id→name map from the live workbook. */
     const syncSheetNamesById = () => {
       try {
@@ -693,16 +870,81 @@ export const UniverGrid = React.memo(React.forwardRef<
             `font-weight:bold;color:${on ? "#0a7" : "#c60"}`,
           );
         }
-        const calcWorker = ironcalcEngineEnabled()
-          ? new Worker(new URL("./univer.worker.ts", import.meta.url), {
-              type: "module",
-              name: "univer-calc-noformula",
-            })
-          : new Worker(new URL("./univer.worker.ts", import.meta.url), {
-              type: "module",
-              name: "univer-calc",
-            });
+        // Engine mode needs NO Univer calc worker: IronCalc computes, and the
+        // worker's engine ran with notExecuteFormula anyway — yet Univer still
+        // mirrored the whole workbook into it, a second copy of every cell
+        // (~0.8 GB on a 2.3M-cell model). The preset only disables the
+        // main-thread engine when a worker is given, so the plugin configs
+        // are patched below instead. Kill switch (restores the worker):
+        // localStorage gridpath.univerWorker = "1".
+        let keepWorker = !ironcalcEngineEnabled();
+        try {
+          if (localStorage.getItem("gridpath.univerWorker") === "1") keepWorker = true;
+        } catch { /* no localStorage */ }
+        // Three literal constructor calls: Vite's worker plugin needs the
+        // URL and the options object to be static.
+        let calcWorker: Worker | null = null;
+        if (keepWorker && ironcalcEngineEnabled()) {
+          calcWorker = new Worker(new URL("./univer.worker.ts", import.meta.url), {
+            type: "module",
+            name: "univer-calc-noformula",
+          });
+        } else if (keepWorker) {
+          calcWorker = new Worker(new URL("./univer.worker.ts", import.meta.url), {
+            type: "module",
+            name: "univer-calc",
+          });
+        }
         calcWorkerRef.current = calcWorker;
+        if (!keepWorker) console.log("[engine] no Univer calc worker — formula execution disabled on the main thread, IronCalc supplies values");
+        const corePreset = UniverSheetsCorePreset({
+          container: containerRef.current,
+          ...(calcWorker ? { workerURL: calcWorker } : {}),
+          // GridPath ships its own dark "Home" formatting ribbon above the
+          // grid (FormatToolbar), so Univer's built-in toolbar (the
+          // Start / Formulas / Data tabs and their buttons) just duplicated
+          // those controls. Hide it. `toolbar: false` keeps the formula bar
+          // (it lives in the header), sheet tabs (footer) and the
+          // right-click context menu — none of which we duplicate.
+          toolbar: false,
+        });
+        if (!keepWorker) {
+          // Without a worker the preset leaves notExecuteFormula false on the
+          // formula-engine and sheets-formula plugins; flip it so Univer never
+          // evaluates (878k formulas would freeze the main thread).
+          (corePreset as any).plugins = (corePreset as any).plugins.map((p: any) =>
+            Array.isArray(p) && p[1] && typeof p[1] === "object" && "notExecuteFormula" in p[1]
+              ? [p[0], { ...p[1], notExecuteFormula: true }]
+              : p,
+          );
+          // sheets-formula's notExecuteFormula path still asks the injector
+          // for the RPC channel service (to reach a remote custom-function
+          // registry) — which only the worker wiring provides. Nothing is
+          // remote here, so register a channel that answers nothing, ahead
+          // of every preset plugin so the lookup resolves.
+          const { IRPCChannelService } = await import("@univerjs/rpc");
+          const { EMPTY } = await import("rxjs");
+          const { Plugin, Injector, setDependencies, UniverInstanceType } = univerCore as any;
+          const silentChannel = { call: async () => undefined, subscribe: () => EMPTY };
+          const silentChannelService = { requestChannel: () => silentChannel, registerChannel: () => {} };
+          class NoCalcWorkerRpcPlugin extends Plugin {
+            static pluginName = "gridpath.no-calc-worker-rpc";
+            static type = UniverInstanceType.UNIVER_UNKNOWN;
+            constructor(_config: unknown, private readonly injector: any) {
+              super();
+            }
+            onStarting(): void {
+              this.injector.add([IRPCChannelService, { useValue: silentChannelService }]);
+            }
+          }
+          // startIndex 1: redi fills constructor params from index 0 by
+          // default, which would put the Injector into the config slot and
+          // leave `injector` undefined (the dead-grid bug of 2026-10-06/07:
+          // onStarting threw, sheets-formula then failed on the missing
+          // channel, and every later plugin's startup was skipped).
+          setDependencies(NoCalcWorkerRpcPlugin, [Injector], 1);
+          (corePreset as any).plugins.unshift(NoCalcWorkerRpcPlugin);
+        }
 
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.EN_US,
@@ -711,17 +953,7 @@ export const UniverGrid = React.memo(React.forwardRef<
           },
           theme: defaultTheme,
           presets: [
-            UniverSheetsCorePreset({
-              container: containerRef.current,
-              workerURL: calcWorker,
-              // GridPath ships its own dark "Home" formatting ribbon above the
-              // grid (FormatToolbar), so Univer's built-in toolbar (the
-              // Start / Formulas / Data tabs and their buttons) just duplicated
-              // those controls. Hide it. `toolbar: false` keeps the formula bar
-              // (it lives in the header), sheet tabs (footer) and the
-              // right-click context menu — none of which we duplicate.
-              toolbar: false,
-            }),
+            corePreset,
             // Native Excel-style Find & Replace (⌘F / ⌘H + right-click menu).
             // Pure in-grid feature; nothing to persist on save.
             UniverSheetsFindReplacePreset(),
@@ -749,6 +981,12 @@ export const UniverGrid = React.memo(React.forwardRef<
         });
 
         univerRef.current = univer;
+        try {
+          const core = univerCore as any;
+          if (core.IResourceManagerService && core.UniverInstanceType) {
+            resourceManagerRef.current = { id: core.IResourceManagerService, sheetType: core.UniverInstanceType.UNIVER_SHEET };
+          }
+        } catch { /* keep the snapshot fallback */ }
         univerAPIRef.current = univerAPI;
 
         // Raise the depth guard: createWorkbook runs outside any wrapped
@@ -798,6 +1036,9 @@ export const UniverGrid = React.memo(React.forwardRef<
         // no undo entry, and invisible to the command hook above (which only
         // listens to sheet.command.*), so no feedback loop.
         registerIroncalcApplier(tabId, (sheetName, cells) => {
+          // A lazy sheet has no cells in the grid yet; let the bridge queue
+          // these values until ensureSheetLoaded lands the sheet.
+          if (lazySheetsRef.current.has(sheetName)) return false;
           try {
             const wb = univerAPI.getActiveWorkbook?.();
             const sheet = wb?.getSheetByName?.(sheetName);
@@ -854,6 +1095,12 @@ export const UniverGrid = React.memo(React.forwardRef<
             for (const sheet of wb.getSheets?.() ?? []) {
               const name = sheet?.getSheetName?.();
               if (!name) return null;
+              if (lazySheetsRef.current.has(name)) {
+                // The grid has only this sheet's skeleton; the engine's copy is
+                // the truth. Rebuilding it from the grid would gut the model.
+                out.push({ name, cells: [], keep: true });
+                continue;
+              }
               const cells: GridResyncSheet["cells"] = [];
               const lastRow = sheet.getLastRow?.() ?? -1;
               const lastCol = sheet.getLastColumn?.() ?? -1;
@@ -933,6 +1180,7 @@ export const UniverGrid = React.memo(React.forwardRef<
           if (typeof univerAPI.onCommandExecuted === "function") {
             univerAPI.onCommandExecuted((cmd: any) => {
               if (!cmd || typeof cmd.id !== "string") return;
+              if (cmd.id.startsWith("sheet.mutation.")) bumpContentVersion();
 
               // Mirror committed edits into IronCalc: engine mode drives the
               // grid from its results; shadow mode only measures. Both no-op
@@ -945,6 +1193,12 @@ export const UniverGrid = React.memo(React.forwardRef<
                 }
               } catch (e) {
                 console.warn("[ironcalc] command hook failed:", e);
+              }
+              // Lazy sheets: the user switched to a sheet whose cells are
+              // still only in the engine — load them now.
+              if (cmd.id === "sheet.operation.set-worksheet-active" && lazySheetsRef.current.size > 0) {
+                const name = sheetNamesByIdRef.current.get(cmd.params?.subUnitId);
+                if (name && lazySheetsRef.current.has(name)) void ensureSheetLoaded(name);
               }
 
               // Raw user-edit detection. A genuine user edit dispatches a
@@ -1310,11 +1564,14 @@ export const UniverGrid = React.memo(React.forwardRef<
       };
 
       const handle: UniverGridHandle = {
-      loadBytes: async (bytes: Uint8Array, onProgress?: (stage: string) => void) => {
+      isSheetLazy: (sheetName) => lazySheetsRef.current.has(sheetName),
+      ensureSheetLoaded,
+      getContentVersion: () => `${mountNonce.current}:${contentVersionRef.current}`,
+      loadBytes: async (bytes: Uint8Array, onProgress?: (stage: string) => void, source?: { tabId: string; path: string }) => {
         const api = await waitForApi();
         if (!api) {
           console.warn("[univer] loadBytes: API never became ready");
-          return;
+          return { engineLoaded: false };
         }
         // Yield a frame after each stage report so the overlay text actually
         // paints before the next long synchronous stretch begins.
@@ -1322,18 +1579,97 @@ export const UniverGrid = React.memo(React.forwardRef<
           onProgress?.(label);
           await new Promise<void>((r) => requestAnimationFrame(() => r()));
         };
-        await stage("Parsing workbook…");
-        // Heavy parse runs in a one-shot worker (see xlsxImport.ts) so the
-        // UI stays responsive; `excelJs` is null in that case and the save
-        // path re-parses lazily via ensureExcelJsWorkbook.
-        const parsed = await parseXlsxWorkbook(bytes);
+        // Engine-fed open: the IronCalc engine parses the file natively once
+        // and hands back the whole workbook as a snapshot (cells with values
+        // AND styles, sheet properties, style table); the ExcelJS worker runs
+        // alongside for what the engine does not carry (CF, validation,
+        // notes, outlines, images, external-ref pins). Building the grid from
+        // a second, far heavier ExcelJS copy of a 2M-cell workbook (285 MB of
+        // cell objects cloned across the worker boundary) was the open-time
+        // cliff on large models. Kill switch: localStorage
+        // gridpath.engineOpen = "0".
+        let parsed: ParsedWorkbook | null = null;
+        let engineLoaded = false;
+        let engineOpenOff = false;
+        try {
+          engineOpenOff = localStorage.getItem("gridpath.engineOpen") === "0";
+        } catch { /* no localStorage */ }
+        if (source && !engineOpenOff && ironcalcEngineEnabled()) {
+          await stage("Loading workbook…");
+          const t0 = performance.now();
+          // Lazy sheets are OPT-IN for now (localStorage gridpath.lazySheets =
+          // "1"): the first click on a big lazy tab costs seconds, and the
+          // eager open is being compared against it. Default: every sheet
+          // in full.
+          let lazyThreshold: number | undefined;
+          try {
+            if (localStorage.getItem("gridpath.lazySheets") === "1") lazyThreshold = LAZY_SHEETS_CELL_THRESHOLD;
+          } catch { /* no localStorage */ }
+          const [engineSnap, meta] = await Promise.all([
+            ironcalcEngineOpenSnapshot(source.tabId, source.path, { lazyThreshold, lazySheetMinCells: LAZY_SHEET_MIN_CELLS }),
+            parseXlsxWorkbook(bytes, { metaOnly: true }).catch((e) => {
+              console.warn("[univer] metadata parse failed:", e);
+              return null;
+            }),
+          ]);
+          if (engineSnap) {
+            const t1 = performance.now();
+            const mapped = mapSnapshot(engineSnap, `wb_${Date.now()}`, { trim: true });
+            const univerData = mapped.workbook as any;
+            lazySheetsRef.current = new Set(mapped.lazySheets);
+            if (mapped.lazySheets.size) {
+              const lazyCells = engineSnap.sheets.filter((s) => s.lazy).reduce((a, s) => a + (s.cellCount ?? 0), 0);
+              console.log(`[univer] lazy sheets: ${mapped.lazySheets.size} of ${engineSnap.sheets.length} (${lazyCells} cells stay in the engine until shown)`);
+            }
+            // Sheet-level flags and plugin resources only the ExcelJS side knows.
+            const metaData = meta?.univerData;
+            if (metaData?.sheets) {
+              for (const sid of Object.keys(univerData.sheets)) {
+                if (metaData.sheets[sid]?.showGridlines === 0) univerData.sheets[sid].showGridlines = 0;
+              }
+            }
+            const resources = [...(univerData.resources ?? []), ...(metaData?.resources ?? [])];
+            if (resources.length) univerData.resources = resources;
+            else delete univerData.resources;
+            parsed = {
+              excelJs: null,
+              univerData,
+              styleOps: [],
+              outlines: meta?.outlines ?? {},
+              featureCounts: meta?.featureCounts ?? { cf: 0, dv: 0, notes: 0, cfDropped: [] },
+              pins: meta?.pins ?? [],
+              images: meta?.images ?? [],
+            };
+            engineLoaded = true;
+            console.log(
+              `[univer] engine-fed open: engine+meta ${(t1 - t0).toFixed(0)}ms, map ${(performance.now() - t1).toFixed(0)}ms, ` +
+                `${engineSnap.sheets.length} sheets, ${Object.keys(engineSnap.styles).length} styles`,
+            );
+          } else {
+            console.warn("[univer] engine open unavailable — building the grid from the ExcelJS import");
+          }
+        }
+        const openMarks: Record<string, number> = {};
+        const tOpen = performance.now();
+        if (!parsed) {
+          lazySheetsRef.current = new Set();
+          await stage("Parsing workbook…");
+          // Heavy parse runs in a one-shot worker (see xlsxImport.ts) so the
+          // UI stays responsive; `excelJs` is null in that case and the save
+          // path re-parses lazily via ensureExcelJsWorkbook.
+          parsed = await parseXlsxWorkbook(bytes);
+        }
         const { univerData, styleOps, outlines, featureCounts } = parsed;
         exceljsWorkbookRef.current = parsed.excelJs;
         externalPinsRef.current = new Map(parsed.pins);
+        let tMark = performance.now();
         baselineCellsRef.current = buildCellBaseline(univerData);
+        openMarks.baseline = performance.now() - tMark;
         calcHealthRef.current = undefined;
         sourceBytesRef.current = bytes;
+        tMark = performance.now();
         fidelityRisksRef.current = await scanFidelityRisks(bytes);
+        openMarks.fidelityScan = performance.now() - tMark;
         outlinesRef.current = outlines;
         // Circular references: mirror the file's iterative-calc opt-in
         // (<calcPr iterate="1" iterateCount="N">) onto Univer's engine
@@ -1357,17 +1693,25 @@ export const UniverGrid = React.memo(React.forwardRef<
         if (active?.dispose) {
           try { active.dispose(); } catch {}
         }
+        tMark = performance.now();
         api.createWorkbook(univerData);
+        openMarks.createWorkbook = performance.now() - tMark;
+        bumpContentVersion();
+        tMark = performance.now();
         syncSheetNamesById();
         // New workbook = new render unit (starts activated); if this tab is
         // hidden, freeze it now so the style/image passes below skip paint.
+        openMarks.sheetNames = performance.now() - tMark;
+        tMark = performance.now();
         void applyRenderActive();
         // Resource hydration is synchronous with createWorkbook (the core's
         // resource manager loads on the unit-added stream), so the snapshot
         // read here is the normalized post-load state.
+        openMarks.renderActive = performance.now() - tMark;
+        tMark = performance.now();
         try {
           featureBaselineRef.current = perSheetFeatureState(
-            api.getActiveWorkbook?.()?.getSnapshot?.()?.resources,
+            readResources(api),
           );
         } catch (e) {
           console.warn("[univer] feature baseline capture failed:", e);
@@ -1379,6 +1723,8 @@ export const UniverGrid = React.memo(React.forwardRef<
         // open the workbook staring at a hidden sheet. Activate the first
         // visible one instead.
         try {
+        openMarks.featureBaseline = performance.now() - tMark;
+        tMark = performance.now();
           const wb = api.getActiveWorkbook?.();
           const order: string[] = univerData.sheetOrder ?? [];
           const firstVisibleId = order.find((sid: string) => univerData.sheets[sid]?.hidden !== 1);
@@ -1389,7 +1735,11 @@ export const UniverGrid = React.memo(React.forwardRef<
         } catch (e) {
           console.warn("[univer] first-visible-sheet activation failed:", e);
         }
+        openMarks.activateFirstVisible = performance.now() - tMark;
+        tMark = performance.now();
         await stage("Applying formats…");
+        openMarks.firstFrame = performance.now() - tMark;
+        tMark = performance.now();
 
         // Push every cell-level style we extracted from ExcelJS into Univer
         // via the facade so the user actually SEES the original colors,
@@ -1433,12 +1783,25 @@ export const UniverGrid = React.memo(React.forwardRef<
         // sheets exist; never blocks the load.
         let imagesInserted = 0;
         try {
+          tMark = performance.now();
           imagesInserted = await insertWorksheetImages(api, parsed.images);
+          openMarks.images = performance.now() - tMark;
         } catch (e) {
           console.warn("[univer] image rendering failed:", e);
         }
 
-        console.log("[univer] loaded workbook via ExcelJS:", {
+        openMarks.total = performance.now() - tOpen;
+        // Stage timings into GridPath.log as well — open time is the complaint
+        // most often raised, and the console is rarely open when it happens.
+        try {
+          void rustInfo(
+            `[univer] open stages (${engineLoaded ? "engine" : "ExcelJS"}): ` +
+              Object.entries(openMarks).map(([k, v]) => `${k} ${v.toFixed(0)}ms`).join(", ") +
+              ` — ${Object.keys(univerData.sheets ?? {}).length} sheets`,
+          ).catch(() => {});
+        } catch { /* log plugin unavailable */ }
+        console.log(`[univer] loaded workbook via ${engineLoaded ? "engine snapshot" : "ExcelJS"}:`, {
+          openStages: openMarks,
           sheets: Object.keys(univerData.sheets ?? {}).length,
           sheetNames: (univerData.sheetOrder ?? []).map((id: string) => univerData.sheets[id]?.name),
           stylesApplied: styleOps.length,
@@ -1449,6 +1812,7 @@ export const UniverGrid = React.memo(React.forwardRef<
         if (featureCounts.cfDropped.length) {
           console.info("[univer] CF rules without a renderable mapping (preserved in file):", featureCounts.cfDropped);
         }
+        return { engineLoaded };
       },
       exportBytes: async (mirror?: SaveMirror) => {
         const api = univerAPIRef.current;
@@ -2055,7 +2419,7 @@ export const UniverGrid = React.memo(React.forwardRef<
         void applyRenderActive();
         try {
           featureBaselineRef.current = perSheetFeatureState(
-            api.getActiveWorkbook?.()?.getSnapshot?.()?.resources,
+            readResources(api),
           );
         } catch {
           featureBaselineRef.current = null;
@@ -2626,6 +2990,15 @@ function resolveSheet(api: any, sheetName: string): any {
  * data onto my new sheet and nothing appeared". Grows in comfortable slabs so
  * repeated writes near the edge don't re-trigger the command every time.
  */
+/** Workbooks with more cells than this open with lazy sheets (engine-fed path). */
+const LAZY_SHEETS_CELL_THRESHOLD = 400_000;
+/** …but a sheet with this many cells or fewer is still loaded eagerly: its
+ * tab must switch instantly, and small sheets are not where memory goes. */
+const LAZY_SHEET_MIN_CELLS = 100_000;
+/** Cells per mutation when landing a lazy sheet; the loop yields between
+ * chunks so the tab paints and fills in instead of freezing. */
+const LAZY_INGEST_CHUNK = 40_000;
+
 function ensureSheetCapacity(sheet: any, row: number, col: number): void {
   if (!sheet) return;
   try {
@@ -2883,6 +3256,12 @@ function applyStructureMirror(wb: ExcelJS.Workbook, mirror: SaveMirror): void {
       } else if (op.kind === "rename") {
         const ws = wb.getWorksheet(op.oldName);
         if (ws) ws.name = op.newName;
+      } else if (op.kind === "visibility") {
+        const ws = wb.getWorksheet(op.name);
+        if (ws) ws.state = op.hidden ? "hidden" : "visible";
+      } else if (op.kind === "tabColor") {
+        const ws = wb.getWorksheet(op.name);
+        if (ws) (ws.properties as any).tabColor = op.color ? { argb: cssToArgb(op.color) } : undefined;
       }
     } catch (e) {
       console.warn("[save] sheet op failed:", op, e);

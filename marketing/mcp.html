@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GridPath MCP — let your agent edit Excel files, review before save</title>
+  <title>Excel MCP server: edit .xlsx files with Claude Code, Cursor or Codex, review before save — GridPath</title>
   <meta name="description" content="An MCP server for Claude Code, Cursor and Codex that edits real .xlsx files with a review step: see every changed cell before anything is written. One install line, Node only." />
   <link rel="canonical" href="https://gridpath.dev/mcp" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="GridPath" />
-  <meta property="og:title" content="GridPath MCP — let your agent edit Excel files, review before save" />
+  <meta property="og:title" content="Excel MCP server: edit .xlsx files with Claude Code, Cursor or Codex, review before save — GridPath" />
   <meta property="og:description" content="Your agent edits the real .xlsx through GridPath's tools. Every change returns a local review link: changed cells before/after, accept, reject, save. Nothing is written until you say so." />
   <meta property="og:url" content="https://gridpath.dev/mcp" />
   <meta property="og:image" content="https://gridpath.dev/mcp-review.png" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="GridPath MCP — let your agent edit Excel files, review before save" />
+  <meta name="twitter:title" content="Excel MCP server: edit .xlsx files with Claude Code, Cursor or Codex, review before save — GridPath" />
   <meta name="twitter:description" content="One install line. Real .xlsx files, real formulas, a review tab before anything is saved." />
   <meta name="twitter:image" content="https://gridpath.dev/mcp-review.png" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -54,6 +54,7 @@
       <nav class="nav-links">
         <a href="/#capabilities">Capabilities</a>
         <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
         <a href="/fidelity">Fidelity</a>
         <a href="/#faq">FAQ</a>
         <a href="/blog">Blog</a>
@@ -67,13 +68,14 @@
     <section class="hero">
       <div class="container hero-inner">
         <p class="fidelity-eyebrow" style="margin-bottom:14px">For Claude Code, Claude Desktop, Cursor and Codex</p>
-        <h1>Your agent edits the Excel file.<br class="wide-only">You review before it's saved.</h1>
+        <h1>Excel MCP server. <br class="wide-only">Your agent edits the file, you review before it's saved.</h1>
         <p class="lede">
           GridPath's engine as an MCP server. Every change comes back with a review link: see each changed cell, reject what you don't want, save.
         </p>
         <div class="mcp-install" style="max-width:720px;margin:0 auto">
           <pre>claude mcp add gridpath -- npx -y gridpath mcp --review-required</pre>
         </div>
+        <p class="mcp-docs-link"><a href="/docs">Read the docs</a> · <a href="/docs/tools">All tools</a></p>
       </div>
     </section>
 
@@ -218,6 +220,7 @@ args = ["-y", "gridpath", "mcp", "--review-required"]</pre>
       </div>
       <div class="footer-col">
         <h4>Resources</h4>
+        <a href="/docs">Docs</a>
         <a href="/#faq">FAQ</a>
         <a href="/blog">Blog</a>
         <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>

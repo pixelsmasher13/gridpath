@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { interpretToolCall } from "../core/toolToMutation";
 import { expandCopy } from "../core/copyRange";
-import { buildWorkbookIndex, describeWorkbookPayload, findRowsInIndex, firstLabelIn } from "../core/workbookIndex";
+import { describeWorkbookPayload, findRowsInIndex, firstLabelIn } from "../core/workbookIndex";
 import type { ChangeBatch, UniverMutation } from "../core/types";
 import { WorkbookSession, a1Of, type ReadCell } from "../workbook/session";
 import { clearStored, loadStored, saveStored } from "../workbook/store";
@@ -270,9 +270,15 @@ export class ToolHandlers {
     const result = interpretToolCall(name, input);
     switch (result.kind) {
       case "describe_workbook":
-        return describeWorkbookPayload(buildWorkbookIndex(s.snapshot()), result.sheet);
+        return describeWorkbookPayload(s.workbookIndex(), result.sheet);
+      case "query_rows":
+        try {
+          return s.queryRows(result.sheet, result.query);
+        } catch (e: any) {
+          return { ok: false, error: String(e?.message ?? e) };
+        }
       case "find_rows": {
-        const index = buildWorkbookIndex(s.snapshot());
+        const index = s.workbookIndex();
         const { matches, total } = findRowsInIndex(index, result.query, result.sheet, result.max_results);
         return {
           matches: matches.map((m: any) => {

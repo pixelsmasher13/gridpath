@@ -9,6 +9,10 @@ zero-config Vercel deployment.
 - `blog/` — blog section: `index.html` is the post list, one HTML file per post
   (`cleanUrls` makes `blog/why-we-built-gridpath.html` serve at
   `/blog/why-we-built-gridpath`)
+- `docs/` — the documentation section, **generated**: edit `docs-src/<slug>.html`
+  (page bodies with `<!-- title: -->` / `<!-- description: -->` comments) and run
+  `npm run docs`. `docs/tools.html` is built from the MCP server's real tool list
+  in `packages/gridpath`, so it cannot drift from the code. Commit the output.
 - `style.css` — light theme, mirrors the desktop app's `#3363AD` blue accent
 - `favicon.svg` — inline SVG logo (grid mark)
 - `vercel.json` — security headers + caching rules

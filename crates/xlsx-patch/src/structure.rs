@@ -113,7 +113,7 @@ fn max_rid(rels_xml: &[u8]) -> Result<u32, PatchError> {
 }
 
 /// Insert `element` (serialized empty element) right before `</container>`.
-fn insert_before_container_end(
+pub(crate) fn insert_before_container_end(
     xml: &[u8],
     container: &[u8],
     element: BytesStart<'static>,
@@ -318,6 +318,180 @@ pub(super) fn mentions_name(bytes: &[u8], name: &str) -> bool {
     bytes
         .windows(needle.len())
         .any(|w| w.iter().zip(needle).all(|(a, b)| a.eq_ignore_ascii_case(b)))
+}
+
+/// Sets or clears a sheet's tab colour: `<sheetPr><tabColor rgb="FFRRGGBB"/>`
+/// in the worksheet part (sheetPr is the first child of <worksheet>).
+pub fn set_tab_color(
+    store: &mut PartStore,
+    workbook_path: &str,
+    wb_rels_path: &str,
+    wb_dir: &str,
+    name: &str,
+    color: Option<&str>,
+) -> Result<(), PatchError> {
+    preflight_structure(store)?;
+    let workbook_xml = store.read(workbook_path)?;
+    let rels_xml = store.read(wb_rels_path)?;
+    let parts = crate::workbook_xml::sheet_part_paths(&workbook_xml, &rels_xml)?;
+    let part = parts
+        .iter()
+        .find(|(n, _)| sheet_names_eq(n, name))
+        .map(|(_, p)| p.clone())
+        .ok_or_else(|| PatchError::SheetNotFound(name.to_string()))?;
+    let part = if part.starts_with('/') { part[1..].to_string() } else if part.starts_with("xl/") { part } else { format!("{wb_dir}{part}") };
+    let rgb = match color {
+        Some(c) => {
+            let hex = c.trim_start_matches('#');
+            if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(PatchError::BadValue(format!("bad tab colour {c:?}")));
+            }
+            Some(format!("FF{}", hex.to_ascii_uppercase()))
+        }
+        None => None,
+    };
+    let xml = store.read(&part)?;
+    let mut r = reader(&xml);
+    let mut w = Writer::new(Vec::new());
+    let mut buf = Vec::new();
+    let mut in_sheet_pr = false;
+    let mut had_sheet_pr = false;
+    let write_tab_color = |w: &mut Writer<Vec<u8>>, rgb: &Option<String>| -> Result<(), PatchError> {
+        if let Some(rgb) = rgb {
+            let mut tc = BytesStart::new("tabColor");
+            tc.push_attribute(("rgb", rgb.as_str()));
+            w.write_event(Event::Empty(tc)).map_err(xml_err)?;
+        }
+        Ok(())
+    };
+    loop {
+        let ev = r
+            .read_event_into(&mut buf)
+            .map_err(|e| PatchError::Xml(format!("tab colour: {e}")))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e) if local_name(e.name().as_ref()) == b"worksheet" => {
+                w.write_event(Event::Start(e.to_owned())).map_err(xml_err)?;
+            }
+            Event::Start(e) if local_name(e.name().as_ref()) == b"sheetPr" => {
+                in_sheet_pr = true;
+                had_sheet_pr = true;
+                w.write_event(Event::Start(e.to_owned())).map_err(xml_err)?;
+                // tabColor is the first child of sheetPr.
+                write_tab_color(&mut w, &rgb)?;
+            }
+            Event::Empty(e) if local_name(e.name().as_ref()) == b"sheetPr" => {
+                had_sheet_pr = true;
+                if rgb.is_some() {
+                    let start = BytesStart::from(e.to_owned());
+                    w.write_event(Event::Start(start)).map_err(xml_err)?;
+                    write_tab_color(&mut w, &rgb)?;
+                    w.write_event(Event::End(BytesEnd::new("sheetPr"))).map_err(xml_err)?;
+                } else {
+                    w.write_event(Event::Empty(e.to_owned())).map_err(xml_err)?;
+                }
+            }
+            Event::End(e) if local_name(e.name().as_ref()) == b"sheetPr" => {
+                in_sheet_pr = false;
+                w.write_event(Event::End(e.to_owned())).map_err(xml_err)?;
+            }
+            Event::Empty(e) | Event::Start(e) if in_sheet_pr && local_name(e.name().as_ref()) == b"tabColor" => {
+                // old colour dropped (the new one, if any, was written at the start)
+            }
+            Event::End(e) if in_sheet_pr && local_name(e.name().as_ref()) == b"tabColor" => {}
+            Event::Start(e) if !had_sheet_pr && is_first_worksheet_child(local_name(e.name().as_ref())) => {
+                // No sheetPr yet: it must precede dimension / sheetViews / sheetFormatPr / cols / sheetData.
+                had_sheet_pr = true;
+                if rgb.is_some() {
+                    w.write_event(Event::Start(BytesStart::new("sheetPr"))).map_err(xml_err)?;
+                    write_tab_color(&mut w, &rgb)?;
+                    w.write_event(Event::End(BytesEnd::new("sheetPr"))).map_err(xml_err)?;
+                }
+                w.write_event(Event::Start(e.to_owned())).map_err(xml_err)?;
+            }
+            Event::Empty(e) if !had_sheet_pr && is_first_worksheet_child(local_name(e.name().as_ref())) => {
+                had_sheet_pr = true;
+                if rgb.is_some() {
+                    w.write_event(Event::Start(BytesStart::new("sheetPr"))).map_err(xml_err)?;
+                    write_tab_color(&mut w, &rgb)?;
+                    w.write_event(Event::End(BytesEnd::new("sheetPr"))).map_err(xml_err)?;
+                }
+                w.write_event(Event::Empty(e.to_owned())).map_err(xml_err)?;
+            }
+            other => w.write_event(other.into_owned()).map_err(xml_err)?,
+        }
+        buf.clear();
+    }
+    store.write(&part, w.into_inner());
+    Ok(())
+}
+
+fn is_first_worksheet_child(tag: &[u8]) -> bool {
+    matches!(tag, b"dimension" | b"sheetViews" | b"sheetFormatPr" | b"cols" | b"sheetData")
+}
+
+/// Hides or shows a sheet: sets or removes `state="hidden"` on its
+/// `<sheet>` element in workbook.xml. Refuses to hide the last visible sheet.
+pub fn set_sheet_visibility(
+    store: &mut PartStore,
+    workbook_path: &str,
+    name: &str,
+    hidden: bool,
+) -> Result<(), PatchError> {
+    preflight_structure(store)?;
+    let workbook_xml = store.read(workbook_path)?;
+    let sheets = list_sheets(&workbook_xml)?;
+    if !sheets.iter().any(|(n, _, _)| sheet_names_eq(n, name)) {
+        return Err(PatchError::SheetNotFound(name.to_string()));
+    }
+    let mut r = reader(&workbook_xml);
+    let mut w = Writer::new(Vec::new());
+    let mut buf = Vec::new();
+    let mut visible_after = 0usize;
+    let mut out_events: Vec<Event<'static>> = Vec::new();
+    loop {
+        let ev = r
+            .read_event_into(&mut buf)
+            .map_err(|e| PatchError::Xml(format!("visibility: {e}")))?;
+        match ev {
+            Event::Eof => break,
+            Event::Empty(e) | Event::Start(e) if local_name(e.name().as_ref()) == b"sheet" => {
+                let is_target = attr_value(&e, b"name").as_deref().is_some_and(|n| sheet_names_eq(n, name));
+                let mut el = BytesStart::new(String::from_utf8_lossy(e.name().as_ref()).into_owned());
+                let mut now_hidden = false;
+                for a in e.attributes().flatten() {
+                    let key = a.key.as_ref().to_vec();
+                    if key == b"state" {
+                        if is_target {
+                            continue; // rewritten below
+                        }
+                        now_hidden = a.value.as_ref() != b"visible";
+                    }
+                    el.push_attribute((key.as_slice(), a.value.as_ref()));
+                }
+                if is_target {
+                    if hidden {
+                        el.push_attribute(("state", "hidden"));
+                    }
+                    now_hidden = hidden;
+                }
+                if !now_hidden {
+                    visible_after += 1;
+                }
+                out_events.push(Event::Empty(el.into_owned()));
+            }
+            other => out_events.push(other.into_owned()),
+        }
+        buf.clear();
+    }
+    if visible_after == 0 {
+        return Err(PatchError::BadValue("cannot hide the last visible sheet".to_string()));
+    }
+    for ev in out_events {
+        w.write_event(ev).map_err(xml_err)?;
+    }
+    store.write(workbook_path, w.into_inner());
+    Ok(())
 }
 
 fn rewrite_sheet_name_attr(

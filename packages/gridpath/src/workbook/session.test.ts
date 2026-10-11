@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
-import { WorkbookSession, loadEngine } from "./session";
+import { WorkbookSession, a1Of, loadEngine } from "./session";
 import { buildWorkbookIndex, describeWorkbookPayload, findRowsInIndex } from "../core/workbookIndex";
 
 const FIXTURES = path.resolve(import.meta.dirname, "../../../../eval/fixtures");
@@ -28,6 +28,36 @@ const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every(
 describe.skipIf(!built)("WorkbookSession", () => {
   const file = path.join(FIXTURES, "rich-model.xlsx");
   const open = () => WorkbookSession.open(file, fs.readFileSync(file));
+
+  it("patches the cached snapshot in place to exactly what a full rebuild gives", () => {
+    const s = open();
+    const snap = s.snapshot();
+    const sheet = s.sheetNames()[0];
+    const sid = snap.sheetOrder[0];
+    // Pick a numeric input and a formula that will move with it.
+    let input: [number, number, number] | null = null;
+    for (const [r, row] of Object.entries(snap.sheets[sid].cellData)) {
+      for (const [c, cell] of Object.entries(row)) if (!cell.f && typeof cell.v === "number" && cell.v !== 0) { input = [Number(r), Number(c), cell.v]; break; }
+      if (input) break;
+    }
+    expect(input).not.toBeNull();
+    const [r, c, v] = input!;
+    s.apply({
+      id: "b1", prompt: "t", justification: "t",
+      mutations: [
+        { type: "set_cell", address: { sheet, row: r, col: c }, old_value: v, new_value: v * 3 },
+        { type: "set_cell", address: { sheet, row: 2000, col: 0 }, old_value: null, new_value: null, new_formula: `=${a1Of(r, c)}*2` },
+        { type: "set_format", sheet, cells: [{ row: 2000, col: 0 }], new_format: { bold: true, number_format: "0.00" } } as any,
+      ],
+    });
+    const patched = structuredClone(s.snapshot());
+    const patchedFormat = s.reader().getCellFormat(sheet, 2000, 0);
+    (s as any).mapped = null; // force the full re-serialise path
+    const rebuilt = s.snapshot();
+    expect(patched).toEqual(rebuilt);
+    expect(patchedFormat).toEqual(s.reader().getCellFormat(sheet, 2000, 0));
+    expect(s.cell(sheet, 2000, 0).value).toBe(v * 6);
+  });
 
   it("snapshot feeds the workbook index", () => {
     const s = open();

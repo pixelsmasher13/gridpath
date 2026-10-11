@@ -1,0 +1,29 @@
+<!-- title: Claude Code -->
+<!-- description: Install the GridPath Excel MCP server in Claude Code with one command, then let Claude edit .xlsx files with a review link before anything is saved. -->
+<h1 class="legal-title">Claude Code.</h1>
+<p class="legal-lede">One command registers GridPath as an MCP server. Claude Code then has every GridPath tool, and every edit comes back with a review link.</p>
+
+<h2 id="install">Install</h2>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p>This registers the server for the current project. To make it available in every project, add the user scope flag:</p>
+<pre><code>claude mcp add -s user gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p><code>npx -y</code> fetches the latest published version on first run and caches it. Node 20 or newer is required.</p>
+
+<h2 id="check">Check it is running</h2>
+<p>Inside Claude Code, run <code>/mcp</code>. GridPath should be listed as connected with its tools. On startup the server prints one line to stderr naming the allowed folders and the review server address.</p>
+
+<h2 id="first-edit">First edit</h2>
+<p>Ask for a change by file path:</p>
+<pre><code>In ~/models/forecast.xlsx, add a Q3 2026 column after Q2 and extend every formula.</code></pre>
+<p>Claude will call <code>describe_workbook</code> and <code>find_rows</code> to orient, then write the change. The result includes a <code>review_url</code>, and the server's instructions tell the agent to show it to you. Open the link to see the changed cells, then save from the page.</p>
+
+<h2 id="review-required">Why review-required</h2>
+<p>With <code>--review-required</code>, <code>save_workbook</code> does not write. It returns the review link and the agent hands it to you. Nothing reaches disk until you accept and save on the review page. Drop the flag if you want the agent to save on its own; the review link still comes back with every write so you can check afterwards. See <a href="/docs/review">Review before save</a>.</p>
+
+<h2 id="folders">Limiting folders</h2>
+<p>By default the server can open files anywhere under your home directory. To box it in:</p>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required --allow ~/models ~/clients</code></pre>
+<p>Files outside the allowed folders are refused, and the error tells the agent not to copy the file somewhere else to work around it.</p>
+
+<h2 id="remove">Remove</h2>
+<pre><code>claude mcp remove gridpath</code></pre>

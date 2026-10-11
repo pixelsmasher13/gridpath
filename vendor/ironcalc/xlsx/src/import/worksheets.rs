@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use ironcalc_base::types::{AutoFilter, FilterColumn, FilterCriterion};
 use ironcalc_base::expressions::parser::{
     new_parser_english, static_analysis::add_implicit_intersection, Parser,
 };
@@ -21,6 +22,7 @@ use roxmltree::Node;
 use thiserror::Error;
 
 use crate::error::XlsxError;
+use ironcalc_base::cf_types::CfRule;
 
 use super::{
     conditional_formatting::load_conditional_formatting,
@@ -127,7 +129,7 @@ fn load_dimension(ws: Node) -> String {
     }
 }
 
-fn load_columns(ws: Node) -> Result<Vec<Col>, XlsxError> {
+fn load_columns(ws: Node, col_outline: &mut HashMap<i32, u8>) -> Result<Vec<Col>, XlsxError> {
     // cols
     // <cols>
     //     <col min="5" max="5" width="38.26953125" customWidth="1"/>
@@ -157,6 +159,13 @@ fn load_columns(ws: Node) -> Result<Vec<Col>, XlsxError> {
             let style = col
                 .attribute("style")
                 .map(|s| s.parse::<i32>().unwrap_or(0));
+            if let Some(level) = col.attribute("outlineLevel").and_then(|v| v.parse::<u8>().ok()) {
+                if level > 0 {
+                    for c in min..=max {
+                        col_outline.insert(c, level);
+                    }
+                }
+            }
             cols.push(Col {
                 min,
                 max,
@@ -168,6 +177,70 @@ fn load_columns(ws: Node) -> Result<Vec<Col>, XlsxError> {
         }
     }
     Ok(cols)
+}
+
+/// 18.3.1.2 autoFilter: the range plus per-column criteria we can model
+/// (value lists and custom comparisons); anything else is flagged `other`.
+fn load_auto_filter(ws: Node) -> Result<Option<AutoFilter>, XlsxError> {
+    let Some(af) = ws.children().find(|n| n.has_tag_name("autoFilter")) else {
+        return Ok(None);
+    };
+    let Some(reference) = af.attribute("ref") else {
+        return Ok(None);
+    };
+    let (r0, c0, r1, c1) = match parse_range(reference) {
+        Ok(r) => r,
+        Err(_) => return Ok(None),
+    };
+    let mut columns = Vec::new();
+    for fc in af.children().filter(|n| n.has_tag_name("filterColumn")) {
+        let col_id = fc
+            .attribute("colId")
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(0);
+        let mut column = FilterColumn {
+            col_id,
+            values: None,
+            blank: false,
+            custom: None,
+            other: false,
+        };
+        for child in fc.children().filter(|n| n.is_element()) {
+            match child.tag_name().name() {
+                "filters" => {
+                    column.blank = matches!(child.attribute("blank"), Some("1") | Some("true"));
+                    let vals: Vec<String> = child
+                        .children()
+                        .filter(|n| n.has_tag_name("filter"))
+                        .filter_map(|n| n.attribute("val").map(|v| v.to_string()))
+                        .collect();
+                    // <dateGroupItem> entries are not modelled.
+                    if child.children().any(|n| n.has_tag_name("dateGroupItem")) {
+                        column.other = true;
+                    }
+                    column.values = Some(vals);
+                }
+                "customFilters" => {
+                    let and = matches!(child.attribute("and"), Some("1") | Some("true"));
+                    let items: Vec<FilterCriterion> = child
+                        .children()
+                        .filter(|n| n.has_tag_name("customFilter"))
+                        .map(|n| FilterCriterion {
+                            operator: n.attribute("operator").unwrap_or("equal").to_string(),
+                            value: n.attribute("val").unwrap_or("").to_string(),
+                        })
+                        .collect();
+                    column.custom = Some((and, items));
+                }
+                _ => column.other = true,
+            }
+        }
+        columns.push(column);
+    }
+    Ok(Some(AutoFilter {
+        range: [r0, c0, r1, c1],
+        columns,
+    }))
 }
 
 fn load_merge_cells(ws: Node) -> Result<Vec<String>, XlsxError> {
@@ -328,7 +401,7 @@ fn get_cell_from_excel(
     formula_index: i32,
     sheet_name: &str,
     cell_ref: &str,
-    shared_strings: &mut Vec<String>,
+    strings: &mut StringTable<'_>,
     rich_text_inline: Option<String>,
     anchor_cell: Option<(i32, i32)>,
     array_kind: CellArrayKind,
@@ -407,12 +480,7 @@ fn get_cell_from_excel(
             },
             "str" => {
                 let s = decode_xlsx_escapes(cell_value.unwrap_or(""));
-                let si = if let Some(i) = shared_strings.iter().position(|r| r == &s) {
-                    i
-                } else {
-                    shared_strings.push(s.clone());
-                    shared_strings.len() - 1
-                } as i32;
+                let si = strings.intern(&s);
 
                 if let Some(anchor) = anchor_cell {
                     Cell::SpillCell {
@@ -434,12 +502,7 @@ fn get_cell_from_excel(
             }
             "inlineStr" => {
                 let s = rich_text_inline.unwrap_or_default();
-                let si = if let Some(i) = shared_strings.iter().position(|r| r == &s) {
-                    i
-                } else {
-                    shared_strings.push(s.to_string());
-                    shared_strings.len() - 1
-                } as i32;
+                let si = strings.intern(&s);
 
                 Cell::SharedString { si, s: cell_style }
             }
@@ -605,6 +668,10 @@ struct SheetView {
     frozen_rows: i32,
     range: [i32; 4],
     show_grid_lines: bool,
+    zoom: i32,
+    /// First row/column of the scrolling pane (`topLeftCell`), 1-based.
+    top_row: i32,
+    left_column: i32,
 }
 
 impl Default for SheetView {
@@ -617,6 +684,9 @@ impl Default for SheetView {
             frozen_columns: 0,
             range: [1, 1, 1, 1],
             show_grid_lines: true,
+            zoom: 100,
+            top_row: 1,
+            left_column: 1,
         }
     }
 }
@@ -671,6 +741,11 @@ fn get_sheet_view(ws: Node) -> SheetView {
     let sheet_view = sheet_view[0];
     let is_selected = sheet_view.attribute("tabSelected").unwrap_or("0") == "1";
     let show_grid_lines = sheet_view.attribute("showGridLines").unwrap_or("1") == "1";
+    let zoom = sheet_view
+        .attribute("zoomScale")
+        .and_then(|z| z.parse::<i32>().ok())
+        .filter(|z| (10..=400).contains(z))
+        .unwrap_or(100);
 
     let pane = sheet_view
         .children()
@@ -678,16 +753,22 @@ fn get_sheet_view(ws: Node) -> SheetView {
         .collect::<Vec<Node>>();
 
     // 18.18.53 ST_PaneState (Pane State)
-    // frozen, frozenSplit, split
+    // frozen, frozenSplit, split. Excel shows frozenSplit as frozen panes
+    // (a split that was frozen); only a plain split is not frozen.
+    // The scrolling pane's top-left cell is the pane's topLeftCell when
+    // frozen, else the sheetView's own.
+    let mut top_left = sheet_view.attribute("topLeftCell");
     if pane.len() == 1 {
-        if let Some("frozen") = pane[0].attribute("state") {
-            // TODO: Should we assert that topLeft is consistent?
-            // let top_left_cell = pane[0].attribute("topLeftCell").unwrap_or("A1").to_string();
-
+        if let Some("frozen") | Some("frozenSplit") = pane[0].attribute("state") {
             frozen_columns = get_number(pane[0], "xSplit");
             frozen_rows = get_number(pane[0], "ySplit");
+            top_left = pane[0].attribute("topLeftCell").or(top_left);
         }
     }
+    let (top_row, left_column) = match top_left.map(parse_cell_reference) {
+        Some(Ok((r, c))) if r >= 1 && c >= 1 => (r, c),
+        _ => (1, 1),
+    };
     let selections = sheet_view
         .children()
         .filter(|n| n.has_tag_name("selection"))
@@ -719,6 +800,9 @@ fn get_sheet_view(ws: Node) -> SheetView {
             is_selected,
             show_grid_lines,
             range: [row1, column1, row2, column2],
+            zoom,
+            top_row,
+            left_column,
         }
     } else {
         SheetView {
@@ -726,6 +810,8 @@ fn get_sheet_view(ws: Node) -> SheetView {
             frozen_columns,
             is_selected,
             show_grid_lines,
+            top_row,
+            left_column,
             ..Default::default()
         }
     }
@@ -739,25 +825,69 @@ pub(super) struct SheetSettings {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn load_sheet<R: Read + std::io::Seek>(
-    archive: &mut zip::read::ZipArchive<R>,
-    path: &str,
+/// Shared-string interning for one sheet's parse. `shared` is the
+/// workbook table as loaded (read-only, so sheets can parse in parallel);
+/// strings new to this sheet go to `local` and get ids from `base`
+/// upward. After a parallel parse `load_sheets` shifts each sheet's local
+/// ids by the sizes of the sheets merged before it.
+pub(super) struct StringTable<'a> {
+    shared: &'a HashMap<String, i32>,
+    base: usize,
+    local: Vec<String>,
+    local_index: HashMap<String, i32>,
+}
+
+impl<'a> StringTable<'a> {
+    fn new(shared: &'a HashMap<String, i32>, base: usize) -> Self {
+        StringTable { shared, base, local: Vec::new(), local_index: HashMap::new() }
+    }
+    fn intern(&mut self, s: &str) -> i32 {
+        if let Some(i) = self.shared.get(s) {
+            return *i;
+        }
+        if let Some(i) = self.local_index.get(s) {
+            return *i;
+        }
+        let i = (self.base + self.local.len()) as i32;
+        self.local.push(s.to_string());
+        self.local_index.insert(s.to_string(), i);
+        i
+    }
+}
+
+/// One sheet parsed from its XML text, with the strings and dxfs it added
+/// (ids from `base` upward, to be shifted when merged).
+pub(super) struct ParsedSheet {
+    pub worksheet: Worksheet,
+    pub is_selected: bool,
+    pub new_strings: Vec<String>,
+    pub new_dxfs: Vec<Dxf>,
+}
+
+/// Parses one worksheet part. Pure over its inputs: the archive is read
+/// beforehand, the shared tables are read-only, additions come back in the
+/// result — so `load_sheets` can run this on several sheets at once.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn parse_sheet_xml(
+    text: &str,
     settings: SheetSettings,
     worksheets: &[String],
     tables: &HashMap<String, Table>,
-    shared_strings: &mut Vec<String>,
+    shared_index: &HashMap<String, i32>,
+    string_base: usize,
     defined_names: Vec<DefinedNameS>,
     theme: &Theme,
-    dxfs: &mut Vec<Dxf>,
-) -> Result<(Worksheet, bool), XlsxError> {
+    dxf_base: usize,
+) -> Result<ParsedSheet, XlsxError> {
+    let mut strings_table = StringTable::new(shared_index, string_base);
+    let strings = &mut strings_table;
+    let mut local_dxfs: Vec<Dxf> = Vec::new();
+    let dxfs = &mut local_dxfs;
     let sheet_name = &settings.name;
     let sheet_id = settings.id;
     let state = &settings.state;
 
-    let mut file = archive.by_name(path)?;
-    let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    let doc = roxmltree::Document::parse(&text)?;
+    let doc = roxmltree::Document::parse(text)?;
     let ws = doc
         .root()
         .first_child()
@@ -778,8 +908,18 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
 
     let sheet_view = get_sheet_view(ws);
 
-    let cols = load_columns(ws)?;
+    let mut col_outline: HashMap<i32, u8> = HashMap::new();
+    let cols = load_columns(ws, &mut col_outline)?;
     let color = load_sheet_color(ws, theme)?;
+    // <sheetPr><outlinePr summaryBelow="0" summaryRight="0"/></sheetPr>
+    let (outline_summary_below, outline_summary_right) = ws
+        .children()
+        .find(|n| n.has_tag_name("sheetPr"))
+        .and_then(|pr| pr.children().find(|n| n.has_tag_name("outlinePr")))
+        .map(|o| (o.attribute("summaryBelow") != Some("0") && o.attribute("summaryBelow") != Some("false"), o.attribute("summaryRight") != Some("0") && o.attribute("summaryRight") != Some("false")))
+        .unwrap_or((true, true));
+    let mut row_outline: HashMap<i32, u8> = HashMap::new();
+    let auto_filter = load_auto_filter(ws)?;
 
     // sheetData
     // <row r="1" spans="1:15" x14ac:dyDescent="0.35">
@@ -838,6 +978,11 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
         };
         let custom_format = get_bool_false(row, "customFormat");
         let hidden = get_bool_false(row, "hidden");
+        if let (Some(ri), Some(level)) = (row_index, row.attribute("outlineLevel").and_then(|v| v.parse::<u8>().ok())) {
+            if level > 0 {
+                row_outline.insert(ri, level);
+            }
+        }
 
         if let Some(row_index) = row_index {
             if custom_height || custom_format || row_style != 0 || has_height_attribute || hidden {
@@ -853,7 +998,7 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
         }
 
         // Unused attributes:
-        // * thickBot, thickTop, ph, collapsed, outlineLevel
+        // * thickBot, thickTop, ph, collapsed
 
         let mut data_row = HashMap::new();
 
@@ -1135,7 +1280,7 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
                 formula_index,
                 sheet_name,
                 cell_ref,
-                shared_strings,
+                strings,
                 cell_rich_text,
                 anchor_cell,
                 array_kind,
@@ -1153,7 +1298,7 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
 
     let merge_cells = load_merge_cells(ws)?;
 
-    let conditional_formatting = load_conditional_formatting(ws, theme, dxfs)?;
+    let conditional_formatting = load_conditional_formatting(ws, theme, dxfs, dxf_base)?;
     // pageSetup
     // <pageSetup orientation="portrait" r:id="rId1"/>
 
@@ -1164,13 +1309,14 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
             row: sheet_view.selected_row,
             column: sheet_view.selected_column,
             range: sheet_view.range,
-            top_row: 1,
-            left_column: 1,
+            top_row: sheet_view.top_row,
+            left_column: sheet_view.left_column,
+            zoom: sheet_view.zoom,
         },
     );
 
-    Ok((
-        Worksheet {
+    Ok(ParsedSheet {
+        worksheet: Worksheet {
             dimension,
             cols,
             rows,
@@ -1187,9 +1333,16 @@ pub(super) fn load_sheet<R: Read + std::io::Seek>(
             show_grid_lines: sheet_view.show_grid_lines,
             views,
             conditional_formatting,
+            row_outline,
+            col_outline,
+            outline_summary_below,
+            outline_summary_right,
+            auto_filter,
         },
-        sheet_view.is_selected,
-    ))
+        is_selected: sheet_view.is_selected,
+        new_strings: strings_table.local,
+        new_dxfs: local_dxfs,
+    })
 }
 
 pub(super) fn load_sheets<R: Read + std::io::Seek>(
@@ -1221,16 +1374,16 @@ pub(super) fn load_sheets<R: Read + std::io::Seek>(
 
     // load all sheets
     let worksheets: &Vec<String> = &workbook.worksheets.iter().map(|s| s.name.clone()).collect();
-    let mut sheets = Vec::new();
-    let mut selected_sheet = 0;
-    let mut sheet_index = 0;
-
     let defined_names = workbook.get_defined_names_with_scope();
 
+    // GRIDPATH: the worksheet parts are read sequentially (one zip reader),
+    // then parsed in parallel — each sheet's XML parse, cell loop and
+    // formula conversion are independent. Strings and dxfs a sheet adds
+    // are returned with it and merged in sheet order afterwards, their ids
+    // shifted past the additions of the sheets before it.
+    let mut pending: Vec<(SheetSettings, String)> = Vec::new();
     for sheet in &workbook.worksheets {
-        let sheet_name = &sheet.name;
         let rel_id = &sheet.id;
-        let state = &sheet.state;
         let rel = &rels[rel_id];
         if rel.rel_type.ends_with("worksheet") {
             let path = &rel.target;
@@ -1240,33 +1393,143 @@ pub(super) fn load_sheets<R: Read + std::io::Seek>(
                 format!("xl/{path}")
             };
             let settings = SheetSettings {
-                name: sheet_name.to_string(),
+                name: sheet.name.to_string(),
                 id: sheet.sheet_id,
-                state: state.clone(),
+                state: sheet.state.clone(),
                 comments: comments
                     .get(rel_id)
                     .ok_or_else(|| XlsxError::Xml("Corrupt XML structure".to_string()))?
                     .to_vec(),
             };
-            let (s, is_selected) = load_sheet(
-                archive,
-                &path,
-                settings,
-                worksheets,
-                tables,
-                shared_strings,
-                defined_names.clone(),
-                theme,
-                dxfs,
-            )?;
-            if is_selected {
-                selected_sheet = sheet_index;
-            }
-            sheets.push(s);
-            sheet_index += 1;
+            let mut file = archive.by_name(&path)?;
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            pending.push((settings, text));
         }
     }
+
+    let shared_index: HashMap<String, i32> = {
+        let mut m = HashMap::with_capacity(shared_strings.len());
+        for (i, s) in shared_strings.iter().enumerate() {
+            m.entry(s.clone()).or_insert(i as i32);
+        }
+        m
+    };
+    let string_base = shared_strings.len();
+    let dxf_base = dxfs.len();
+    let tables_ref: &HashMap<String, Table> = tables;
+
+    let parse_one = |settings: SheetSettings, text: &str| -> Result<ParsedSheet, XlsxError> {
+        parse_sheet_xml(text, settings, worksheets, tables_ref, &shared_index, string_base, defined_names.clone(), theme, dxf_base)
+    };
+
+    let results: Vec<Result<ParsedSheet, XlsxError>> = parse_sheets_parallel(pending, &parse_one);
+
+    let mut sheets = Vec::with_capacity(results.len());
+    let mut selected_sheet = 0;
+    let mut string_offset = 0usize;
+    let mut dxf_offset = 0usize;
+    for (index, result) in results.into_iter().enumerate() {
+        let parsed = result?;
+        let mut ws = parsed.worksheet;
+        if string_offset > 0 {
+            for row in ws.sheet_data.values_mut() {
+                for cell in row.values_mut() {
+                    if let Cell::SharedString { si, .. } = cell {
+                        if *si as usize >= string_base {
+                            *si += string_offset as i32;
+                        }
+                    }
+                }
+            }
+        }
+        if dxf_offset > 0 {
+            for cf in &mut ws.conditional_formatting {
+                shift_dxf_id(&mut cf.cf_rule, dxf_base as u32, dxf_offset as u32);
+            }
+        }
+        string_offset += parsed.new_strings.len();
+        shared_strings.extend(parsed.new_strings);
+        dxf_offset += parsed.new_dxfs.len();
+        dxfs.extend(parsed.new_dxfs);
+        if parsed.is_selected {
+            selected_sheet = index as u32;
+        }
+        sheets.push(ws);
+    }
     Ok((sheets, selected_sheet))
+}
+
+/// Shifts a rule's dxf id when it points at a dxf this sheet added.
+fn shift_dxf_id(rule: &mut CfRule, base: u32, offset: u32) {
+    use CfRule::*;
+    let id = match rule {
+        CellIs { dxf_id, .. }
+        | Formula { dxf_id, .. }
+        | Text { dxf_id, .. }
+        | TimePeriod { dxf_id, .. }
+        | DuplicateValues { dxf_id, .. }
+        | UniqueValues { dxf_id, .. }
+        | Blanks { dxf_id, .. }
+        | NotBlanks { dxf_id, .. }
+        | Errors { dxf_id, .. }
+        | NoErrors { dxf_id, .. }
+        | AboveAverage { dxf_id, .. }
+        | BelowAverage { dxf_id, .. } => dxf_id,
+        _ => return,
+    };
+    if *id >= base {
+        *id += offset;
+    }
+}
+
+/// Runs `parse_one` over every pending sheet, on as many threads as the
+/// machine has cores (sequentially on wasm32, which has no threads).
+fn parse_sheets_parallel<F>(pending: Vec<(SheetSettings, String)>, parse_one: &F) -> Vec<Result<ParsedSheet, XlsxError>>
+where
+    F: Fn(SheetSettings, &str) -> Result<ParsedSheet, XlsxError> + Sync,
+{
+    #[cfg(target_arch = "wasm32")]
+    {
+        pending.into_iter().map(|(settings, text)| parse_one(settings, &text)).collect()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(pending.len()).max(1);
+        // IC_SEQUENTIAL_PARSE=1 forces the single-threaded path (A/B checks).
+        if threads <= 1 || std::env::var("IC_SEQUENTIAL_PARSE").is_ok() {
+            return pending.into_iter().map(|(settings, text)| parse_one(settings, &text)).collect();
+        }
+        // Largest parts first, round-robin over the workers, results kept in sheet order.
+        let mut order: Vec<usize> = (0..pending.len()).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(pending[i].1.len()));
+        let mut buckets: Vec<Vec<usize>> = vec![Vec::new(); threads];
+        for (k, i) in order.into_iter().enumerate() {
+            buckets[k % threads].push(i);
+        }
+        let items: Vec<Option<(SheetSettings, String)>> = pending.into_iter().map(Some).collect();
+        let slots: Vec<std::sync::Mutex<Option<Result<ParsedSheet, XlsxError>>>> = (0..items.len()).map(|_| std::sync::Mutex::new(None)).collect();
+        let items = std::sync::Mutex::new(items);
+        std::thread::scope(|scope| {
+            for bucket in buckets {
+                let items = &items;
+                let slots = &slots;
+                scope.spawn(move || {
+                    for i in bucket {
+                        let taken = items.lock().unwrap_or_else(|e| e.into_inner())[i].take();
+                        if let Some((settings, text)) = taken {
+                            let r = parse_one(settings, &text);
+                            *slots[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+                        }
+                    }
+                });
+            }
+        });
+        slots
+            .into_iter()
+            .map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).unwrap_or_else(|| Err(XlsxError::Xml("sheet parse produced no result".to_string()))))
+            .collect()
+    }
 }
 
 #[cfg(test)]

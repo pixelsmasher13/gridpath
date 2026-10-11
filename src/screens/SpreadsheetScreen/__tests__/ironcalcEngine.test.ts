@@ -120,9 +120,11 @@ describe("classifyClaimedMutations", () => {
     );
     expect(verdict).toEqual({
       kind: "edits",
+      // Sheet NAMES: the index is resolved when the queued edit runs, so a
+      // sheet created in the same tick (script auto-create) is not "unknown".
       edits: [
-        { sheet: 0, row: 5, column: 3, value: "7" },
-        { sheet: 0, row: 5, column: 4, value: "=A1+1" },
+        { sheetName: "Sheet1", row: 5, column: 3, value: "7" },
+        { sheetName: "Sheet1", row: 5, column: 4, value: "=A1+1" },
       ],
     });
   });

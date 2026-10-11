@@ -135,6 +135,55 @@ pub fn to_excel_precision(value: f64, precision: usize) -> f64 {
     s.parse::<f64>().unwrap_or(value)
 }
 
+/// `value` rounded to `precision` significant digits, half away from zero.
+/// Works on the decimal expansion: the 17-digit expansion is first rounded
+/// to Excel's 15 significant digits (so 2.675, stored as 2.67499999999999982,
+/// is treated as 2.675), then to `precision`, both as decimal strings, so
+/// no intermediate binary value re-introduces the representation error.
+/// None when the value is not finite.
+fn round_sig_half_away(value: f64, precision: usize) -> Option<f64> {
+    if !value.is_finite() {
+        return None;
+    }
+    if value == 0.0 {
+        return Some(0.0);
+    }
+    let s = format!("{:.16e}", value.abs()); // d.dddddddddddddddde±x
+    let (mantissa, exp) = s.split_once('e')?;
+    let mut exp: i32 = exp.parse().ok()?;
+    let mut digits: Vec<u8> = mantissa.bytes().filter(|b| b.is_ascii_digit()).map(|b| b - b'0').collect();
+    // Past 15 digits Excel shows the binary expansion as is; below it, the
+    // 15-digit decimal is what gets rounded.
+    let stages: Vec<usize> = if precision < 15 { vec![15, precision] } else { vec![precision] };
+    for p in stages {
+        if p >= digits.len() {
+            continue;
+        }
+        let mut kept: Vec<u8> = digits[..p].to_vec();
+        let mut carry = digits[p] >= 5;
+        let mut i = kept.len();
+        while carry && i > 0 {
+            i -= 1;
+            if kept[i] == 9 {
+                kept[i] = 0;
+            } else {
+                kept[i] += 1;
+                carry = false;
+            }
+        }
+        if carry {
+            kept.insert(0, 1);
+            kept.pop();
+            exp += 1;
+        }
+        digits = kept;
+    }
+    let text: String = digits.iter().map(|d| (b'0' + d) as char).collect();
+    let rebuilt = format!("{}.{}e{}", &text[..1], if text.len() > 1 { &text[1..] } else { "0" }, exp);
+    let v: f64 = rebuilt.parse().ok()?;
+    Some(if value < 0.0 { -v } else { v })
+}
+
 pub fn to_precision_str(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         if value.is_infinite() {
@@ -144,8 +193,10 @@ pub fn to_precision_str(value: f64, precision: usize) -> String {
         }
     }
 
-    let s = format!("{:.*e}", precision.saturating_sub(1), value);
-    let parsed = s.parse::<f64>().unwrap_or(value);
+    // GRIDPATH: `{:.*e}` rounds an exact binary tie to even (940.5 at 3
+    // significant digits → 940), where Excel rounds half away from zero
+    // (→ 941). Round the 17-digit decimal expansion by hand instead.
+    let parsed = round_sig_half_away(value, precision.max(1)).unwrap_or(value);
 
     // I would love to use the std library. There is not a speed concern here
     // problem is it doesn't do the right thing

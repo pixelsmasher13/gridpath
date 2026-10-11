@@ -1,14 +1,38 @@
 import { buildSaveMirror } from "../../../packages/gridpath/src/core/saveMirror";
+import { cellRuns } from "./formatRuns";
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import styled from "styled-components";
 import { useToast } from "@chakra-ui/react";
 import { Settings as SettingsIcon, Save, PanelLeftOpen, PanelLeftClose, PanelRightClose, FolderOpen, FilePlus, Maximize2, X } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { formatBytes, logMemory, startMemoryMonitor } from "./memoryMonitor";
+import { journalSheets } from "./journal";
+import {
+  ironcalcEngineDegradedReason,
+  ironcalcEngineEnabled,
+  ironcalcEngineFetchSheetBytes,
+  ironcalcEngineIsReady,
+  ironcalcEngineQueryRows,
+  ironcalcEngineWorkbookIndex,
+  onIroncalcEngineDegraded,
+} from "./ironcalcEngine";
+import { sheetsReferencedByMutations } from "./agent/batchMutations";
+import {
+  journalClear,
+  journalClose,
+  journalFlush,
+  journalLoad,
+  journalOpen,
+  replayJournal,
+  type ManualMirrors,
+  type WorkbookJournal,
+} from "./journal";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { v4 as uuidv4 } from "uuid";
 
 import { UniverGrid, type UniverGridHandle, type SaveMirror, type BordersShape, type ManualSheetOp } from "./components/UniverGrid";
+import { ViewportGrid, viewportGridEnabled } from "./components/ViewportGrid";
 import { FormatToolbar, type InsertAction } from "./components/FormatToolbar";
 import { StatusBar, type SelectionStats } from "./components/StatusBar";
 import { UpdateNotification } from "./components/UpdateNotification";
@@ -17,6 +41,7 @@ import { TabBar } from "./components/TabBar";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SettingsModal } from "./components/SettingsModal";
 import { ExitGuardModal } from "./components/ExitGuardModal";
+import { RecoverModal } from "./components/RecoverModal";
 import { FidelitySaveModal } from "./components/FidelitySaveModal";
 import { ReviewModal } from "./components/ReviewModal";
 import { appendManualSheetOp } from "./manualSheetOps";
@@ -106,7 +131,7 @@ import { layoutStageBlock } from "./agent/stageLayout";
 import { expandA1Range } from "./agent/toolToMutation";
 import { expandCopy } from "./agent/copyRange";
 import { executeSheetScript } from "./agent/scriptRunner";
-import { captureWorkbookContext } from "./agent/captureContext";
+import { captureWorkbookContext, contextFromIndex, captureWorkbookContextWith } from "./agent/captureContext";
 import { fileSavedIfDivergent, formatCalcHealthLine } from "./agent/calcHealth";
 import {
   describeWorkbookPayload,
@@ -114,6 +139,7 @@ import {
   firstLabelIn,
   getWorkbookIndex,
   isLabelText,
+  type WorkbookIndex,
 } from "./agent/workbookIndex";
 import {
   reverseMutation,
@@ -517,6 +543,7 @@ export const SpreadsheetScreen: React.FC = () => {
     });
   }, []);
 
+  const [recover, setRecover] = React.useState<{ journal: WorkbookJournal; filename: string; resolve: (restore: boolean) => void } | null>(null);
   const [exitGuard, setExitGuard] = React.useState<{
     dirtyTabs: WorkbookTab[];
     saving: boolean;
@@ -829,6 +856,7 @@ export const SpreadsheetScreen: React.FC = () => {
         if (c?.display !== undefined) out.display = c.display;
         const fs = fileSavedIfDivergent(out.value, out.formula, grid?.getFileSavedCell?.(sheetName, row, col));
         if (fs !== undefined) out.file_saved = fs;
+        else if (c?.fileSaved) out.file_saved = out.value;
         return out;
       });
       const payload = {
@@ -920,10 +948,13 @@ export const SpreadsheetScreen: React.FC = () => {
         try {
           setLoadStage(tab.id, "Reading file…");
           const bytes = await readWorkbookBytes(selected);
-          await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage));
+          const loaded = await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage), { tabId: tab.id, path: selected });
           console.log("[open] xlsx loaded into tab", tab.id);
           void ironcalcShadowLoad(selected, tab.id);
-          void ironcalcEngineOnOpen(tab.id, selected);
+          if (!loaded?.engineLoaded) void ironcalcEngineOnOpen(tab.id, selected);
+          const journal = await recoverJournal(tab, grid, selected);
+          for (const b of journal?.batches ?? []) dispatch({ type: "batch_add", tabId: tab.id, batch: { ...b, persisted: false } });
+          void logMemory(`after open ${selected.split("/").pop()}`);
         } catch (err) {
           toast({ title: "Open failed", description: String(err), status: "error", duration: 4000 });
           dispatch({ type: "close", tabId: tab.id });
@@ -1104,6 +1135,7 @@ export const SpreadsheetScreen: React.FC = () => {
         // fire) and quit. Treat it as a blank workbook: the grid is
         // already in newTab's empty state.
         const isUntitled = row.workbook_path.startsWith("untitled-");
+        let recoveredJournal: WorkbookJournal | null = null;
         try {
           setLoadStage(tab.id, "Restoring session…");
           const snap = isUntitled ? await readUntitledSnapshot(row.workbook_path) : null;
@@ -1118,9 +1150,13 @@ export const SpreadsheetScreen: React.FC = () => {
             try {
               setLoadStage(tab.id, "Reading file…");
               const bytes = await readWorkbookBytes(row.workbook_path);
-              await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage));
+              const loaded = await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage), {
+                tabId: tab.id,
+                path: row.workbook_path,
+              });
               void ironcalcShadowLoad(row.workbook_path, tab.id);
-              void ironcalcEngineOnOpen(tab.id, row.workbook_path);
+              if (!loaded?.engineLoaded) void ironcalcEngineOnOpen(tab.id, row.workbook_path);
+              recoveredJournal = await recoverJournal(tab, grid, row.workbook_path);
             } catch (err) {
               if (isUntitled) {
                 // No persisted state for this untitled draft — fine, start blank.
@@ -1150,6 +1186,14 @@ export const SpreadsheetScreen: React.FC = () => {
           }
           const latest = new Map<string, ChangeBatch>();
           for (const b of replayed) latest.set(b.id, b);
+          // Batches the crash journal brought back are NOT in the file yet:
+          // they override the session-store copy (which would be marked
+          // persisted below) and stay mirror-eligible.
+          const fromJournal = new Set<string>();
+          for (const b of recoveredJournal?.batches ?? []) {
+            latest.set(b.id, { ...b, persisted: false });
+            fromJournal.add(b.id);
+          }
           dispatch({
             type: "batches_replace",
             tabId: tab.id,
@@ -1164,7 +1208,7 @@ export const SpreadsheetScreen: React.FC = () => {
             // (the tesla.xlsx bug: grid showed 21 styled cells, the export
             // carried one). The fresh-export path applies no structure
             // mirror, so there is no double-apply risk on this branch.
-            batches: Array.from(latest.values()).map((b) => ({ ...b, persisted: !isUntitled })),
+            batches: Array.from(latest.values()).map((b) => (fromJournal.has(b.id) ? b : { ...b, persisted: !isUntitled })),
           });
         } catch (e) {
           console.warn("[session] message replay failed:", e);
@@ -1198,10 +1242,122 @@ export const SpreadsheetScreen: React.FC = () => {
     }
   }, []);
 
+  /** The toolbar mirrors the saver keeps for a tab, in journal shape. */
+  const manualMirrorsFor = useCallback((tabId: string): ManualMirrors => ({
+    formats: manualFormatsRef.current[tabId] ?? [],
+    borders: manualBordersRef.current[tabId] ?? [],
+    merges: manualMergesRef.current[tabId] ?? [],
+    rowCol: manualRowColRef.current[tabId] ?? [],
+    freeze: manualFreezeRef.current[tabId] ?? null,
+    visibility: manualVisibilityRef.current[tabId] ?? [],
+    sheetOps: manualSheetOpsRef.current[tabId] ?? [],
+  }), []);
+
+  /**
+   * File-backed tab just loaded: start its unsaved-work journal and, when a
+   * previous session left one for this file, offer to replay it. Returns the
+   * replayed journal so the caller can fold its batches into tab state (the
+   * restore path replaces the batch list from the session store AFTER load,
+   * so it has to merge rather than append).
+   */
+  const recoverJournal = useCallback(
+    async (tab: WorkbookTab, grid: UniverGridHandle, path: string): Promise<WorkbookJournal | null> => {
+      let journal: WorkbookJournal | null = null;
+      try {
+        journal = await journalLoad(path);
+      } catch (e) {
+        console.warn("[journal] load failed:", e);
+      }
+      await journalOpen(tab.id, path);
+      if (!journal) return null;
+      // In-app dialog: what the record holds, per batch, with Restore /
+      // Discard (the native two-button dialog could not show details and
+      // on some builds degraded to a one-button alert).
+      const found: WorkbookJournal = journal;
+      const restore = await new Promise<boolean>((resolve) => setRecover({ journal: found, filename: tab.filename, resolve }));
+      setRecover(null);
+      if (!restore) {
+        await journalClear(tab.id);
+        return null;
+      }
+      await grid.whenReady();
+      for (const name of journalSheets(journal)) if (grid.isSheetLazy(name)) await grid.ensureSheetLoaded(name);
+      const res = replayJournal(tab.id, grid, journal);
+      const m = journal.manual;
+      if (m.formats.length) manualFormatsRef.current[tab.id] = m.formats;
+      if (m.borders.length) manualBordersRef.current[tab.id] = m.borders;
+      if (m.merges.length) manualMergesRef.current[tab.id] = m.merges;
+      if (m.rowCol.length) manualRowColRef.current[tab.id] = m.rowCol;
+      if (m.freeze) manualFreezeRef.current[tab.id] = m.freeze;
+      if (m.visibility.length) manualVisibilityRef.current[tab.id] = m.visibility;
+      if (m.sheetOps.length) manualSheetOpsRef.current[tab.id] = m.sheetOps;
+      dispatch({ type: "mark_dirty", tabId: tab.id, dirty: true });
+      const summary = `${res.cells} cell edits, ${res.structural} row/column changes, ${res.sheets} sheet changes, ${res.styles} formatting steps`;
+      toast({
+        title: res.partial ? "Unsaved changes partially restored" : "Unsaved changes restored",
+        description: res.partial ? `${summary}. Some steps could not be replayed — check the sheets before saving.` : `${summary}. Save to keep them.`,
+        status: res.partial ? "warning" : "success",
+        duration: 8000,
+      });
+      console.log("[journal] replayed:", res);
+      return journal;
+    },
+    [toast],
+  );
+
+  // The engine mirror giving up on a tab is a loud event: from then on
+  // formulas keep their last values and nothing new computes.
+  useEffect(
+    () =>
+      onIroncalcEngineDegraded((tabId, reason) => {
+        const t = workspaceRef.current.tabs.find((x) => x.id === tabId);
+        toast({
+          title: "Calculation stopped for this workbook",
+          description: `${t?.name ?? t?.filename ?? "This tab"}: ${reason}. New formulas will not compute until the workbook is reopened; existing values are frozen. Save your work first.`,
+          status: "error",
+          duration: 20000,
+        });
+      }),
+    [toast],
+  );
+
+  // Memory monitor: log both processes' resident size every 10s and warn
+  // once when the grid's content process approaches the zone where macOS
+  // kills it. The journal keeps the work; this gives the user a chance to
+  // save first.
+  useEffect(() => {
+    const stop = startMemoryMonitor({
+      onWarn: (r) =>
+        toast({
+          title: "Large workbook in memory",
+          description: `The grid is using ${formatBytes(r.webview_rss)}. Your edits are journaled, but saving now is a good idea; closing other workbooks frees memory.`,
+          status: "info",
+          duration: 10000,
+        }),
+    });
+    return stop;
+  }, [toast]);
+
+  // Flush file-backed tabs' unsaved-work journals every 2s. Cheap: the
+  // journal module skips the write when nothing changed, and the payload is
+  // the edit list plus the unsaved batches and toolbar mirrors — never the
+  // grid itself (see journal.ts).
+  useEffect(() => {
+    const id = setInterval(() => {
+      for (const t of workspace.tabs) {
+        if (t.path.startsWith("untitled-")) continue;
+        const batches = t.batches.filter((b) => !b.persisted && (b.status === "accepted" || b.status === "pending"));
+        void journalFlush(t.id, batches, manualMirrorsFor(t.id));
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [workspace.tabs, manualMirrorsFor]);
+
   const closeTab = useCallback(
     async (tabId: string) => {
       const tab = findTab(workspace, tabId);
       if (tab) await snapshotUntitled(tab);
+      void journalClose(tabId, !!tab?.dirty);
       delete gridRefs.current[tabId];
       gridRefCallbacks.current.delete(tabId);
       userEditCallbacks.current.delete(tabId);
@@ -1504,6 +1660,10 @@ export const SpreadsheetScreen: React.FC = () => {
         }
         const wasUntitled = tab.path.startsWith("untitled-");
         const isNewPath = target !== tab.path;
+        // Saved: the unsaved-work journal is history (a formerly untitled
+        // tab starts one now that it has a file).
+        if (wasUntitled) void journalOpen(tab.id, target);
+        else void journalClear(tab.id, target);
         dispatch({ type: "rename", tabId: tab.id, path: target });
         dispatch({ type: "mark_saved", tabId: tab.id, at: Date.now() });
         if (wasUntitled || isNewPath) {
@@ -2075,7 +2235,19 @@ export const SpreadsheetScreen: React.FC = () => {
       // and the next settled capture produces different bytes, re-billing
       // the full cached context block for no edit. Bounded wait (15s cap).
       await grid?.whenCalculated();
-      const workbookContext = captureWorkbookContext(activeTab.path, grid);
+      let workbookContext = captureWorkbookContext(activeTab.path, grid);
+      // Viewport grid: no workbook snapshot in the webview. The preview is
+      // captured from engine windows in the same format (same memo, same
+      // base+delta); the engine index is the fallback if that fails.
+      if (workbookContext.sheets.length === 0 && grid?.getPreviewSnapshot) {
+        const version = grid.getContentVersion();
+        const preview = await grid.getPreviewSnapshot();
+        if (preview) workbookContext = captureWorkbookContextWith(activeTab.path, preview.snapshot, preview.reader, version);
+        if (workbookContext.sheets.length === 0) {
+          const idx = (await ironcalcEngineWorkbookIndex(activeTab.id)) as WorkbookIndex | null;
+          if (idx) workbookContext = contextFromIndex(activeTab.path, idx);
+        }
+      }
       // One-time scan for live results that are unusable vs Excel's cache
       // (cached per load — stable bytes, safe for the cached context block).
       // Warns the agent which sheets collapsed to 0/error so it prefers
@@ -2294,7 +2466,18 @@ export const SpreadsheetScreen: React.FC = () => {
             // Const copies: `result` is a `let` (copy_range reassigns it), so
             // closures can't rely on its narrowed type.
             const readSheet = result.sheet;
+            if (readSheet && grid?.isSheetLazy(readSheet)) await grid.ensureSheetLoaded(readSheet);
             const rangeCells = expandA1Range(result.range);
+            if (readSheet && grid?.prefetchRange && rangeCells.length > 0) {
+              const read = rangeCells.slice(0, 500);
+              await grid.prefetchRange(
+                readSheet,
+                Math.min(...read.map((c) => c.row)),
+                Math.min(...read.map((c) => c.col)),
+                Math.max(...read.map((c) => c.row)),
+                Math.max(...read.map((c) => c.col)),
+              );
+            }
             const cells = rangeCells.slice(0, 500).map(({ row, col }) => {
               const c = grid?.getCell(readSheet, row, col);
               const out: {
@@ -2334,6 +2517,9 @@ export const SpreadsheetScreen: React.FC = () => {
                 grid?.getFileSavedCell?.(readSheet, row, col),
               );
               if (fs !== undefined) out.file_saved = fs;
+              // Viewport grid: the engine already substituted the file's
+              // value where its own was unusable, and says so.
+              else if (c?.fileSaved) out.file_saved = out.value;
               return out;
             });
             const kept = cells.filter((c) => c.value !== null || c.formula !== null);
@@ -2347,6 +2533,19 @@ export const SpreadsheetScreen: React.FC = () => {
                   range: result.range,
                   cells: kept,
                   truncated: rangeCells.length > 500,
+                  // A dead calc engine must be visible in the data, not inferred
+                  // from nulls: agents have spent whole sessions theorising about
+                  // slow recalcs when the mirror had given up.
+                  ...(ironcalcEngineDegradedReason(ev.tab_id)
+                    ? {
+                        calc_engine: "degraded",
+                        calc_engine_reason: ironcalcEngineDegradedReason(ev.tab_id),
+                        note_calc:
+                          "The calculation engine stopped for this workbook (see calc_engine_reason). Formulas keep their last " +
+                          "values and NEW formulas show null — this is not a slow recalc and will not resolve by waiting. " +
+                          "Tell the user to save and reopen the workbook; do not keep probing with test formulas.",
+                      }
+                    : {}),
                   ...(divergent > 0
                     ? {
                         divergent_cells: divergent,
@@ -2398,10 +2597,20 @@ export const SpreadsheetScreen: React.FC = () => {
             // index memoization by changing the hash every recalc pass.
             await grid?.whenCalculated();
             const tabSnap = workspaceRef.current.tabs.find((t) => t.id === ev.tab_id);
-            const snapshot = grid?.getWorkbookSnapshot?.();
-            const index = snapshot
-              ? getWorkbookIndex(tabSnap?.path ?? ev.tab_id, snapshot)
-              : null;
+            // Prefer the engine's index: built in Rust from the model the
+            // engine already holds (under 1 s on 2.3M cells, then memoized
+            // per sheet), instead of walking a Univer snapshot on the main
+            // thread after every write. Same JSON shape, same consumers.
+            let index: WorkbookIndex | null = null;
+            if (ironcalcEngineEnabled() && ironcalcEngineIsReady(ev.tab_id)) {
+              index = (await ironcalcEngineWorkbookIndex(ev.tab_id)) as WorkbookIndex | null;
+            }
+            if (!index) {
+              const snapshot = grid?.getWorkbookSnapshot?.();
+              index = snapshot
+                ? getWorkbookIndex(tabSnap?.path ?? ev.tab_id, snapshot, grid?.getContentVersion?.())
+                : null;
+            }
             let payload: object;
             if (!index) {
               payload = { ok: false, error: "no_workbook", message: "No workbook is loaded." };
@@ -2448,6 +2657,27 @@ export const SpreadsheetScreen: React.FC = () => {
             }
             return;
           }
+          if (result.kind === "query_rows") {
+            // Row filter / projection / aggregation over one sheet, served by
+            // the calculation engine (gridpath_engine_core::query). Nothing
+            // is read from the grid: the engine's values are the grid's.
+            const grid = gridRefs.current[ev.tab_id];
+            const ready = grid ? await grid.whenReady() : false;
+            let payload: object;
+            if (!ready) {
+              payload = { ok: false, error: "grid_not_ready", message: "The spreadsheet is still initializing — retry this exact tool call." };
+            } else {
+              await grid?.whenCalculated();
+              const r = await ironcalcEngineQueryRows(ev.tab_id, result.sheet, result.query);
+              payload = r.ok ? r.result : { ok: false, error: r.error, message: r.message };
+            }
+            try {
+              await reportToolResult(ev.tool_use_id, JSON.stringify(payload));
+            } catch (e) {
+              console.warn("[agent] query_rows reportToolResult failed:", e);
+            }
+            return;
+          }
           if (result.kind === "read_reference") {
             // Read-only lookup against an attached reference workbook. Served
             // from the in-memory parse cache — never touches Univer or disk.
@@ -2487,8 +2717,14 @@ export const SpreadsheetScreen: React.FC = () => {
               return;
             }
             const copySheets = new Set(copyGrid!.getSheetNames());
+            // The source must exist. A destination that does not is created,
+            // as every other write tool does, unless it looks like a typo of
+            // an existing name.
+            const copyNorm = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+            const copyByNorm = new Map([...copySheets].map((k) => [copyNorm(k), k]));
             const copyMissing = [result.sheet, result.dest_sheet].filter((s) => !copySheets.has(s));
-            if (copyMissing.length > 0) {
+            const destNew = !copySheets.has(result.dest_sheet) && copySheets.has(result.sheet) && !copyByNorm.has(copyNorm(result.dest_sheet));
+            if (copyMissing.length > 0 && !destNew) {
               try {
                 await reportToolResult(
                   ev.tool_use_id,
@@ -2496,12 +2732,32 @@ export const SpreadsheetScreen: React.FC = () => {
                     ok: false,
                     error: "unknown_sheet",
                     missing: copyMissing,
+                    probable_typos: copyMissing.filter((s) => copyByNorm.has(copyNorm(s))).map((s) => ({ requested: s, did_you_mean: copyByNorm.get(copyNorm(s)) })),
                     available: [...copySheets],
-                    message: "Nothing was copied. Use an exact sheet name from `available` (or create_sheet first).",
+                    message: "Nothing was copied. The source sheet must exist; use an exact name from `available`. A new, distinct destination name is created automatically.",
                   }),
                 );
               } catch {}
               return;
+            }
+            if (destNew) {
+              copyGrid!.createSheet(result.dest_sheet, null);
+              copySheets.add(result.dest_sheet);
+            }
+            // Lazy sheets: the source rectangle is read from the grid, which
+            // holds only a skeleton of a lazy sheet.
+            for (const name of [result.sheet, result.dest_sheet]) if (copyGrid!.isSheetLazy(name)) await copyGrid!.ensureSheetLoaded(name);
+            if (copyGrid!.prefetchRange) {
+              const src = expandA1Range(result.source);
+              if (src.length > 0) {
+                await copyGrid!.prefetchRange(
+                  result.sheet,
+                  Math.min(...src.map((c) => c.row)),
+                  Math.min(...src.map((c) => c.col)),
+                  Math.max(...src.map((c) => c.row)),
+                  Math.max(...src.map((c) => c.col)),
+                );
+              }
             }
             const expansion = expandCopy(copyGrid!, result);
             if (!expansion.ok) {
@@ -2545,7 +2801,25 @@ export const SpreadsheetScreen: React.FC = () => {
             // engine-idle wait, so a recalc is often still running when the
             // agent's follow-up script arrives). Wait for idle first.
             await scriptGrid!.whenCalculated();
-            const exec = await executeSheetScript(scriptGrid!, result.code);
+            // Engine mode: the script's read model comes from the ENGINE, per
+            // sheet it names, as bytes parsed inside the sandbox — no copy of
+            // the grid, no size refusal, lazy sheets irrelevant. The grid
+            // snapshot path remains for the Univer-engine mode.
+            const engineSource = ironcalcEngineEnabled() && ironcalcEngineIsReady(ev.tab_id)
+              ? { sheetNames: scriptGrid!.getSheetNames(), fetchSheet: (name: string) => ironcalcEngineFetchSheetBytes(ev.tab_id, name) }
+              : undefined;
+            if (!engineSource) {
+              // Grid-snapshot path: a lazy sheet holds only a skeleton — load
+              // the sheets the script names (or all, if it enumerates).
+              const lazy = scriptGrid!.getSheetNames().filter((n) => scriptGrid!.isSheetLazy(n));
+              if (lazy.length) {
+                const src = result.code;
+                const named = lazy.filter((n) => src.includes(n));
+                const enumerates = /\bsheets\s*\(/.test(src) || /sheet\s*\(\s*[^"'`)]/.test(src);
+                for (const name of enumerates ? lazy : named) await scriptGrid!.ensureSheetLoaded(name);
+              }
+            }
+            const exec = await executeSheetScript(scriptGrid!, result.code, { source: engineSource });
             if (!exec.ok) {
               try {
                 await reportToolResult(
@@ -2589,7 +2863,11 @@ export const SpreadsheetScreen: React.FC = () => {
             }
             let stageStartRow = 0;
             const stageSnap = stageGrid!.getWorkbookSnapshot();
-            if (stageSnap?.sheets) {
+            // Viewport grid: no snapshot; the engine layout knows the extent.
+            const extent = !stageSnap ? stageGrid!.getUsedExtent?.(result.sheet) : null;
+            if (extent) {
+              stageStartRow = extent.lastRow <= 0 ? 0 : extent.lastRow + 1;
+            } else if (stageSnap?.sheets) {
               for (const id of Object.keys(stageSnap.sheets)) {
                 const sh = stageSnap.sheets[id];
                 if (sh?.name !== result.sheet) continue;
@@ -2651,6 +2929,12 @@ export const SpreadsheetScreen: React.FC = () => {
           // probable typos — resolveRange would otherwise fall back to the
           // ACTIVE sheet. Genuinely NEW names auto-create the sheet, so
           // organizing a build across purposeful tabs costs nothing.
+          // Lazy sheets: a write to a sheet whose cells are still only in the
+          // engine must land the sheet first, or the write hits an empty grid
+          // sheet and the later load overwrites it.
+          for (const name of sheetsReferencedByMutations(result.mutations)) {
+            if (grid!.isSheetLazy(name)) await grid!.ensureSheetLoaded(name);
+          }
           const knownSheets = new Set(grid!.getSheetNames());
           const missingSheets = new Set<string>();
           for (const raw of result.mutations) {
@@ -2807,6 +3091,43 @@ export const SpreadsheetScreen: React.FC = () => {
             }
           }
 
+          // Format ops are deferred behind the cell buffer: a copy_range in
+          // "all" mode arrives as set_cell/set_format PAIRS per source cell,
+          // and flushing the buffer at each format op turned a 2,000-cell
+          // copy into 2,000 single-cell grid commands — and 2,000 single-
+          // cell engine recalcs (~0.35 s each on a 900k-formula model).
+          // Formats do not depend on cell content, so they apply after the
+          // cells, still before any op that could shift coordinates.
+          let formatBuf: FormatMutation[] = [];
+          const flushFormats = async () => {
+            const fms = formatBuf;
+            formatBuf = [];
+            for (const fm of fms) {
+              // Capture each cell's pre-format snapshot so Reject can restore.
+              const old_format = fm.cells.map(({ row, col }) => ({
+                row, col,
+                format: grid?.getCellFormat(fm.sheet, row, col) ?? null,
+              }));
+              // Apply at rectangle level, never per cell: a 3-property
+              // format over B2:Z100 as per-cell setter calls was ~7,400
+              // commands. But the cell list is NOT always a rectangle: a
+              // range format from expandA1Range is, while copy_range in
+              // formats/all mode and run_script group cells by their
+              // resulting format, so one entry can hold the header rows of
+              // several sections. Painting that list's bounding box filled
+              // whole blocks between the headers. cellRuns() gives the exact
+              // rectangles (one call for a true range).
+              for (const rect of cellRuns(fm.cells)) {
+                grid?.setRangeFormat(fm.sheet, rect.r0, rect.c0, rect.r1, rect.c1, fm.new_format);
+              }
+              for (const { row, col } of fm.cells) {
+                tintedCellsByBatch.current[ev.batch_id]?.push({ sheet: fm.sheet, row, col });
+              }
+              const m: UniverMutation = { ...fm, old_format };
+              append(m);
+            }
+          };
+
           for (const raw of result.mutations) {
             if (raw.type === "set_cell") {
               const { sheet, row, col } = raw.address;
@@ -2829,38 +3150,14 @@ export const SpreadsheetScreen: React.FC = () => {
               append(m);
               continue;
             }
-            // Any structural/format op below must see prior cell writes
-            // applied (and may shift coordinates) — flush the buffer first.
-            await flushCells();
             if (raw.type === "set_format") {
-              // Capture each cell's pre-format snapshot so Reject can restore.
-              const fm = raw as FormatMutation;
-              const old_format = fm.cells.map(({ row, col }) => ({
-                row, col,
-                format: grid?.getCellFormat(fm.sheet, row, col) ?? null,
-              }));
-              // Apply ONCE at range level. The per-cell loop this replaces
-              // dispatched every facade setter (font, fill, numfmt, …) per
-              // CELL — a 3-property format over B2:Z100 was ~7,400 command
-              // executions; range-level it's ~3. fm.cells comes from
-              // expandA1Range so its bounding box IS the range.
-              const rows = fm.cells.map((c) => c.row);
-              const cols = fm.cells.map((c) => c.col);
-              grid?.setRangeFormat(
-                fm.sheet,
-                Math.min(...rows),
-                Math.min(...cols),
-                Math.max(...rows),
-                Math.max(...cols),
-                fm.new_format,
-              );
-              for (const { row, col } of fm.cells) {
-                tintedCellsByBatch.current[ev.batch_id]?.push({ sheet: fm.sheet, row, col });
-              }
-              const m: UniverMutation = { ...fm, old_format };
-              append(m);
+              formatBuf.push(raw as FormatMutation);
               continue;
             }
+            // Any structural op below must see prior cell writes and formats
+            // applied (and may shift coordinates) — flush both buffers first.
+            await flushCells();
+            await flushFormats();
             if (raw.type === "set_column_width") {
               const old_widths = raw.columns.map((col) => ({
                 col,
@@ -3030,6 +3327,7 @@ export const SpreadsheetScreen: React.FC = () => {
             }
           }
           await flushCells();
+          await flushFormats();
           // The whole tool call lands in the chat state as ONE update.
           dispatch({ type: "batch_append_mutations", tabId: ev.tab_id, batchId: ev.batch_id, mutations: appended });
           dispatch({
@@ -3622,9 +3920,10 @@ export const SpreadsheetScreen: React.FC = () => {
     try {
       setLoadStage(tab.id, "Reading file…");
       const bytes = await readWorkbookBytes(task.start_file);
-      await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage));
+      const loaded = await grid.loadBytes(bytes, (stage) => setLoadStage(tab.id, stage), { tabId: tab.id, path: task.start_file });
       void ironcalcShadowLoad(task.start_file, tab.id);
-      void ironcalcEngineOnOpen(tab.id, task.start_file);
+      if (!loaded?.engineLoaded) void ironcalcEngineOnOpen(tab.id, task.start_file);
+      void journalOpen(tab.id, task.start_file);
     } catch (err) {
       setLoadStage(tab.id, null);
       if (ev.finishing) return; // open-phase deadline already advanced
@@ -3803,6 +4102,7 @@ export const SpreadsheetScreen: React.FC = () => {
       const batch = activeTab.batches.find((b) => b.id === batchId);
       if (!batch || batch.status !== "rejected") return;
 
+      if (grid) for (const name of sheetsReferencedByMutations(batch.mutations)) if (grid.isSheetLazy(name)) await grid.ensureSheetLoaded(name);
       for (const m of batch.mutations) applyMutationForward(grid, m);
 
       userEditedSinceBatchRef.current[activeTab.id] = false;
@@ -3885,7 +4185,7 @@ export const SpreadsheetScreen: React.FC = () => {
   const reviewIndex = useMemo(() => {
     if (!review || !activeTab) return null;
     const snapshot = gridRefs.current[activeTab.id]?.getWorkbookSnapshot?.();
-    return snapshot ? getWorkbookIndex(activeTab.path, snapshot) : null;
+    return snapshot ? getWorkbookIndex(activeTab.path, snapshot, gridRefs.current[activeTab.id]?.getContentVersion?.()) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review?.batchId, activeTab?.id]);
 
@@ -4174,13 +4474,23 @@ export const SpreadsheetScreen: React.FC = () => {
         )}
         {workspace.tabs.map((t) => (
           <GridLayer key={t.id} $visible={t.id === workspace.activeTabId}>
-            <UniverGrid
-              ref={getGridRefCallback(t.id)}
-              tabId={t.id}
-              workbookPath={t.path}
-              onUserEdit={getUserEditCallback(t.id)}
-              onManualSheetOp={getManualSheetOpCallback(t.id)}
-            />
+            {viewportGridEnabled() && t.path && /\.xls[xm]$/i.test(t.path) ? (
+              <ViewportGrid
+                ref={getGridRefCallback(t.id)}
+                tabId={t.id}
+                workbookPath={t.path}
+                onUserEdit={getUserEditCallback(t.id)}
+                onManualSheetOp={getManualSheetOpCallback(t.id)}
+              />
+            ) : (
+              <UniverGrid
+                ref={getGridRefCallback(t.id)}
+                tabId={t.id}
+                workbookPath={t.path}
+                onUserEdit={getUserEditCallback(t.id)}
+                onManualSheetOp={getManualSheetOpCallback(t.id)}
+              />
+            )}
             {gridLoading[t.id] && (
               <GridLoadOverlay>
                 <LoadSpinner />
@@ -4243,12 +4553,24 @@ export const SpreadsheetScreen: React.FC = () => {
         tabs={workspace.tabs}
       />
       <UpdateNotification />
+      <RecoverModal
+        open={!!recover}
+        filename={recover?.filename ?? ""}
+        journal={recover?.journal ?? null}
+        onRestore={() => recover?.resolve(true)}
+        onDiscard={() => recover?.resolve(false)}
+      />
       <ExitGuardModal
         open={!!exitGuard}
         dirtyTabs={exitGuard?.dirtyTabs ?? []}
         saving={exitGuard?.saving ?? false}
         onCancel={() => setExitGuard(null)}
         onDiscard={async () => {
+          // An explicit Discard drops the unsaved-work journals too, or the
+          // next open of each file would offer the discarded edits back.
+          for (const t of exitGuard?.dirtyTabs ?? []) {
+            if (!t.path.startsWith("untitled-")) await journalClear(t.id).catch(() => {});
+          }
           // destroy() bypasses our onCloseRequested handler — otherwise
           // closing programmatically would re-prompt forever.
           setExitGuard(null);

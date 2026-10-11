@@ -1,0 +1,80 @@
+<!-- title: Reading a workbook -->
+<!-- description: How an agent reads an Excel file through GridPath: describe_workbook for structure, find_rows for labels, query_rows to filter and aggregate data, read_range for exact cells. -->
+<h1 class="legal-title">Reading a workbook.</h1>
+<p class="legal-lede">Four read-only tools, each answering a different question. Used in order, they let an agent orient on a 50,000-formula model in three calls without reading it cell by cell.</p>
+
+<div class="docs-callout"><p>All four are marked read-only in the tool annotations, so hosts that gate writes behind approval prompts can run them freely. Values are evaluated by the in-process engine, so the agent sees what Excel would show, not raw formulas.</p></div>
+
+<h2 id="describe">1. <code>describe_workbook</code>: what is in the file</h2>
+<p>A structural map without cell data. For each sheet: the used range, the detected header row with its headers mapped to column letters, and a table of contents of sections, the contiguous row bands with their titles. Also lists defined names. Served from an in-memory index, so it is near-instant.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx" }</code></pre>
+<pre><code>{
+  "sheets": [
+    {
+      "name": "Model",
+      "used_range": "A1:BX412",
+      "header_row": 4,
+      "headers": { "B": "FY2023A", "C": "FY2024A", "D": "FY2025E", "E": "FY2026E" },
+      "sections": [
+        { "rows": "5-42", "title": "Revenue build" },
+        { "rows": "44-97", "title": "Operating expenses" }
+      ]
+    }
+  ],
+  "defined_names": [ { "name": "TaxRate", "ref": "Assumptions!B7" } ]
+}</code></pre>
+<p>Pass <code>sheet</code> to limit the map to one sheet. Call it first on any file.</p>
+
+<h2 id="find">2. <code>find_rows</code>: where is the row I need</h2>
+<p>Searches row labels and column headers by name and returns exact positions. Matching is case-insensitive substring plus word prefix, so <code>"tot rev"</code> matches "Total revenue". Each match carries its sheet, 1-indexed row, containing section, and one evaluated sample cell read live from the grid.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "query": "total revenue" }</code></pre>
+<pre><code>{
+  "matches": [
+    { "sheet": "Model", "row": 42, "label": "Total revenue", "section": "Revenue build",
+      "sample": "E42 = =SUM(E5:E41) → 39001.1" }
+  ],
+  "total": 1,
+  "truncated": false
+}</code></pre>
+<p><code>max_results</code> defaults to 20. Use this instead of scanning with <code>read_range</code>: the row numbers in the reply are exact and go straight into formulas.</p>
+
+<h2 id="query">3. <code>query_rows</code>: which rows match</h2>
+<p>Filter, project and aggregate the rows of one sheet by column values, served by the calculation engine on any sheet size. Columns are letters or header texts, matched case-insensitively. Predicates in <code>where</code> are ANDed.</p>
+<pre><code>{
+  "path": "~/data/sites.xlsx",
+  "sheet": "Sites",
+  "where": [
+    { "column": "Owner", "op": "contains", "value": "AWS" },
+    { "column": "Capacity (MW)", "op": "gte", "value": 100 }
+  ],
+  "columns": ["Site", "Market", "Capacity (MW)", "Online"],
+  "order_by": { "column": "Capacity (MW)", "desc": true },
+  "limit": 20
+}</code></pre>
+<p>Operators: <code>eq</code>, <code>ne</code>, <code>contains</code>, <code>not_contains</code>, <code>starts_with</code>, <code>ends_with</code>, <code>gt</code>, <code>gte</code>, <code>lt</code>, <code>lte</code>, <code>between</code> (value is <code>[low, high]</code>), <code>in</code> and <code>not_in</code> (value is a list), <code>empty</code>, <code>not_empty</code>. Text compares trimmed and case-insensitively, numbers numerically, dates as ISO strings against date-formatted cells.</p>
+<p>The reply holds matching rows with their 1-indexed <code>row</code> and the requested columns keyed by letter, plus <code>matched</code> (the total count) and <code>truncated</code>. <code>limit</code> defaults to 50, maximum 500.</p>
+<p>With <code>group_by</code> and <code>aggregate</code> you get one entry per distinct value instead of rows:</p>
+<pre><code>{
+  "path": "~/data/sites.xlsx",
+  "sheet": "Sites",
+  "group_by": "Market",
+  "aggregate": [ { "column": "Capacity (MW)", "fn": "sum" } ]
+}</code></pre>
+<p>Aggregates are <code>sum</code>, <code>count</code>, <code>min</code>, <code>max</code>, <code>avg</code>. The header row is auto-detected; pass <code>header_row</code> when it picks the wrong one, and <code>start_row</code> or <code>end_row</code> to bound the scan.</p>
+
+<h2 id="read">4. <code>read_range</code>: exact cells</h2>
+<p>Evaluated values and formulas for a specific A1 range, up to 500 cells. Use it to verify a write landed where expected, or to pull the handful of values a formula needs to reference.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "range": "B42:E42" }</code></pre>
+<pre><code>{
+  "sheet": "Model",
+  "range": "B42:E42",
+  "cells": [
+    { "cell": "B42", "value": 31250.4, "formula": "=SUM(B5:B41)", "text": "31,250" },
+    { "cell": "C42", "value": 34800.0, "formula": "=SUM(C5:C41)", "text": "34,800" }
+  ],
+  "truncated": false
+}</code></pre>
+<p>For anything larger than 500 cells, use <code>query_rows</code>, or read inside a <a href="/docs/run-script"><code>run_script</code></a>, where reads are unbudgeted.</p>
+
+<h2 id="engine">What the engine evaluates</h2>
+<p>Dynamic arrays and spills (FILTER, UNIQUE, SORT, SORTBY, SEQUENCE, VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS, CHOOSEROWS, TOCOL, WRAPROWS), LET and LAMBDA with MAP, BYROW and SCAN, XLOOKUP, the IFS family, SUMPRODUCT, TEXTJOIN over arrays, OFFSET and INDIRECT, date and finance functions, RANK, PERCENTILE, QUARTILE, MEDIAN and STDEV. Not implemented and returning <code>#NAME?</code>: AGGREGATE, GETPIVOTDATA, HYPERLINK, GROUPBY, PIVOTBY. Formulas are stored as written, so Excel recalculates them on open regardless.</p>

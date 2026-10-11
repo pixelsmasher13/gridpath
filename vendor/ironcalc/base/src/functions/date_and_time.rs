@@ -135,20 +135,22 @@ fn is_feb29_between_consecutive_years(start: chrono::NaiveDate, end: chrono::Nai
 // Generate DAY / MONTH / YEAR helpers – simply convert the serial number to a
 // NaiveDate and return the requested component as a number.
 macro_rules! date_part_fn {
-    ($name:ident, $method:ident) => {
+    ($name:ident, $index:tt) => {
         pub(crate) fn $name(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
             if args.len() != 1 {
                 return CalcResult::new_args_number_error(cell);
             }
-            // Convert the serial number to a NaiveDate and return the requested
-            // component. Broadcasts element-wise over ranges/arrays. Uses the free
-            // function from_excel_date to avoid borrowing self in the closure.
+            // Map the serial to Excel's (year, month, day) and return the requested
+            // component. Broadcasts element-wise over ranges/arrays. Goes through
+            // `excel_serial_to_ymd` so serial 0 ("0 January 1900", what a blank or
+            // zero date cell yields) and the phantom 29 February 1900 (serial 60)
+            // report what Excel reports instead of #NUM!.
             self.apply_number_unary(
                 &args[0],
                 cell,
-                |f| match from_excel_date(f.floor() as i64) {
-                    Ok(date) => Ok(date.$method() as f64),
-                    Err(_) => Err(Error::NUM),
+                |f| match excel_serial_to_ymd(f.floor() as i64) {
+                    Some(parts) => Ok(parts.$index as f64),
+                    None => Err(Error::NUM),
                 },
             )
         }
@@ -620,9 +622,9 @@ impl<'a> Model<'a> {
     // -----------------------------------------------------------------------
     // Auto-generated DATE part helpers (DAY / MONTH / YEAR)
     // -----------------------------------------------------------------------
-    date_part_fn!(fn_day, day);
-    date_part_fn!(fn_month, month);
-    date_part_fn!(fn_year, year);
+    date_part_fn!(fn_day, 2);
+    date_part_fn!(fn_month, 1);
+    date_part_fn!(fn_year, 0);
 
     pub(crate) fn fn_eomonth(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
         let args_count = args.len();
@@ -643,44 +645,53 @@ impl<'a> Model<'a> {
             }
             Err(s) => return s,
         };
-        let date = match self.excel_date(serial_number, cell) {
-            Ok(d) => d,
-            Err(e) => return e,
+        // Only the year and month matter, so take Excel's own parts: serial 0
+        // ("0 January 1900") and the phantom 29 February 1900 (serial 60) are
+        // valid EOMONTH inputs in Excel.
+        let (year, month, _) = match excel_serial_to_ymd(serial_number) {
+            Some(parts) => parts,
+            None => {
+                return CalcResult::Error {
+                    error: Error::NUM,
+                    origin: cell,
+                    message: "Function EOMONTH parameter 1 value is too large.".to_string(),
+                }
+            }
         };
-        if serial_number > MAXIMUM_DATE_SERIAL_NUMBER as i64 {
-            return CalcResult::Error {
-                error: Error::NUM,
-                origin: cell,
-                message: "Function DAY parameter 1 value is too large.".to_string(),
-            };
-        }
 
         let months = match self.get_number_no_bools(&args[1], cell) {
             Ok(c) => {
                 let t = c.trunc();
-                t as i32
+                t as i64
             }
             Err(s) => return s,
         };
 
-        let months_abs = months.unsigned_abs();
-
-        let native_date = if months > 0 {
-            date + Months::new(months_abs)
-        } else {
-            date - Months::new(months_abs)
-        };
-
         // Instead of calculating the end of month we compute the first day of the following month
         // and take one day.
-        let mut month = native_date.month() + 1;
-        let mut year = native_date.year();
-        if month == 13 {
-            month = 1;
-            year += 1;
+        let target_months = year as i64 * 12 + (month as i64 - 1) + months;
+        if target_months < 1900 * 12 {
+            return CalcResult::Error {
+                error: Error::NUM,
+                origin: cell,
+                message: "EOMONTH out of bounds".to_string(),
+            };
         }
+        let total_months = target_months + 1;
+        let year = (total_months / 12) as i32;
+        let month = (total_months % 12) as u32 + 1;
         match date_to_serial_number(1, month, year) {
-            Ok(serial_number) => CalcResult::Number(serial_number as f64 - 1.0),
+            Ok(first_of_next) => {
+                let serial = first_of_next - 1;
+                if !(MINIMUM_DATE_SERIAL_NUMBER..=MAXIMUM_DATE_SERIAL_NUMBER).contains(&serial) {
+                    return CalcResult::Error {
+                        error: Error::NUM,
+                        origin: cell,
+                        message: "EOMONTH out of bounds".to_string(),
+                    };
+                }
+                CalcResult::Number(serial as f64)
+            }
             Err(message) => CalcResult::Error {
                 error: Error::NUM,
                 origin: cell,

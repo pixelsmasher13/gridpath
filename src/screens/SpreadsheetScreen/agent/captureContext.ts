@@ -1,7 +1,27 @@
 import type { UniverGridHandle, CellFormatShape } from "../components/UniverGrid";
+
+/**
+ * What the preview needs from the live grid: evaluated values and display
+ * strings, per-cell formats, and external pins. The Univer grid answers
+ * from its model; the viewport grid answers from the engine windows it
+ * fetched for the preview (see `captureWorkbookContextWith`).
+ */
+export interface CellReader {
+  getCell: (sheet: string, row: number, col: number) => { value: any; display?: string; formula: string | null } | null;
+  getCellFormat: (sheet: string, row: number, col: number) => CellFormatShape | null;
+  getExternalPin: (sheet: string, row: number, col: number) => { f: string; v: any } | null;
+}
+
+function gridReader(grid: UniverGridHandle | null): CellReader {
+  return {
+    getCell: (sheet, row, col) => grid?.getCell?.(sheet, row, col) ?? null,
+    getCellFormat: (sheet, row, col) => grid?.getCellFormat?.(sheet, row, col) ?? null,
+    getExternalPin: (sheet, row, col) => grid?.getExternalPin?.(sheet, row, col) ?? null,
+  };
+}
 import type { WorkbookContext } from "./agentClient";
 import { colIndexToLetters, previewNumber, shiftFormulaCols } from "../formulaRuns";
-import { firstLabelIn, isDateFormat, serialToIsoDate, snapshotContentKey } from "./workbookIndex";
+import { firstLabelIn, isDateFormat, serialToIsoDate, snapshotContentKey, type WorkbookIndex } from "./workbookIndex";
 
 /**
  * Capture a compact snapshot of the active workbook to ship to the agent.
@@ -123,16 +143,91 @@ type CaptureMemoEntry = {
 };
 const captureMemo = new Map<string, CaptureMemoEntry>();
 
+/**
+ * Workbook context from the engine's index alone — the viewport grid holds
+ * no snapshot (the workbook lives in the engine), so the agent's opening
+ * context is a structural index: used range, header row and row labels
+ * with value/formula counts per sheet. The index is deterministic for a
+ * given workbook state, so the bytes are stable across prompts and the
+ * cached context block keeps hitting. Cells come through read_range /
+ * query_rows / find_rows on demand, as the prompt already instructs.
+ */
+export function contextFromIndex(path: string, index: WorkbookIndex): WorkbookContext {
+  const sheets = index.sheets.map((s) => {
+    const end = s.usedRange ? /:([A-Z]+)(\d+)$/.exec(s.usedRange) : null;
+    const column_count = end ? Math.max(26, colLettersToIndex(end[1]) + 1) : 26;
+    const row_count = end ? Math.max(100, Number(end[2])) : 100;
+    const lines: string[] = [];
+    lines.push(
+      (s.hidden ? "(HIDDEN sheet. " : "(") +
+        "Large workbook: this is the sheet's structural index, not a cell preview — " +
+        "read_range / query_rows / find_rows / describe_workbook serve its cells on demand.)",
+    );
+    const headerKeys = Object.keys(s.headers);
+    if (s.headerRow !== null && headerKeys.length > 0) {
+      const shown = headerKeys.slice(0, 40).map((k) => `${k}=${JSON.stringify(s.headers[k])}`);
+      lines.push(`    headers (row ${s.headerRow}): ${shown.join(", ")}${headerKeys.length > 40 ? ", …" : ""}`);
+    }
+    let shown = 0;
+    for (const r of s.rows) {
+      if (r.label === null) continue;
+      if (shown >= INDEX_CONTEXT_ROWS) {
+        lines.push(`    … (${s.rows.length - shown} more rows)`);
+        break;
+      }
+      const parts: string[] = [];
+      if (r.values) parts.push(`${r.values} values`);
+      if (r.formulas) parts.push(`${r.formulas} formulas`);
+      if (r.bold) parts.push("bold");
+      lines.push(`    row ${r.row}: ${JSON.stringify(r.label)}${parts.length ? ` [${parts.join(", ")}]` : ""}`);
+      shown++;
+    }
+    return { name: s.name, row_count, column_count, used_range: s.usedRange, cells_preview: lines.join("\n") };
+  });
+  return { path, sheets };
+}
+
+/** Row-label lines per sheet in an index-only context. */
+const INDEX_CONTEXT_ROWS = 150;
+
+function colLettersToIndex(letters: string): number {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
 export function captureWorkbookContext(
   path: string,
   grid: UniverGridHandle | null,
 ): WorkbookContext {
+  // With a grid-side content version the memo can be checked BEFORE the
+  // snapshot: getWorkbookSnapshot deep-clones every cell (2.1 s on a 2.3M-
+  // cell workbook) and most prompts arrive with nothing changed.
+  const memo = captureMemo.get(path);
+  const version = grid?.getContentVersion ? grid.getContentVersion() : null;
+  if (memo && version !== null && memo.key === version) {
+    return { path, sheets: memo.sheets };
+  }
   const snapshot = grid?.getWorkbookSnapshot?.();
   if (!snapshot || !snapshot.sheets) {
     return { path, sheets: [] };
   }
+  return captureWorkbookContextWith(path, snapshot, gridReader(grid), version ?? snapshotContentKey(snapshot));
+}
 
-  const contentKey = snapshotContentKey(snapshot);
+/**
+ * The capture over an explicit snapshot and reader. `snapshot` is Univer-
+ * shaped (`sheetOrder`, `sheets[id].{name,hidden,rowCount,columnCount,
+ * cellData[r][c].{v,f}}`); `contentKey` identifies the content state for
+ * the base+delta memo. The viewport grid assembles both from engine windows
+ * so the agent sees the same preview on either grid.
+ */
+export function captureWorkbookContextWith(
+  path: string,
+  snapshot: any,
+  reader: CellReader,
+  contentKey: string,
+): WorkbookContext {
   const memo = captureMemo.get(path);
   if (memo && memo.key === contentKey) {
     return { path, sheets: memo.sheets };
@@ -141,7 +236,7 @@ export function captureWorkbookContext(
   // and ship only the changed cells. Falls through to a fresh capture when
   // the delta is structural or over budget.
   if (memo) {
-    const delta = buildSnapshotDelta(memo, snapshot, grid);
+    const delta = buildSnapshotDelta(memo, snapshot, reader);
     if (delta !== null) {
       return { path, sheets: memo.sheets, delta };
     }
@@ -164,12 +259,15 @@ export function captureWorkbookContext(
       // trace references into it; describe_workbook / find_rows / read_range
       // serve hidden sheets in full on demand. Edits/recalcs on hidden cells
       // still ride in `delta` like any other change.
+      // A snapshot assembled from engine windows carries only the preview
+      // region, so it states the sheet's true extent itself.
+      const declaredRange: string | null | undefined = typeof sheet.usedRange === "string" ? sheet.usedRange : undefined;
       if (sheet.hidden === 1) {
         return {
           name: sheetName,
           row_count: Number(sheet.rowCount ?? 100),
           column_count: Number(sheet.columnCount ?? 26),
-          used_range: usedRangeOf(cellData, rowKeys),
+          used_range: declaredRange ?? usedRangeOf(cellData, rowKeys),
           cells_preview: hiddenSheetPreview(cellData, rowKeys),
         };
       }
@@ -187,7 +285,7 @@ export function captureWorkbookContext(
       // serials — annotate with the ISO date so the agent doesn't reason
       // about "38183".
       const evaluatedOf = (r: number, c: number, cell: any, numberFormat?: string | null): string | null => {
-        const liveCell = grid?.getCell?.(sheetName, r, c);
+        const liveCell = reader.getCell(sheetName, r, c);
         const live = liveCell?.value;
         const v = live !== undefined && live !== null ? live : cell.v;
         if (v === undefined || v === null) return null;
@@ -239,7 +337,7 @@ export function captureWorkbookContext(
             if (runLen >= MIN_RUN) {
               const endCol = cols[j];
               const endAddr = colIndexToLetters(endCol) + (r + 1);
-              const fmt = grid?.getCellFormat?.(sheetName, r, c);
+              const fmt = reader.getCellFormat(sheetName, r, c);
               // Second formula spelled out so "translated per column" can't
               // be misread as "repeated verbatim".
               const second = normF(row[cols[i + 1]]?.f);
@@ -279,7 +377,7 @@ export function captureWorkbookContext(
             }
           }
 
-          const fmt = grid?.getCellFormat?.(sheetName, r, c);
+          const fmt = reader.getCellFormat(sheetName, r, c);
           let valueLine: string | null = null;
           // For formula cells, ship BOTH the formula AND its evaluated
           // value (when available). Without this the agent can never see
@@ -296,7 +394,7 @@ export function captureWorkbookContext(
               // holds the cached value — which reads as a hardcode. Say so, or
               // the agent "cleans it up" and the formula is dropped on save.
               // Value match guards against stale pins after structural edits.
-              const pin = grid?.getExternalPin?.(sheetName, r, c);
+              const pin = reader.getExternalPin(sheetName, r, c);
               if (pin && cell.v === pin.v) {
                 valueLine += `  [cached result of ${clipText(String(pin.f))} — external/add-in formula the engine can't evaluate; do NOT overwrite]`;
               }
@@ -368,7 +466,7 @@ export function captureWorkbookContext(
       }
       previewParts.push(lines.length > 0 ? lines.join("\n") : "(empty)");
 
-      const usedRange = usedRangeOf(cellData, rowKeys);
+      const usedRange = declaredRange ?? usedRangeOf(cellData, rowKeys);
 
       return {
         name: sheetName,
@@ -422,8 +520,8 @@ function hiddenSheetPreview(cellData: any, rowKeys: number[]): string {
     "(This sheet is HIDDEN in the workbook — typically scratch/cache/calc " +
       "data feeding the visible sheets. Cell preview omitted; the row labels " +
       "below show what it contains. describe_workbook / find_rows / " +
-      "read_range serve its cells in full — read before referencing or " +
-      "editing it.)",
+      "query_rows / read_range serve its cells in full — read before " +
+      "referencing or editing it.)",
   ];
   let indexed = 0;
   for (const r of rowKeys) {
@@ -505,7 +603,7 @@ function sameValue(a: unknown, b: unknown): boolean {
 function buildSnapshotDelta(
   memo: CaptureMemoEntry,
   snapshot: any,
-  grid: UniverGridHandle | null,
+  reader: CellReader,
 ): string | null {
   const order: string[] = snapshot.sheetOrder ?? Object.keys(snapshot.sheets);
   const current = order
@@ -531,7 +629,7 @@ function buildSnapshotDelta(
     "`A1 recalc → v` lines are formula cells whose formula is UNCHANGED from " +
     "the preview but whose computed value moved (upstream edit rippled " +
     "through). Cells not listed are unchanged from the preview. " +
-    "describe_workbook, find_rows and read_range always serve current data.\n";
+    "describe_workbook, find_rows, query_rows and read_range always serve current data.\n";
   let bytes = header.length;
   const parts: string[] = [header];
 
@@ -581,11 +679,11 @@ function buildSnapshotDelta(
     if (changedByRow.size === 0 && cleared.length === 0) continue;
 
     const evaluated = (r: number, c: number, cell: any): string | null => {
-      const live = grid?.getCell?.(sheetName, r, c)?.value;
+      const live = reader.getCell(sheetName, r, c)?.value;
       const v = live !== undefined && live !== null ? live : cell.v;
       if (v === undefined || v === null) return null;
       if (typeof v === "number") {
-        const nf = grid?.getCellFormat?.(sheetName, r, c)?.number_format;
+        const nf = reader.getCellFormat(sheetName, r, c)?.number_format;
         const iso = nf && isDateFormat(nf) ? serialToIsoDate(v) : null;
         return iso ? `${previewNumber(v)} (${iso})` : previewNumber(v);
       }

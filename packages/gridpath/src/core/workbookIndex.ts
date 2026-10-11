@@ -443,9 +443,11 @@ const indexMemo = new Map<string, { key: string; index: WorkbookIndex }>();
  * after the snapshot's CONTENT changed (same key as the preview memo) —
  * no event wiring, no invalidation bugs possible.
  */
-export function getWorkbookIndex(path: string, snapshot: any): WorkbookIndex | null {
+export function getWorkbookIndex(path: string, snapshot: any, contentKey?: string): WorkbookIndex | null {
   if (!snapshot || !snapshot.sheets) return null;
-  const key = snapshotContentKey(snapshot);
+  // A caller-supplied version (the desktop grid's mutation counter) beats
+  // hashing every cell of the snapshot, which is seconds on 2M cells.
+  const key = contentKey ?? snapshotContentKey(snapshot);
   const memo = indexMemo.get(path);
   if (memo && memo.key === key) return memo.index;
   const index = buildWorkbookIndex(snapshot);

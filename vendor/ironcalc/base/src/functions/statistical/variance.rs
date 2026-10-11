@@ -42,8 +42,8 @@ impl<'a> Model<'a> {
                     let mut column2 = right.column;
 
                     if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
+                        row2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_row,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -54,8 +54,8 @@ impl<'a> Model<'a> {
                         };
                     }
                     if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
+                        column2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_column,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -166,8 +166,8 @@ impl<'a> Model<'a> {
                     let mut column2 = right.column;
 
                     if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
+                        row2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_row,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -178,8 +178,8 @@ impl<'a> Model<'a> {
                         };
                     }
                     if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
+                        column2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_column,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -290,8 +290,8 @@ impl<'a> Model<'a> {
                     let mut column2 = right.column;
 
                     if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
+                        row2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_row,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -302,8 +302,8 @@ impl<'a> Model<'a> {
                         };
                     }
                     if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
+                        column2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_column,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -421,8 +421,8 @@ impl<'a> Model<'a> {
                     let mut column2 = right.column;
 
                     if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
+                        row2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_row,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -433,8 +433,8 @@ impl<'a> Model<'a> {
                         };
                     }
                     if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
+                        column2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_column,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,

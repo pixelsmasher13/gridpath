@@ -127,3 +127,68 @@ fn test_apply_ifs_date_criterion_respects_locale() {
     assert_eq!(model._get_text("A3"), *"7");
     assert_eq!(model._get_text("A4"), *"1");
 }
+
+/// The per-pass criteria index (`Model::ifs_cache`) must be invisible:
+/// many SUMIFS sharing one criteria column, multi-criteria intersections,
+/// criteria ranges offset from the sum range, errors only where a MATCHED
+/// sum cell errors, and criteria edits picked up by the next pass.
+#[test]
+fn test_sumifs_shared_criteria_index_matches_plain_walk() {
+    let mut model = new_empty_model();
+    // Data: B = amount, C = type, D = region. Row 8's amount is an error but
+    // its type never matches, so it must not poison the colocation totals.
+    let rows = [
+        ("5", "colocation", "east"),
+        ("4", "hyperscaler", "west"),
+        ("15", "colocation", "west"),
+        ("22", "colocation", "east"),
+        ("=NA()", "other", "east"),
+        ("7", "hyperscaler", "east"),
+        ("", "colocation", "west"),
+    ];
+    for (i, (b, c, d)) in rows.iter().enumerate() {
+        let r = i + 2;
+        if !b.is_empty() {
+            model._set(&format!("B{r}"), b);
+        }
+        model._set(&format!("C{r}"), c);
+        model._set(&format!("D{r}"), d);
+    }
+    // Forty formulas over the same criteria column, several criteria.
+    for r in 20..40 {
+        model._set(&format!("A{r}"), "=SUMIFS($B$2:$B$8,$C$2:$C$8,\"colocation\")");
+        model._set(&format!("E{r}"), "=SUMIFS($B$2:$B$8,$C$2:$C$8,\"hyperscaler\")");
+    }
+    model._set("F1", "=SUMIFS(B2:B8,C2:C8,\"colocation\",D2:D8,\"east\")");
+    model._set("F2", "=SUMIFS(B2:B8,C2:C8,\"colocation\",D2:D8,\"west\")");
+    // Criteria range offset from the sum range (rows 3..9 against 2..8).
+    model._set("F3", "=SUMIFS(B2:B8,C3:C9,\"colocation\")");
+    // A matched error must propagate.
+    model._set("F4", "=SUMIFS(B2:B8,C2:C8,\"other\")");
+    // Whole-column ranges.
+    model._set("F5", "=SUMIFS(B:B,C:C,\"colocation\",D:D,\"east\")");
+    // Numeric and comparison criteria share the index keyed by criterion.
+    model._set("F6", "=SUMIFS(B2:B8,B2:B8,\">10\")");
+    model._set("F7", "=SUMIFS(B2:B8,B2:B8,15)");
+
+    model.evaluate();
+
+    assert_eq!(model._get_text("A20"), *"42");
+    assert_eq!(model._get_text("A39"), *"42");
+    assert_eq!(model._get_text("E20"), *"11");
+    assert_eq!(model._get_text("F1"), *"27");
+    assert_eq!(model._get_text("F2"), *"15");
+    // Offset criteria: C3..C9 = hyper, colo, colo, other, hyper, colo, "" → B3,B4,B7 = 4+15+7
+    assert_eq!(model._get_text("F3"), *"26");
+    assert_eq!(model._get_text("F4"), *"#N/A");
+    assert_eq!(model._get_text("F5"), *"27");
+    assert_eq!(model._get_text("F6"), *"37");
+    assert_eq!(model._get_text("F7"), *"15");
+
+    // Editing a criteria cell invalidates the index on the next pass.
+    model._set("C3", "colocation");
+    model.evaluate();
+    assert_eq!(model._get_text("A20"), *"46");
+    assert_eq!(model._get_text("E39"), *"7");
+    assert_eq!(model._get_text("F2"), *"19");
+}

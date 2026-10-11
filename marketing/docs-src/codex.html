@@ -1,0 +1,20 @@
+<!-- title: Codex -->
+<!-- description: Configure the GridPath Excel MCP server for OpenAI Codex in config.toml, so Codex can edit .xlsx files with a review link before saving. -->
+<h1 class="legal-title">Codex.</h1>
+<p class="legal-lede">Three lines in <code>~/.codex/config.toml</code> register GridPath with Codex.</p>
+
+<h2 id="install">Install</h2>
+<pre><code>[mcp_servers.gridpath]
+command = "npx"
+args = ["-y", "gridpath", "mcp", "--review-required"]</code></pre>
+<p>Restart Codex. Node 20 or newer must be available on the PATH Codex uses.</p>
+
+<h2 id="first-edit">First edit</h2>
+<pre><code>In ~/reports/kpis.xlsx, add a YoY growth column next to each metric on the Summary sheet, as formulas.</code></pre>
+<p>Codex reads the structure with <code>describe_workbook</code> and <code>find_rows</code>, writes the formulas, and the result includes a <code>review_url</code>. Open it to see each changed cell before and after, then save from the page.</p>
+
+<h2 id="folders">Limiting folders</h2>
+<p>Append <code>"--allow", "/path/to/folder"</code> to <code>args</code>, repeating the path for each folder. The default is your home directory. Files outside the allowed folders are refused.</p>
+
+<h2 id="other-hosts">Gemini CLI, Windsurf, VS Code</h2>
+<p>Any MCP host that launches a stdio server works with the same command and arguments. Put <code>npx</code> as the command and <code>["-y", "gridpath", "mcp", "--review-required"]</code> as the arguments in that host's MCP configuration.</p>

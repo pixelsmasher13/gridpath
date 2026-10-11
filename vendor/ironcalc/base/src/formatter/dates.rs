@@ -12,7 +12,15 @@ pub const DATE_OUT_OF_RANGE_MESSAGE: &str = "Out of range parameters for date";
 
 #[inline]
 fn convert_to_serial_number(date: NaiveDate) -> i32 {
-    date.num_days_from_ce() - EXCEL_DATE_BASE
+    let serial = date.num_days_from_ce() - EXCEL_DATE_BASE;
+    // Excel's 1900 date system counts a phantom 29 February 1900 (serial 60),
+    // so real dates before 1900-03-01 sit one serial below the continuous
+    // count: 1900-01-01 is serial 1, 1900-02-28 is 59, 1899-12-31 is 0.
+    if serial < 61 {
+        serial - 1
+    } else {
+        serial
+    }
 }
 
 fn is_date_within_range(date: NaiveDate) -> bool {
@@ -33,7 +41,27 @@ pub fn from_excel_date(days: i64) -> Result<NaiveDate, String> {
     };
     #[allow(clippy::expect_used)]
     let dt = NaiveDate::from_ymd_opt(1900, 1, 1).expect("problem with chrono::NaiveDate");
+    // Continuous count, two days behind Excel's 1900 system. For serials 61+
+    // this is the exact calendar date. For 0..=60 (before Excel's phantom
+    // 29 February 1900) the calendar date is one day early, but the WEEKDAY
+    // matches what Excel reports (Excel calls serial 1 a Sunday), which is
+    // what WEEKDAY/WORKDAY/NETWORKDAYS/EDATE need. Functions that need Excel's
+    // own year/month/day for those serials use `excel_serial_to_ymd`
+    // (date_and_time.rs); display formatting uses `excel_display_date`.
     Ok(dt + Duration::days(days - 2))
+}
+
+/// The calendar date to *display* for a serial: Excel's year/month/day for
+/// serials 1..=59 (1900-01-01 is serial 1). Serial 0 ("0 January 1900") and
+/// 60 (the phantom 29 February 1900) have no real date and show as the
+/// adjacent day. Weekday names for serials below 61 come out one day off,
+/// which matches Excel's own calendar inconsistency the other way round.
+pub fn excel_display_date(days: i64) -> Result<NaiveDate, String> {
+    if (0..=60).contains(&days) {
+        from_excel_date(days + 1)
+    } else {
+        from_excel_date(days)
+    }
 }
 
 pub fn date_to_serial_number(day: u32, month: u32, year: i32) -> Result<i32, String> {
@@ -55,6 +83,10 @@ pub fn permissive_date_to_serial_number(day: i32, month: i32, year: i32) -> Resu
     // Special case for the minimum date
     if year == 1899 && month == 12 && day == 31 {
         return Ok(MINIMUM_DATE_SERIAL_NUMBER);
+    }
+    // Excel's phantom 29 February 1900 (serial 60) is not a chrono date.
+    if year == 1900 && month == 2 && day == 29 {
+        return Ok(60);
     }
     let Some(mut date) = NaiveDate::from_ymd_opt(year, 1, 1) else {
         return Err(DATE_OUT_OF_RANGE_MESSAGE.to_string());

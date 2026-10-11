@@ -1,0 +1,61 @@
+<!-- title: Review before save -->
+<!-- description: How GridPath's review step works: pending batches, the local review page, accepting and rejecting per batch or per cell, review-required mode, save and save-as. -->
+<h1 class="legal-title">Review before save.</h1>
+<p class="legal-lede">No GridPath tool writes to your file except <code>save_workbook</code>. Everything else accumulates as pending batches you can inspect, reject and save from a local review page.</p>
+
+<h2 id="batches">Pending batches</h2>
+<p>Each write tool call becomes one batch: <code>set_cell</code> is one batch of one mutation, a <code>run_script</code> that writes 2,000 cells is one batch of 2,000. Batches apply to an in-memory model of the workbook, so the agent's next read sees them, but the <code>.xlsx</code> on disk is untouched.</p>
+<p>Every write returns the batch id, a readback of what landed, the number of pending batches, and a <code>review_url</code>:</p>
+<pre><code>{
+  "ok": true,
+  "batch_id": "b3",
+  "write_check": "ok",
+  "cells": [ { "sheet": "Model", "cell": "F12", "value": 1250, "formula": "=E12*1.05" } ],
+  "row_map": [ { "sheet": "Model", "row": 12, "label": "Revenue" } ],
+  "pending_batches": 3,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "Changes are pending in memory. …"
+}</code></pre>
+<p>Batches are also written to disk next to the workbook, at <code>.gridpath/&lt;file&gt;.batches.json</code>, so they survive the agent's session ending and a later <code>gridpath review</code> can pick them up.</p>
+
+<h2 id="review-page">The review page</h2>
+<p>The <code>review_url</code> opens a page served by the MCP server on loopback only. The address carries a per-process token, so another web page cannot drive it. The page shows:</p>
+<ul>
+  <li>The workbook, sheet by sheet, with changed cells highlighted and the first change already in view.</li>
+  <li>Before and after for each changed cell: value, formula and display text.</li>
+  <li>A panel of pending batches, each named for the tool that produced it, with its mutation count.</li>
+</ul>
+<p>From there you can:</p>
+<ul>
+  <li><strong>Accept</strong> a batch, or Accept all.</li>
+  <li><strong>Reject</strong> a batch. The remaining batches are replayed onto a fresh model, so a later edit that depended on the rejected one may change. Check the page again.</li>
+  <li><strong>Reject individual cells</strong> inside a batch and keep the rest.</li>
+  <li><strong>Save to file</strong>, which patches the original in place and clears the batches.</li>
+  <li><strong>Save as</strong>, which writes a patched copy to a path you choose and leaves the original and its pending batches exactly as they were.</li>
+</ul>
+
+<h2 id="review-required">Review-required mode</h2>
+<p>Start the server with <code>--review-required</code>, or set <code>GRIDPATH_REVIEW_REQUIRED=true</code>, and the agent cannot save. <code>save_workbook</code> returns the review link with <code>saved: false</code> and a note telling the agent to hand you the link:</p>
+<pre><code>{
+  "ok": true,
+  "saved": false,
+  "pending_batches": 3,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "This server requires human review before saving. …"
+}</code></pre>
+<p>The Claude Desktop bundle turns this on by default. One exception: <code>save_workbook</code> with <code>as</code> still writes a copy, because the original is never touched.</p>
+<p>Without the flag, the agent may call <code>save_workbook</code> itself. The review link still comes back with every write, so you can inspect afterwards.</p>
+
+<h2 id="agent-tools">What the agent can do with batches</h2>
+<ul>
+  <li><code>list_batches</code>: pending batches with ids, status and mutation counts, plus the review link.</li>
+  <li><code>reject_batch</code>: drop one batch by id. Same replay behaviour as rejecting from the page.</li>
+  <li><code>save_workbook</code>: write every pending batch, or with <code>as</code> write a copy.</li>
+</ul>
+
+<h2 id="what-save-does">What save does to the file</h2>
+<p>Save diffs the in-memory model against the file as it was loaded and rewrites only the zip parts an edit touched, typically one sheet XML and the shared strings. Untouched parts are copied through byte for byte: charts, pivot caches, <code>vbaProject.bin</code>, add-in data, custom XML, themes, printer settings. If an edit cannot be represented as a surgical patch, the save is refused with a reason instead of falling back to a full rewrite. See <a href="/fidelity">Fidelity</a>.</p>
+
+<h2 id="reopen">Reopening a review later</h2>
+<pre><code>npx -y gridpath review ~/models/forecast.xlsx</code></pre>
+<p>Starts a review server for that workbook's pending batches and opens the page in your browser. Press Ctrl-C when you are done.</p>

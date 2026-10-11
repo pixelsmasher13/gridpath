@@ -15,6 +15,7 @@ fn test_gridlines_issue_1269() {
     assert_eq!(
         view0,
         &WorksheetView {
+            zoom: 100,
             row: 1,
             column: 1,
             range: [1, 1, 1, 1],

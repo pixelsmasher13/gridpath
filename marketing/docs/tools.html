@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All tools — GridPath Docs</title>
+  <meta name="description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.1.9): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <link rel="canonical" href="https://gridpath.dev/docs/tools" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="All tools — GridPath Docs" />
+  <meta property="og:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.1.9): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta property="og:url" content="https://gridpath.dev/docs/tools" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="All tools — GridPath Docs" />
+  <meta name="twitter:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.1.9): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "All tools",
+    "description": "Reference for every tool in the GridPath Excel MCP server (gridpath 0.1.9): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions.",
+    "url": "https://gridpath.dev/docs/tools",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "All tools", "item": "https://gridpath.dev/docs/tools" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools" aria-current="page">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.1.9</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / All tools</p>
+<h1 class="legal-title">All tools.</h1>
+<p class="legal-lede">Every tool the GridPath MCP server exposes, generated from the server's own tool definitions for gridpath 0.1.9. The descriptions are the ones the agent sees. 33 tools.</p>
+
+<p>Every tool takes <code>path</code>: the <code>.xlsx</code> or <code>.xlsm</code> to operate on, absolute or <code>~/…</code>. It must sit inside an allowed folder (see <a href="/docs/options">CLI options</a>). Cells and ranges are A1 notation; sheet names are case-sensitive.</p>
+<p>Write tools never touch the file. They accumulate as pending batches, each write returns a readback of what landed plus a <code>review_url</code>, and <code>save_workbook</code> is the only call that writes to disk. See <a href="/docs/review">Review before save</a>.</p>
+
+<h2 id="reading">Reading</h2>
+<p>Read-only. Hosts can run these without an approval prompt.</p>
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#describe_workbook"><code>describe_workbook</code></a></td><td>Get a structural map of the ACTIVE workbook without reading cell data.</td></tr>
+<tr><td><a href="#find_rows"><code>find_rows</code></a></td><td>Search the ACTIVE workbook's row labels and column headers by name and get exact positions back.</td></tr>
+<tr><td><a href="#query_rows"><code>query_rows</code></a></td><td>Filter, project and aggregate the rows of ONE sheet of the ACTIVE workbook by column values — served by the calculation engine in milliseconds on any sheet size.</td></tr>
+<tr><td><a href="#read_range"><code>read_range</code></a></td><td>Read evaluated cell values from a specific A1 range WITHOUT modifying anything.</td></tr>
+</tbody>
+</table></div>
+<h2 id="writing">Writing</h2>
+<p>Each call lands as one pending batch and returns a readback of what was written.</p>
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#set_cell"><code>set_cell</code></a></td><td>Set the value or formula of a single cell.</td></tr>
+<tr><td><a href="#set_range"><code>set_range</code></a></td><td>Set a rectangular block of values starting at <code>top_left</code> (A1 address).</td></tr>
+<tr><td><a href="#copy_range"><code>copy_range</code></a></td><td>Copy a rectangular range to another location with Excel copy/paste semantics, executed against the LIVE grid: relative formula references shift by the paste offset exactly like Excel ($ anchors are respected — <code>$B$5</code> stays put, <code>B5</code> shifts), and cell formatting (number format, font, fill, alignment) travels with the cells.</td></tr>
+<tr><td><a href="#clear_range"><code>clear_range</code></a></td><td>Empty the values AND formulas of cells in <code>range</code>.</td></tr>
+<tr><td><a href="#run_script"><code>run_script</code></a></td><td>Execute a short JavaScript program against the workbook and land ALL its writes as one reviewable batch.</td></tr>
+</tbody>
+</table></div>
+<h2 id="formatting-and-layout">Formatting and layout</h2>
+
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#set_format"><code>set_format</code></a></td><td>Apply formatting to one OR MANY cell ranges in a single call.</td></tr>
+<tr><td><a href="#set_column_width"><code>set_column_width</code></a></td><td>Set the pixel width of one or more columns.</td></tr>
+<tr><td><a href="#set_row_height"><code>set_row_height</code></a></td><td>Set the pixel height of one or more rows.</td></tr>
+<tr><td><a href="#merge_cells"><code>merge_cells</code></a></td><td>Merge a rectangular range into a single visible cell.</td></tr>
+<tr><td><a href="#unmerge_cells"><code>unmerge_cells</code></a></td><td>Unmerge a previously merged range.</td></tr>
+<tr><td><a href="#freeze_panes"><code>freeze_panes</code></a></td><td>Freeze the top <code>rows</code> rows and left <code>cols</code> columns of a sheet so they stay visible while scrolling.</td></tr>
+<tr><td><a href="#unfreeze_panes"><code>unfreeze_panes</code></a></td><td>Remove any freeze panes from a sheet.</td></tr>
+<tr><td><a href="#hide_rows"><code>hide_rows</code></a></td><td>Hide one or more rows.</td></tr>
+<tr><td><a href="#show_rows"><code>show_rows</code></a></td><td>Unhide one or more rows.</td></tr>
+<tr><td><a href="#hide_columns"><code>hide_columns</code></a></td><td>Hide one or more columns.</td></tr>
+<tr><td><a href="#show_columns"><code>show_columns</code></a></td><td>Unhide one or more columns.</td></tr>
+<tr><td><a href="#set_note"><code>set_note</code></a></td><td>Attach a note (Excel-style cell comment) to a single cell — a small indicator that shows the given text on hover.</td></tr>
+<tr><td><a href="#delete_note"><code>delete_note</code></a></td><td>Remove a cell's note, if it has one.</td></tr>
+<tr><td><a href="#define_name"><code>define_name</code></a></td><td>Create (or replace) a workbook-scoped named range so formulas can reference a cell/range by a readable name instead of a raw address.</td></tr>
+</tbody>
+</table></div>
+<h2 id="rows-columns-and-sheets">Rows, columns and sheets</h2>
+<p>Structural edits. Formula references shift the way they do in Excel.</p>
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#insert_rows"><code>insert_rows</code></a></td><td>Insert <code>count</code> empty rows starting at (and shifting down from) row <code>before</code> (1-indexed Excel row number).</td></tr>
+<tr><td><a href="#delete_rows"><code>delete_rows</code></a></td><td>Delete <code>count</code> rows starting at row <code>start</code> (1-indexed).</td></tr>
+<tr><td><a href="#insert_columns"><code>insert_columns</code></a></td><td>Insert <code>count</code> empty columns starting at (and shifting right from) column <code>before</code> (column letter like &quot;C&quot;).</td></tr>
+<tr><td><a href="#delete_columns"><code>delete_columns</code></a></td><td>Delete <code>count</code> columns starting at column <code>start</code> (column letter like &quot;C&quot;).</td></tr>
+<tr><td><a href="#create_sheet"><code>create_sheet</code></a></td><td>Create a new sheet (worksheet tab) in the workbook.</td></tr>
+<tr><td><a href="#rename_sheet"><code>rename_sheet</code></a></td><td>Rename a sheet.</td></tr>
+<tr><td><a href="#delete_sheet"><code>delete_sheet</code></a></td><td>Remove a sheet from the workbook.</td></tr>
+</tbody>
+</table></div>
+<h2 id="batches-and-saving">Batches and saving</h2>
+<p>Nothing touches the file until save_workbook.</p>
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#list_batches"><code>list_batches</code></a></td><td>List this workbook's pending (unsaved) change batches with their mutation counts, and the review link.</td></tr>
+<tr><td><a href="#reject_batch"><code>reject_batch</code></a></td><td>Drop one pending batch.</td></tr>
+<tr><td><a href="#save_workbook"><code>save_workbook</code></a></td><td>Write every pending batch into the .xlsx on disk through the surgical patcher: only the parts an edit touched are rewritten, everything else stays byte-identical.</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="reference">Reference</h2>
+<section class="docs-tool" id="describe_workbook">
+  <h3><a href="#describe_workbook"><code>describe_workbook</code></a> <span class="docs-badge docs-badge-read">read-only</span></h3>
+  <div class="docs-tool-desc">
+<p>Get a structural map of the ACTIVE workbook without reading cell data. Per sheet: the used range, the detected header row with its period/column headers mapped to column letters (e.g. {&quot;BU&quot;: &quot;FY2026E&quot;}), and a table of contents of sections — contiguous row bands with their titles, like {&quot;rows&quot;: &quot;5-42&quot;, &quot;title&quot;: &quot;Revenue build&quot;}. Also lists workbook defined names. Served from an in-memory index, so it's near-instant and returns in ONE call what would take many read_range probes. Call it once to orient on any sheet whose preview is truncated. Optional <code>sheet</code> filters to a single sheet.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code></td><td>string</td><td>Optional: limit the map to this sheet (case-sensitive).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="find_rows">
+  <h3><a href="#find_rows"><code>find_rows</code></a> <span class="docs-badge docs-badge-read">read-only</span></h3>
+  <div class="docs-tool-desc">
+<p>Search the ACTIVE workbook's row labels and column headers by name and get exact positions back — e.g. query &quot;total revenue&quot; returns each matching row's sheet, 1-indexed row number, containing section, and one evaluated sample cell (&quot;BT209 = =BT194 → 39001.1&quot;) read live from the grid. Matching is case-insensitive substring plus word-prefix (&quot;tot rev&quot; matches &quot;Total revenue&quot;). Near-instant. Use this — NOT exploratory read_range probes — whenever you need to LOCATE a row or header (&quot;where is Subscriber ARPU?&quot;, &quot;which column is FY2027E?&quot;); then read_range the exact range you need. Searches only the active workbook, not reference workbooks.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>query</code> <span class="docs-req">required</span></td><td>string</td><td>Label text to find, e.g. &quot;total revenue&quot;.</td></tr>
+<tr><td><code>max_results</code></td><td>integer</td><td>Max matches to return (default 20).</td></tr>
+<tr><td><code>sheet</code></td><td>string</td><td>Optional: search only this sheet (case-sensitive).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="query_rows">
+  <h3><a href="#query_rows"><code>query_rows</code></a> <span class="docs-badge docs-badge-read">read-only</span></h3>
+  <div class="docs-tool-desc">
+<p>Filter, project and aggregate the rows of ONE sheet of the ACTIVE workbook by column values — served by the calculation engine in milliseconds on any sheet size. This is the tool for &quot;which rows have AWS in the Owner column&quot;, &quot;sites with capacity &gt;= 100 MW online after 2026-01-01&quot;, or &quot;total capacity by market&quot;: one call, instead of scanning with read_range or writing a script. Columns are column letters (&quot;DB&quot;) or header texts from the sheet's header row (&quot;Capacity (MW)&quot;, case-insensitive, unique substrings accepted); the header row is auto-detected (override with <code>header_row</code>). <code>where</code> lists predicates that are ANDed: <code>op</code> is one of eq, ne, contains, not_contains, starts_with, ends_with, gt, gte, lt, lte, between (value = [low, high]), in / not_in (value = list), empty, not_empty. Text compares case-insensitively and trimmed, numbers numerically, dates as ISO strings (&quot;2026-01-01&quot;) against date-formatted cells. Returns the matching rows — 1-indexed <code>row</code> plus the requested <code>columns</code> keyed by column letter (date-formatted numbers come back as ISO dates) — up to <code>limit</code> (default 50, max 500), with <code>matched</code> = the total count and <code>truncated</code>. With <code>group_by</code>, returns one entry per distinct value with <code>count</code> and each requested <code>aggregate</code> (sum / count / min / max / avg) instead of rows. Read-only, evaluated values (set <code>include_formulas</code> for formulas too). Row numbers in the reply are exact — use them directly in formulas or read_range.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td>Sheet name (case-sensitive).</td></tr>
+<tr><td><code>aggregate</code></td><td>array of object</td><td>With group_by: aggregates to compute per group (e.g. sum of Capacity). Groups are ordered by the first aggregate, descending.</td></tr>
+<tr><td><code>aggregate[].column</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>aggregate[].fn</code> <span class="docs-req">required</span></td><td>string: &quot;sum&quot; | &quot;count&quot; | &quot;min&quot; | &quot;max&quot; | &quot;avg&quot;</td><td></td></tr>
+<tr><td><code>columns</code></td><td>array of string</td><td>Columns to return (letters or header texts). Default: the header-row columns, up to 40.</td></tr>
+<tr><td><code>end_row</code></td><td>integer</td><td>Last data row to scan (default: the sheet's last row).</td></tr>
+<tr><td><code>group_by</code></td><td>string</td><td>Group matching rows by this column's value and return one entry per value instead of rows.</td></tr>
+<tr><td><code>header_row</code></td><td>integer</td><td>1-indexed header row, when auto-detection picks the wrong one.</td></tr>
+<tr><td><code>include_formulas</code></td><td>boolean</td><td>Return {v, f} for formula cells instead of the bare value.</td></tr>
+<tr><td><code>limit</code></td><td>integer</td><td>Max rows (or groups) to return. Default 50.</td></tr>
+<tr><td><code>order_by</code></td><td>object</td><td>Sort matches by a column before applying <code>limit</code> (numbers before text, blanks last).</td></tr>
+<tr><td><code>order_by.column</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>order_by.desc</code></td><td>boolean</td><td></td></tr>
+<tr><td><code>start_row</code></td><td>integer</td><td>First data row to scan (default: the row after the header).</td></tr>
+<tr><td><code>where</code></td><td>array of object</td><td>Predicates, all of which must hold. Omit for every row.</td></tr>
+<tr><td><code>where[].column</code> <span class="docs-req">required</span></td><td>string</td><td>Column letter or header text.</td></tr>
+<tr><td><code>where[].op</code> <span class="docs-req">required</span></td><td>string: &quot;eq&quot; | &quot;ne&quot; | &quot;contains&quot; | &quot;not_contains&quot; | &quot;starts_with&quot; | &quot;ends_with&quot; | &quot;gt&quot; | &quot;gte&quot; | &quot;lt&quot; | &quot;lte&quot; | &quot;between&quot; | &quot;in&quot; | &quot;not_in&quot; | &quot;empty&quot; | &quot;not_empty&quot;</td><td></td></tr>
+<tr><td><code>where[].value</code></td><td>any</td><td>Comparison value: string, number, ISO date, or a list for between / in / not_in. Omit for empty / not_empty.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="read_range">
+  <h3><a href="#read_range"><code>read_range</code></a> <span class="docs-badge docs-badge-read">read-only</span></h3>
+  <div class="docs-tool-desc">
+<p>Read evaluated cell values from a specific A1 range WITHOUT modifying anything. Use this to verify your own work, confirm where the assumption block actually landed before composing dependent formulas, or pull current values you need to reference. Returns each non-empty cell's value AND formula (if any) in <code>A1 = value</code> form. Costs one tool turn but is the cheapest way to prevent the formula-pointing-at-wrong-row class of bug on long sheets. Range limited to 500 cells per call. To LOCATE a row/section/header by NAME, don't probe with this — use <code>find_rows</code> or <code>describe_workbook</code> first, then read the exact range.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>range</code> <span class="docs-req">required</span></td><td>string</td><td>A1 range, e.g. &quot;G45:K45&quot;, &quot;A1:Z10&quot;, or a single cell &quot;B7&quot;.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td>Sheet name (case-sensitive).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_cell">
+  <h3><a href="#set_cell"><code>set_cell</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Set the value or formula of a single cell. <code>cell</code> is an Excel A1-style address (case-insensitive, e.g. &quot;A1&quot;, &quot;B17&quot;, &quot;AA42&quot;). For formulas, pass them in <code>formula</code> starting with '=' (e.g. &quot;=SUM(A1:A10)&quot;) — do NOT put formulas in <code>value</code>.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>cell</code> <span class="docs-req">required</span></td><td>string</td><td>A1 address. Examples: &quot;A1&quot;, &quot;B17&quot;, &quot;AA42&quot;.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td>Sheet name (case-sensitive).</td></tr>
+<tr><td><code>formula</code></td><td>string | null</td><td>Excel-style formula starting with '='. References inside use A1 notation. Example: &quot;=SUM(A1:A10)&quot;.</td></tr>
+<tr><td><code>value</code></td><td>any</td><td>Literal value (string, number, boolean, or null). Leave null when using <code>formula</code>.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_range">
+  <h3><a href="#set_range"><code>set_range</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Set a rectangular block of values starting at <code>top_left</code> (A1 address). <code>values</code> is a 2D array — outer rows, inner cells. Strings starting with '=' inside <code>values</code> are treated as formulas; formula references must use A1 notation pointing at the FINAL placement of cells (e.g. if <code>top_left</code> is &quot;A9&quot; and the value at row index 2 / col 0 should reference the data row just above your block at A8, write &quot;=A8&quot; — not &quot;=A1&quot; or &quot;=A11&quot;). **Off-by-one guard: if formulas will reference rows created by THIS call, split the work — write labels + hardcoded values first, read the <code>row_map</code> in this call's result, then write formulas in a second set_range against those verified row numbers.** Composing formulas in the same call that lays out their target rows is the top source of off-by-one references. Use this for bulk writes; prefer it over many set_cell calls. **<code>null</code> and empty string <code>&quot;&quot;</code> inside <code>values</code> are treated as PRESERVE — the cell is left untouched, NOT cleared.** This means you can ship <code>[[&quot;Gross Profit&quot;, &quot;&quot;, &quot;&quot;, &quot;&quot;]]</code> to set only the label in column A without wiping the data in B–D. To actually clear cells, use <code>clear_range</code>. **Writing to a sheet name that doesn't exist CREATES that sheet automatically** (near-miss spellings of an existing sheet are rejected as probable typos) — so organize multi-section builds across purposefully named sheets (e.g. Data / Assumptions / Model / Notes) instead of piling everything onto one long sheet; a new tab costs nothing.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>top_left</code> <span class="docs-req">required</span></td><td>string</td><td>A1 address of the top-left cell, e.g. &quot;A9&quot;.</td></tr>
+<tr><td><code>values</code> <span class="docs-req">required</span></td><td>array of array</td><td>2D array — outer = rows, inner = cells. Strings beginning with '=' are formulas.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="copy_range">
+  <h3><a href="#copy_range"><code>copy_range</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Copy a rectangular range to another location with Excel copy/paste semantics, executed against the LIVE grid: relative formula references shift by the paste offset exactly like Excel ($ anchors are respected — <code>$B$5</code> stays put, <code>B5</code> shifts), and cell formatting (number format, font, fill, alignment) travels with the cells. STRONGLY PREFER this over reading a range and re-typing shifted formulas yourself — it cannot make off-by-one mistakes and costs a fraction of the tokens. Ideal for: extending a projection by one more period (copy the last full year column block to the next column), duplicating a section as a template, or seeding a new sheet from an existing block. Blank source cells leave the destination untouched (they do NOT clear it). Result reports the evaluated destination values so you can verify. Limited to 5000 cells per call.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>dest</code> <span class="docs-req">required</span></td><td>string</td><td>A1 address of the destination TOP-LEFT cell, e.g. &quot;BU5&quot;. The copy lands in a rectangle of the same size starting here.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td>Source sheet name (case-sensitive).</td></tr>
+<tr><td><code>source</code> <span class="docs-req">required</span></td><td>string</td><td>A1 range to copy, e.g. &quot;BT5:BT120&quot; or a single cell &quot;C7&quot;.</td></tr>
+<tr><td><code>dest_sheet</code></td><td>string | null</td><td>Destination sheet if different from <code>sheet</code>. Formula references shift the same way; sheet-qualified refs keep pointing at their original sheets.</td></tr>
+<tr><td><code>mode</code></td><td>string: &quot;all&quot; | &quot;values&quot; | &quot;formats&quot;</td><td>&quot;all&quot; (default): shifted formulas + values + formats. &quot;values&quot;: paste evaluated values only — use to freeze a calculation as hardcodes. &quot;formats&quot;: formatting only, contents untouched.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="clear_range">
+  <h3><a href="#clear_range"><code>clear_range</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Empty the values AND formulas of cells in <code>range</code>. Use this when you want to delete content (not just overwrite with new values). <code>range</code> is an A1 range like &quot;A1&quot;, &quot;A1:F1&quot;, or &quot;B2:D10&quot;. Cell formatting is preserved.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>range</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="run_script">
+  <h3><a href="#run_script"><code>run_script</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Execute a short JavaScript program against the workbook and land ALL its writes as one reviewable batch. STRONGLY PREFER this over long set_range payloads or many tool turns whenever the edit is loop-shaped: per-row conditional transforms (&quot;for every row where margin &lt; 0 …&quot;), repeating formula patterns across many rows/columns, address arithmetic, or edits that depend on reading existing cells first. One run_script call replaces dozens of tool turns and cannot drift out of alignment mid-payload, because it computes addresses programmatically.</p>
+<p>API (plain synchronous JavaScript, strict mode — no async/await, no imports, no network, no DOM):<br>  sheets() -&gt; array of sheet names<br>  sheet(name) -&gt; handle for one sheet (name must match exactly; the name arg may be omitted ONLY if the workbook has a single sheet). Handle methods:<br>    .get(&quot;B7&quot;) -&gt; {value, formula} — evaluated value as of BEFORE this script, overlaid with your own literal writes<br>    .values(&quot;A2:C50&quot;) -&gt; 2D array of values (rows × cols)<br>    .set(&quot;B7&quot;, x) — write a value; strings starting with '=' are formulas; null clears the cell's content<br>    .setValues(&quot;A9&quot;, [[...],[...]]) — bulk write with set_range semantics: null / &quot;&quot; preserve the existing cell<br>    .format(&quot;A1:F1&quot;, {bold: true, number_format: &quot;0.0%&quot;, background_color: &quot;#1F4E79&quot;, font_color: &quot;#FFFFFF&quot;}) — same keys as set_format<br>    .clear(&quot;B2:D10&quot;) — empty values + formulas, formatting preserved<br>    .usedRange() -&gt; &quot;A1:Q48&quot; or null<br>  log(...) — up to 100 entries of up to 4,000 characters each (64 KB in total), returned to you in the result as <code>script_logs</code>. A cut entry ends with <code>… [+N chars]</code>. Logs are for debugging and small extracts; for bulk reads use query_rows / read_range, not a script that logs rows.</p>
+<p>Rules: formulas you write are NOT evaluated during the script — .get on a cell you just wrote a formula into returns {value: null, formula}; the automatic readback after the script (cells + row_map) carries the evaluated results, so verify there. Follow the same conventions as set_range: write raw numbers (never pre-formatted strings), write formulas for derived values, compose against row_map. Limits: 5-second CPU cap, and at most 20,000 WRITTEN cells per script (set/setValues/format/clear combined). Reads are not budgeted: .values() over a whole region (even 7,000 rows × 100 columns) is the right way to scan, far cheaper than many read_range turns — do not narrow reads to save budget. Workbook size is not a limit either: the script is fed per sheet from the calc engine, so name every sheet you READ as a string literal (sheet(&quot;NA Data Center Supply&quot;)) — only named sheets are loaded; reading one you did not name errors; calling sheets() loads all of them. <code>sheet(&quot;NewName&quot;)</code> on a name that doesn't exist AUTO-CREATES that sheet when the script's writes land — use it to organize builds across purposeful tabs. Other structural ops (insert/delete rows or columns, sheet delete/rename, merges, freeze) are NOT in the script API — use the dedicated tools for those. The script's writes flow into the same pending batch as every other tool: the user reviews and can reject them.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>script</code> <span class="docs-req">required</span></td><td>string</td><td>JavaScript source, executed as a function body. Example: const s = sheet(&quot;Model&quot;); const rows = s.values(&quot;A2:C50&quot;); rows.forEach((r, i) =&gt; { if (r[2] !== null &amp;&amp; r[2] &lt; 0) s.set(&quot;D&quot; + (i + 2), &quot;=C&quot; + (i + 2) + &quot;*-1&quot;); });</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_format">
+  <h3><a href="#set_format"><code>set_format</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Apply formatting to one OR MANY cell ranges in a single call. STRONGLY PREFER the bulk <code>operations</code> form when you have more than one format to apply — it's one tool call instead of N, dramatically faster. Each operation's <code>format</code> is a partial object; only specified properties are applied, others are left as-is. Use this for: bold headers, currency / percent / number formatting on data columns, italic notes, alignment, font color/size/family, **text wrap via <code>wrap_text</code>** (long methodology notes / descriptions in a fixed-width column — wrap beats restructuring the layout around overflow), and **cell fill via <code>background_color</code>** (e.g. dark-blue header bars, yellow assumption highlights — see the financial-model color conventions). v1 limitation: cell borders are not yet supported.</p>
+<p>Two equivalent shapes:<br>  • Single range: { sheet, range, format }<br>  • Bulk:         { sheet, operations: [ { range, format }, ... ] }</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>format</code></td><td>object</td><td>Partial format (only when using single-range form).</td></tr>
+<tr><td><code>format.background_color</code></td><td>string | null</td><td>Cell fill color, e.g. &quot;#1F4E79&quot; for a dark-blue header bar or &quot;#FFFF00&quot; for a yellow assumption highlight. Pass null to clear. **Always pair light/white <code>font_color</code> with a contrasting <code>background_color</code> — white-on-white reads as invisible text.**</td></tr>
+<tr><td><code>format.bold</code></td><td>boolean</td><td></td></tr>
+<tr><td><code>format.font_color</code></td><td>string</td><td>CSS color, e.g. &quot;#000000&quot; or &quot;red&quot;.</td></tr>
+<tr><td><code>format.font_family</code></td><td>string</td><td>Font family name, e.g. &quot;Calibri&quot;, &quot;Arial&quot;, &quot;Aptos Narrow&quot;.</td></tr>
+<tr><td><code>format.font_size</code></td><td>number</td><td></td></tr>
+<tr><td><code>format.horizontal_align</code></td><td>string: &quot;left&quot; | &quot;center&quot; | &quot;right&quot;</td><td></td></tr>
+<tr><td><code>format.italic</code></td><td>boolean</td><td></td></tr>
+<tr><td><code>format.number_format</code></td><td>string</td><td>Excel-style number format. Common: &quot;$#,##0.00&quot; currency, &quot;0.0%&quot; or &quot;0.00%&quot; percent, &quot;#,##0&quot; integers with commas, &quot;#,##0.00&quot; decimals, &quot;@&quot; plain text.</td></tr>
+<tr><td><code>format.strike</code></td><td>boolean</td><td>Strikethrough.</td></tr>
+<tr><td><code>format.underline</code></td><td>boolean</td><td></td></tr>
+<tr><td><code>format.vertical_align</code></td><td>string: &quot;top&quot; | &quot;middle&quot; | &quot;bottom&quot;</td><td></td></tr>
+<tr><td><code>format.wrap_text</code></td><td>boolean</td><td>Wrap long text within the cell instead of overflowing. Pair with a set_column_width + vertical_align &quot;top&quot; for description/notes columns.</td></tr>
+<tr><td><code>operations</code></td><td>array of object</td><td>Bulk form — array of {range, format} pairs. Use this whenever you have ≥2 formats to apply. Example: [{&quot;range&quot;:&quot;A1&quot;,&quot;format&quot;:{&quot;bold&quot;:true,&quot;font_size&quot;:16}},{&quot;range&quot;:&quot;B8:F8&quot;,&quot;format&quot;:{&quot;number_format&quot;:&quot;#,##0&quot;}},{&quot;range&quot;:&quot;B9:F9&quot;,&quot;format&quot;:{&quot;number_format&quot;:&quot;0.0%&quot;}}].</td></tr>
+<tr><td><code>operations[].format</code> <span class="docs-req">required</span></td><td>object</td><td></td></tr>
+<tr><td><code>operations[].range</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>range</code></td><td>string</td><td>A1 range (only when using single-range form). Examples: &quot;A1&quot;, &quot;B2:B10&quot;, &quot;A1:F1&quot;.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_column_width">
+  <h3><a href="#set_column_width"><code>set_column_width</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Set the pixel width of one or more columns. **Always prefer the bulk <code>operations</code> form when you need multiple widths** (e.g. label column A wide, data columns narrower) — one call instead of N. The flat single-width form is kept for trivial cases. Default Excel column is ~64px; a wide column for labels is typically 180–220.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>columns</code></td><td>string</td><td>Single-op form (omit <code>operations</code>). Comma-separated column letters.</td></tr>
+<tr><td><code>operations</code></td><td>array of object</td><td>Bulk form. Each entry sets a width on a group of columns. Use this when you need different widths for different column groups.</td></tr>
+<tr><td><code>operations[].columns</code> <span class="docs-req">required</span></td><td>string</td><td>Comma-separated column letters, e.g. &quot;A&quot; or &quot;B,C,D,E,F&quot;.</td></tr>
+<tr><td><code>operations[].width</code> <span class="docs-req">required</span></td><td>number</td><td>Pixel width.</td></tr>
+<tr><td><code>width</code></td><td>number</td><td>Single-op form pixel width.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_row_height">
+  <h3><a href="#set_row_height"><code>set_row_height</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Set the pixel height of one or more rows. **Always prefer the bulk <code>operations</code> form when you need multiple heights** (e.g. title row tall, body rows short) — one call instead of N. The flat single-height form is kept for trivial cases. Default row is ~24.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>height</code></td><td>number</td><td>Single-op form pixel height.</td></tr>
+<tr><td><code>operations</code></td><td>array of object</td><td>Bulk form. Each entry sets a height on a group of rows.</td></tr>
+<tr><td><code>operations[].height</code> <span class="docs-req">required</span></td><td>number</td><td>Pixel height.</td></tr>
+<tr><td><code>operations[].rows</code> <span class="docs-req">required</span></td><td>string</td><td>Comma-separated 1-indexed row numbers, e.g. &quot;1&quot; or &quot;4,5,6,7,8&quot;.</td></tr>
+<tr><td><code>rows</code></td><td>string</td><td>Single-op form (omit <code>operations</code>). Comma-separated 1-indexed row numbers.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="merge_cells">
+  <h3><a href="#merge_cells"><code>merge_cells</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Merge a rectangular range into a single visible cell (e.g. for section headers). <code>range</code> is an A1 range like &quot;A1:F1&quot;.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>range</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="unmerge_cells">
+  <h3><a href="#unmerge_cells"><code>unmerge_cells</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Unmerge a previously merged range.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>range</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="freeze_panes">
+  <h3><a href="#freeze_panes"><code>freeze_panes</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Freeze the top <code>rows</code> rows and left <code>cols</code> columns of a sheet so they stay visible while scrolling. Classic financial-model setup is <code>freeze_rows: 1, freeze_cols: 1</code> (lock the header row and label column). Pass 0 to disable that axis.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>freeze_cols</code> <span class="docs-req">required</span></td><td>integer</td><td>Number of left columns to freeze.</td></tr>
+<tr><td><code>freeze_rows</code> <span class="docs-req">required</span></td><td>integer</td><td>Number of top rows to freeze.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="unfreeze_panes">
+  <h3><a href="#unfreeze_panes"><code>unfreeze_panes</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Remove any freeze panes from a sheet.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="hide_rows">
+  <h3><a href="#hide_rows"><code>hide_rows</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Hide one or more rows. <code>rows</code> is a comma-separated list of 1-indexed row numbers (e.g. &quot;3&quot; or &quot;3,5,12&quot;). Hidden rows still hold data but don't display in the workbook.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>rows</code> <span class="docs-req">required</span></td><td>string</td><td>Comma-separated 1-indexed row numbers.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="show_rows">
+  <h3><a href="#show_rows"><code>show_rows</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Unhide one or more rows. Same <code>rows</code> format as hide_rows.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>rows</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="hide_columns">
+  <h3><a href="#hide_columns"><code>hide_columns</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Hide one or more columns. <code>columns</code> is a comma-separated list of column letters (e.g. &quot;D&quot; or &quot;D,F,H&quot;).</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>columns</code> <span class="docs-req">required</span></td><td>string</td><td>Comma-separated column letters.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="show_columns">
+  <h3><a href="#show_columns"><code>show_columns</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Unhide one or more columns. Same <code>columns</code> format as hide_columns.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>columns</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="set_note">
+  <h3><a href="#set_note"><code>set_note</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Attach a note (Excel-style cell comment) to a single cell — a small indicator that shows the given text on hover. Use this for methodology callouts, source citations, or caveats that would clutter the cell's own value. Overwrites any existing note on that cell.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>cell</code> <span class="docs-req">required</span></td><td>string</td><td>A1 address, e.g. &quot;B7&quot;.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>text</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="delete_note">
+  <h3><a href="#delete_note"><code>delete_note</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Remove a cell's note, if it has one. No-op if the cell has no note.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>cell</code> <span class="docs-req">required</span></td><td>string</td><td>A1 address, e.g. &quot;B7&quot;.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="define_name">
+  <h3><a href="#define_name"><code>define_name</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Create (or replace) a workbook-scoped named range so formulas can reference a cell/range by a readable name instead of a raw address — e.g. name <code>GrowthRate</code> for the assumption cell, then write <code>=Revenue*(1+GrowthRate)</code>. The name persists in the saved .xlsx. <code>name</code> must be a valid Excel name (letters, digits, underscores; can't look like a cell reference such as &quot;A1&quot;). <code>ref</code> must be sheet-qualified, e.g. &quot;Model!B22&quot; or &quot;Model!B5:B12&quot; (absolute <code>$</code> signs optional — they're added automatically). Calling again with the same <code>name</code> replaces its target.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>name</code> <span class="docs-req">required</span></td><td>string</td><td>Defined name, e.g. &quot;GrowthRate&quot; or &quot;Revenue&quot;. Must not look like a cell address.</td></tr>
+<tr><td><code>ref</code> <span class="docs-req">required</span></td><td>string</td><td>Sheet-qualified target, e.g. &quot;Model!B22&quot; or &quot;Assumptions!B5:B12&quot;.</td></tr>
+<tr><td><code>sheet</code></td><td>string</td><td>Optional. Only needed if <code>ref</code> is a bare range without a sheet prefix; supplies the sheet for it.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="insert_rows">
+  <h3><a href="#insert_rows"><code>insert_rows</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Insert <code>count</code> empty rows starting at (and shifting down from) row <code>before</code> (1-indexed Excel row number). Existing content at row <code>before</code> and below shifts down. Use this to make space in the middle of a model. Charts and conditional-formatting references in unrelated areas of the workbook may not auto-adjust to the new layout.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>before</code> <span class="docs-req">required</span></td><td>integer</td><td>1-indexed row number to insert before.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>count</code></td><td>integer</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="delete_rows">
+  <h3><a href="#delete_rows"><code>delete_rows</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Delete <code>count</code> rows starting at row <code>start</code> (1-indexed). Content below shifts up. Permanent — the removed rows are gone.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>start</code> <span class="docs-req">required</span></td><td>integer</td><td></td></tr>
+<tr><td><code>count</code></td><td>integer</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="insert_columns">
+  <h3><a href="#insert_columns"><code>insert_columns</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Insert <code>count</code> empty columns starting at (and shifting right from) column <code>before</code> (column letter like &quot;C&quot;). Existing content shifts right.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>before</code> <span class="docs-req">required</span></td><td>string</td><td>Column letter to insert before, e.g. &quot;C&quot;.</td></tr>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>count</code></td><td>integer</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="delete_columns">
+  <h3><a href="#delete_columns"><code>delete_columns</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Delete <code>count</code> columns starting at column <code>start</code> (column letter like &quot;C&quot;). Content to the right shifts left. Permanent.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheet</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>start</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>count</code></td><td>integer</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="create_sheet">
+  <h3><a href="#create_sheet"><code>create_sheet</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Create a new sheet (worksheet tab) in the workbook. Use a clear human-readable name like &quot;Assumptions&quot;, &quot;Q4 2024&quot;, &quot;Inputs&quot;. The new sheet starts empty — write cells with set_cell / set_range afterwards. NOTE: writes to a not-yet-existing sheet name auto-create it, so an explicit create_sheet is only needed when you want to set a tab_color or create an empty tab ahead of time.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>name</code> <span class="docs-req">required</span></td><td>string</td><td>Sheet name (must be unique in the workbook).</td></tr>
+<tr><td><code>tab_color</code></td><td>string | null</td><td>Optional CSS color for the tab, e.g. &quot;#22c55e&quot;.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="rename_sheet">
+  <h3><a href="#rename_sheet"><code>rename_sheet</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Rename a sheet. Cross-sheet formula references in other sheets will be updated automatically by the workbook engine.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>new_name</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+<tr><td><code>old_name</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="delete_sheet">
+  <h3><a href="#delete_sheet"><code>delete_sheet</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Remove a sheet from the workbook. Permanent — every cell on this sheet is lost. Cross-sheet references in other sheets will become #REF!.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>name</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="list_batches">
+  <h3><a href="#list_batches"><code>list_batches</code></a> <span class="docs-badge docs-badge-read">read-only</span></h3>
+  <div class="docs-tool-desc">
+<p>List this workbook's pending (unsaved) change batches with their mutation counts, and the review link.</p>
+  </div>
+  <p class="docs-muted">No parameters beyond <code>path</code>.</p>
+</section>
+<section class="docs-tool" id="reject_batch">
+  <h3><a href="#reject_batch"><code>reject_batch</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Drop one pending batch. The remaining batches are replayed onto a fresh model, so later edits that depended on it may change.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>batch_id</code> <span class="docs-req">required</span></td><td>string</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="save_workbook">
+  <h3><a href="#save_workbook"><code>save_workbook</code></a> <span class="docs-badge docs-badge-save">writes the file</span></h3>
+  <div class="docs-tool-desc">
+<p>Write every pending batch into the .xlsx on disk through the surgical patcher: only the parts an edit touched are rewritten, everything else stays byte-identical. This is the ONLY tool that modifies the file. When the server runs with --review-required, this returns the review link instead and the user saves from there.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>as</code></td><td>string</td><td>Optional: write the result to this path instead (a copy), leaving the original untouched. Pending batches stay pending against the original.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">AI agent for Excel. Desktop app and MCP server.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

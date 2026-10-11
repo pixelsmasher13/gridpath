@@ -195,6 +195,7 @@ fn parse_x14_standalone_rules(
     ws: Node,
     theme: &Theme,
     dxfs: &mut Vec<Dxf>,
+    dxf_base: usize,
 ) -> Result<Vec<ConditionalFormatting>, XlsxError> {
     let mut result = Vec::new();
     for ext_lst in ws.children().filter(|n| n.has_tag_name("extLst")) {
@@ -228,7 +229,7 @@ fn parse_x14_standalone_rules(
                                 Some(r) => r,
                                 None => continue,
                             },
-                            Some("expression") => parse_x14_expression_rule(rule, theme, dxfs)?,
+                            Some("expression") => parse_x14_expression_rule(rule, theme, dxfs, dxf_base)?,
                             _ => continue,
                         };
 
@@ -337,6 +338,7 @@ fn parse_x14_expression_rule(
     rule: Node,
     theme: &Theme,
     dxfs: &mut Vec<Dxf>,
+    dxf_base: usize,
 ) -> Result<CfRule, XlsxError> {
     // Formula lives in <xm:f> (local name "f").
     let formula = rule
@@ -350,7 +352,9 @@ fn parse_x14_expression_rule(
     let dxf_id = match rule.children().find(|n| n.has_tag_name("dxf")) {
         Some(dxf_node) => {
             let dxf = parse_dxf(dxf_node, theme, None)?;
-            let id = dxfs.len() as u32;
+            // Ids are workbook-global: `dxf_base` is where this sheet's
+            // additions start (the sheets may be parsed in parallel).
+            let id = (dxf_base + dxfs.len()) as u32;
             dxfs.push(dxf);
             id
         }
@@ -420,6 +424,7 @@ pub(super) fn load_conditional_formatting(
     ws: Node,
     theme: &Theme,
     dxfs: &mut Vec<Dxf>,
+    dxf_base: usize,
 ) -> Result<Vec<ConditionalFormatting>, XlsxError> {
     let x14_data_bars = parse_x14_data_bars(ws, theme);
     let mut result = Vec::new();
@@ -722,7 +727,7 @@ pub(super) fn load_conditional_formatting(
         }
     }
 
-    result.extend(parse_x14_standalone_rules(ws, theme, dxfs)?);
+    result.extend(parse_x14_standalone_rules(ws, theme, dxfs, dxf_base)?);
 
     // Excel: priority=1 is the most important rule (lowest number wins).
     // IronCalc: the highest priority number wins (new rules get max+1 and override old ones).
@@ -783,7 +788,7 @@ mod tests {
         let doc = parse_ws(xml);
         let ws = doc.root_element();
         let mut dxfs: Vec<Dxf> = Vec::new();
-        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut dxfs).unwrap();
+        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut dxfs, 0).unwrap();
 
         // Both expression rules are imported.
         assert_eq!(rules.len(), 2);
@@ -832,7 +837,7 @@ mod tests {
         </worksheet>"#;
         let doc = parse_ws(xml);
         let ws = doc.root_element();
-        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new()).unwrap();
+        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new(), 0).unwrap();
         assert_eq!(rules.len(), 3);
         // Excel priority=1 (most important) must map to the highest IronCalc number (3).
         let p: Vec<u32> = rules.iter().map(|r| r.priority).collect();
@@ -866,7 +871,7 @@ mod tests {
         </worksheet>"#;
         let doc = parse_ws(xml);
         let ws = doc.root_element();
-        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new()).unwrap();
+        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new(), 0).unwrap();
         assert_eq!(rules.len(), 1);
         // Single rule: max+1-priority = 5+1-5 = 1
         assert_eq!(rules[0].priority, 1);
@@ -883,7 +888,7 @@ mod tests {
         </worksheet>"#;
         let doc = parse_ws(xml);
         let ws = doc.root_element();
-        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new()).unwrap();
+        let rules = load_conditional_formatting(ws, &dummy_theme(), &mut Vec::new(), 0).unwrap();
         assert_eq!(rules.len(), 2);
         let above = rules
             .iter()

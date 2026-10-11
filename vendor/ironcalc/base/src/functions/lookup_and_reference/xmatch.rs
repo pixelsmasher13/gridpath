@@ -219,8 +219,8 @@ impl<'a> Model<'a> {
                 let mut row2 = right.row;
                 let mut col2 = right.column;
                 if left.row == 1 && row2 == LAST_ROW {
-                    row2 = match self.workbook.worksheet(left.sheet) {
-                        Ok(s) => s.dimension().max_row,
+                    row2 = match self.cached_dimension(left.sheet) {
+                        Ok(d) => d.max_row,
                         Err(_) => {
                             return CalcResult::new_error(
                                 Error::ERROR,
@@ -231,8 +231,8 @@ impl<'a> Model<'a> {
                     };
                 }
                 if left.column == 1 && col2 == LAST_COLUMN {
-                    col2 = match self.workbook.worksheet(left.sheet) {
-                        Ok(s) => s.dimension().max_column,
+                    col2 = match self.cached_dimension(left.sheet) {
+                        Ok(d) => d.max_column,
                         Err(_) => {
                             return CalcResult::new_error(
                                 Error::ERROR,

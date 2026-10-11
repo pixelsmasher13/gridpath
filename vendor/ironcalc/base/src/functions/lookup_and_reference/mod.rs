@@ -692,9 +692,54 @@ impl<'a> Model<'a> {
             return CalcResult::Number(cell.row as f64);
         }
         match self.get_reference(&args[0], cell) {
-            Ok(c) => CalcResult::Number(c.left.row as f64),
+            Ok(c) => self.reference_index_array(c, cell, true),
             Err(s) => s,
         }
+    }
+
+    /// ROW / COLUMN of a reference. A single cell gives its number; a
+    /// multi-cell reference gives the ARRAY Excel gives — one row number per
+    /// row (repeated across the columns) or one column number per column —
+    /// which is what every `LARGE(IF(rng<>"", key*1e5+ROW(rng)), k)` ranking
+    /// idiom and `SUMPRODUCT(--(cond), ROW(rng))` depends on. Returning only
+    /// the top-left number made all those keys decode to the same row.
+    /// Whole-column / whole-row references are clamped to the sheet's used
+    /// extent, as the aggregate functions do.
+    fn reference_index_array(&mut self, c: Range, cell: CellReferenceIndex, rows: bool) -> CalcResult {
+        let mut right_row = c.right.row;
+        let mut right_column = c.right.column;
+        if c.left.row == 1 && right_row == LAST_ROW {
+            right_row = match self.cached_dimension(c.left.sheet) {
+                Ok(d) => d.max_row.max(c.left.row),
+                Err(_) => return CalcResult::new_error(Error::ERROR, cell, "Invalid worksheet index".to_string()),
+            };
+        }
+        if c.left.column == 1 && right_column == LAST_COLUMN {
+            right_column = match self.cached_dimension(c.left.sheet) {
+                Ok(d) => d.max_column.max(c.left.column),
+                Err(_) => return CalcResult::new_error(Error::ERROR, cell, "Invalid worksheet index".to_string()),
+            };
+        }
+        // Every element of ROW over a one-row span (or COLUMN over a
+        // one-column span) is the same number, so the scalar is lossless and
+        // keeps `=ROW(INDIRECT("5:5"))`-style cells from becoming an array in
+        // a scalar context.
+        if (rows && c.left.row == right_row) || (!rows && c.left.column == right_column) {
+            return CalcResult::Number(if rows { c.left.row } else { c.left.column } as f64);
+        }
+        let width = (right_column - c.left.column + 1) as usize;
+        let array: Vec<Vec<ArrayNode>> = (c.left.row..=right_row)
+            .map(|r| {
+                (c.left.column..=right_column)
+                    .map(|col| ArrayNode::Number(if rows { r } else { col } as f64))
+                    .collect::<Vec<_>>()
+            })
+            .map(|row| {
+                debug_assert_eq!(row.len(), width);
+                row
+            })
+            .collect();
+        CalcResult::Array(array)
     }
 
     // ROWS(range)
@@ -721,7 +766,7 @@ impl<'a> Model<'a> {
         }
 
         match self.get_reference(&args[0], cell) {
-            Ok(range) => CalcResult::Number(range.left.column as f64),
+            Ok(range) => self.reference_index_array(range, cell, false),
             Err(s) => s,
         }
     }

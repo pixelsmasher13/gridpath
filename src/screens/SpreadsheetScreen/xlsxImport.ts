@@ -126,13 +126,26 @@ function formulaHasAddinFunctionRef(formula: string): boolean {
  * sheet protection, frozen panes — stays inside the ExcelJS object. SheetJS
  * used to strip all of that on the round trip.
  */
-export async function xlsxBytesToWorkbook(bytes: Uint8Array): Promise<{
+export type XlsxImportOptions = {
+  /**
+   * Cells and styles come from the calc engine's snapshot (see
+   * UniverGrid.loadBytes): skip the per-cell style extraction, the
+   * cellData objects and the styleOps — only what the engine does not
+   * carry is produced (conditional formatting, data validation, notes,
+   * outlines, images, external-reference pins, sheet-level flags). Every
+   * sheet's cellData is left empty.
+   */
+  metaOnly?: boolean;
+};
+
+export async function xlsxBytesToWorkbook(bytes: Uint8Array, opts: XlsxImportOptions = {}): Promise<{
   excelJs: ExcelJS.Workbook;
   univerData: any;
   styleOps: StyleOp[];
   outlines: Record<string, SheetOutline>;
   featureCounts: { cf: number; dv: number; notes: number; cfDropped: string[] };
 }> {
+  const metaOnly = !!opts.metaOnly;
   const excelJs = new ExcelJS.Workbook();
   // ExcelJS wants an ArrayBuffer; copy out of the Uint8Array's backing buffer
   // in case it's a slice (which is the case for Tauri-delivered bytes).
@@ -230,6 +243,15 @@ export async function xlsxBytesToWorkbook(bytes: Uint8Array): Promise<{
             v: cellDescriptor.v,
           });
           delete cellDescriptor.f;
+        }
+        if (metaOnly) {
+          // Engine-fed load: only the extent matters here (CF / validation
+          // ranges are clamped to it); the grid's cells come from the engine.
+          if (cellDescriptor.f !== undefined || cellDescriptor.v !== undefined) {
+            if (r > maxRow) maxRow = r;
+            if (c > maxCol) maxCol = c;
+          }
+          return;
         }
         const { format, background, borders } = extractStyleFromExcelJs(cell, themePalette);
         // Embed style INLINE in cellData. Univer reads this on createWorkbook
@@ -823,15 +845,15 @@ export type ParsedWorkbook = {
  * terminated as soon as it answers, releasing the ExcelJS object graph.
  * Any worker failure falls back to the identical in-process code path.
  */
-export async function parseXlsxWorkbook(bytes: Uint8Array): Promise<ParsedWorkbook> {
+export async function parseXlsxWorkbook(bytes: Uint8Array, opts: XlsxImportOptions = {}): Promise<ParsedWorkbook> {
   if (typeof Worker !== "undefined") {
     try {
-      return await parseInWorker(bytes);
+      return await parseInWorker(bytes, opts);
     } catch (e) {
       console.warn("[import] worker parse failed; falling back to main-thread parse:", e);
     }
   }
-  const { excelJs, univerData, styleOps, outlines, featureCounts } = await xlsxBytesToWorkbook(bytes);
+  const { excelJs, univerData, styleOps, outlines, featureCounts } = await xlsxBytesToWorkbook(bytes, opts);
   return {
     excelJs,
     univerData,
@@ -843,7 +865,7 @@ export async function parseXlsxWorkbook(bytes: Uint8Array): Promise<ParsedWorkbo
   };
 }
 
-function parseInWorker(bytes: Uint8Array): Promise<ParsedWorkbook> {
+function parseInWorker(bytes: Uint8Array, opts: XlsxImportOptions): Promise<ParsedWorkbook> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
     try {
@@ -870,6 +892,6 @@ function parseInWorker(bytes: Uint8Array): Promise<ParsedWorkbook> {
     };
     // Clone rather than transfer: the caller keeps using `bytes` for the
     // fidelity scan and as the save-time re-parse source.
-    worker.postMessage({ bytes });
+    worker.postMessage({ bytes, metaOnly: !!opts.metaOnly });
   });
 }

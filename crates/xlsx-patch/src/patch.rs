@@ -48,7 +48,7 @@ impl Patch {
             || self
                 .sheet_ops
                 .iter()
-                .any(|op| !matches!(op, SheetOp::Create { .. }))
+                .any(|op| !matches!(op, SheetOp::Create { .. } | SheetOp::SetVisibility { .. } | SheetOp::SetTabColor { .. }))
     }
 }
 
@@ -67,6 +67,12 @@ pub enum SheetOp {
     Rename { old_name: String, new_name: String },
     #[serde(rename_all = "camelCase")]
     Delete { name: String },
+    /// Hide or show a sheet (workbook.xml `state` attribute). Not a content change.
+    #[serde(rename_all = "camelCase")]
+    SetVisibility { name: String, hidden: bool },
+    /// Set (CSS hex) or clear (null) a sheet's tab colour. Not a content change.
+    #[serde(rename_all = "camelCase")]
+    SetTabColor { name: String, color: Option<String> },
 }
 
 /// Row/column structure operation. Indices are 0-based (frontend model).
@@ -104,10 +110,73 @@ pub struct SheetPatch {
     pub merges: Vec<MergeOp>,
     #[serde(default)]
     pub freeze: Option<Freeze>,
-    /// `Some(Some(range))` sets the AutoFilter, `Some(None)` clears it,
-    /// `None` leaves it untouched.
+    /// `Some(Some(filter))` sets the AutoFilter (a bare range string, or a
+    /// range with per-column criteria), `Some(None)` clears it, `None`
+    /// leaves it untouched.
     #[serde(default, with = "double_option")]
-    pub auto_filter: Option<Option<String>>,
+    pub auto_filter: Option<Option<AutoFilterPatch>>,
+}
+
+/// An AutoFilter: just its range, or the range plus column criteria.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum AutoFilterPatch {
+    Range(String),
+    Spec(AutoFilterSpec),
+}
+
+impl AutoFilterPatch {
+    pub fn range(&self) -> &str {
+        match self {
+            AutoFilterPatch::Range(r) => r,
+            AutoFilterPatch::Spec(s) => &s.r#ref,
+        }
+    }
+    pub fn columns(&self) -> &[FilterColumnPatch] {
+        match self {
+            AutoFilterPatch::Range(_) => &[],
+            AutoFilterPatch::Spec(s) => &s.columns,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutoFilterSpec {
+    pub r#ref: String,
+    #[serde(default)]
+    pub columns: Vec<FilterColumnPatch>,
+}
+
+/// One `<filterColumn>`: a value list (`values` + `blank`) and/or custom
+/// comparisons. `colId` is the 0-based offset within the range.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FilterColumnPatch {
+    pub col_id: u32,
+    #[serde(default)]
+    pub values: Option<Vec<String>>,
+    #[serde(default)]
+    pub blank: bool,
+    #[serde(default)]
+    pub custom: Option<CustomFilterPatch>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CustomFilterPatch {
+    #[serde(default)]
+    pub and: bool,
+    pub items: Vec<CustomFilterItem>,
+}
+
+/// `operator` is one of equal, notEqual, greaterThan, greaterThanOrEqual,
+/// lessThan, lessThanOrEqual (ST_FilterOperator).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CustomFilterItem {
+    pub operator: String,
+    pub val: String,
 }
 
 impl SheetPatch {

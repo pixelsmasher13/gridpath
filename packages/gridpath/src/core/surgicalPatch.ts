@@ -295,6 +295,10 @@ function transformBaseline(
       base.delete(op.name);
       deletedSheets.add(op.name);
       createdSheets.delete(op.name);
+    } else if (op.kind === "visibility") {
+      sheetOps.push({ op: "setVisibility", name: renameMap.get(op.name) ?? op.name, hidden: op.hidden });
+    } else if (op.kind === "tabColor") {
+      sheetOps.push({ op: "setTabColor", name: renameMap.get(op.name) ?? op.name, color: op.color });
     }
   }
 
@@ -537,7 +541,7 @@ export function buildWorkbookPatch(
     forSheet(fp.sheet).freeze = { rows: fp.freezeRows, cols: fp.freezeCols };
   }
   for (const af of mirror?.autoFilters ?? []) {
-    forSheet(af.sheet).autoFilter = af.range; // string sets, null clears
+    forSheet(af.sheet).autoFilter = af.range === null ? null : af.columns && af.columns.length ? { ref: af.range, columns: af.columns } : af.range; // string/object sets, null clears
   }
 
   const sheets = [...sheetPatches.values()];

@@ -37,7 +37,7 @@ pub struct SheetOps {
     /// Some((rows, cols)): set frozen panes (0,0 = unfreeze). None: untouched.
     pub freeze: Option<(u32, u32)>,
     /// Some(Some(range)) set, Some(None) clear, None untouched.
-    pub auto_filter: Option<Option<String>>,
+    pub auto_filter: Option<Option<crate::patch::AutoFilterPatch>>,
 }
 
 impl SheetOps {
@@ -62,6 +62,10 @@ pub struct CellAction {
     /// New style index; None = keep the cell's current style.
     pub style: Option<u32>,
     pub content: CellContent,
+    /// Dynamic-array metadata index (`cm="N"`) for a `Formula` content:
+    /// the cell is written as `<f t="array" ref="<self>">` so Excel
+    /// evaluates arrays as arrays, like the engine does (see metadata.rs).
+    pub cm: Option<u32>,
 }
 
 /// Evaluated result of a patched formula, cached into the file as `<v>` so
@@ -346,6 +350,68 @@ fn order_index(name: &[u8]) -> usize {
         .unwrap_or(usize::MAX - 1)
 }
 
+/// `<autoFilter ref>` with its `<filterColumn>` children (value lists and
+/// custom comparisons), in schema order: filters | customFilters.
+fn serialize_auto_filter(filter: &crate::patch::AutoFilterPatch) -> Result<Vec<u8>, PatchError> {
+    let mut v = Vec::new();
+    let mut w = Writer::new(&mut v);
+    let mut e = BytesStart::new("autoFilter");
+    e.push_attribute(("ref", filter.range()));
+    let columns = filter.columns();
+    if columns.is_empty() {
+        w.write_event(Event::Empty(e)).map_err(xml_err)?;
+        return Ok(v);
+    }
+    w.write_event(Event::Start(e)).map_err(xml_err)?;
+    for col in columns {
+        let mut fc = BytesStart::new("filterColumn");
+        let id = col.col_id.to_string();
+        fc.push_attribute(("colId", id.as_str()));
+        let has_children = col.values.is_some() || col.custom.is_some();
+        if !has_children {
+            w.write_event(Event::Empty(fc)).map_err(xml_err)?;
+            continue;
+        }
+        w.write_event(Event::Start(fc)).map_err(xml_err)?;
+        if let Some(values) = &col.values {
+            let mut fs = BytesStart::new("filters");
+            if col.blank {
+                fs.push_attribute(("blank", "1"));
+            }
+            if values.is_empty() {
+                w.write_event(Event::Empty(fs)).map_err(xml_err)?;
+            } else {
+                w.write_event(Event::Start(fs)).map_err(xml_err)?;
+                for val in values {
+                    let mut f = BytesStart::new("filter");
+                    f.push_attribute(("val", val.as_str()));
+                    w.write_event(Event::Empty(f)).map_err(xml_err)?;
+                }
+                w.write_event(Event::End(BytesEnd::new("filters"))).map_err(xml_err)?;
+            }
+        }
+        if let Some(custom) = &col.custom {
+            let mut cf = BytesStart::new("customFilters");
+            if custom.and {
+                cf.push_attribute(("and", "1"));
+            }
+            w.write_event(Event::Start(cf)).map_err(xml_err)?;
+            for item in &custom.items {
+                let mut c = BytesStart::new("customFilter");
+                if item.operator != "equal" {
+                    c.push_attribute(("operator", item.operator.as_str()));
+                }
+                c.push_attribute(("val", item.val.as_str()));
+                w.write_event(Event::Empty(c)).map_err(xml_err)?;
+            }
+            w.write_event(Event::End(BytesEnd::new("customFilters"))).map_err(xml_err)?;
+        }
+        w.write_event(Event::End(BytesEnd::new("filterColumn"))).map_err(xml_err)?;
+    }
+    w.write_event(Event::End(BytesEnd::new("autoFilter"))).map_err(xml_err)?;
+    Ok(v)
+}
+
 pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Vec<u8>, PatchError> {
     let mut r = reader(xml);
     let mut w = Writer::new(Vec::new());
@@ -370,14 +436,8 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
             inserts.push((order_index(b"mergeCells"), serialize_merges(&merged)));
         }
     }
-    if let Some(Some(range)) = &ops.auto_filter {
-        let mut e = BytesStart::new("autoFilter");
-        e.push_attribute(("ref", range.as_str()));
-        let mut v = Vec::new();
-        Writer::new(&mut v)
-            .write_event(Event::Empty(e))
-            .map_err(xml_err)?;
-        inserts.push((order_index(b"autoFilter"), v));
+    if let Some(Some(filter)) = &ops.auto_filter {
+        inserts.push((order_index(b"autoFilter"), serialize_auto_filter(filter)?));
     }
     // Freeze on a sheet with no <sheetViews>: build the whole element now so
     // it lands at its legal spot in the CT_Worksheet sequence (before cols /
@@ -986,8 +1046,22 @@ fn write_cell(
                 Some(CachedValue::Error(_)) => c.push_attribute(("t", "e")),
                 Some(CachedValue::Number(_)) | None => {}
             }
+            if let Some(cm) = action.cm {
+                c.push_attribute(("cm", cm.to_string().as_str()));
+            }
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            write_simple(w, "f", f)?;
+            if action.cm.is_some() {
+                // Dynamic-array formula: Excel evaluates arrays as arrays and
+                // re-spills on its own calc; `ref` is the anchor cell.
+                let mut fe = BytesStart::new("f");
+                fe.push_attribute(("t", "array"));
+                fe.push_attribute(("ref", format_cell_ref(row, col).as_str()));
+                w.write_event(Event::Start(fe)).map_err(xml_err)?;
+                w.write_event(Event::Text(BytesText::new(f))).map_err(xml_err)?;
+                w.write_event(Event::End(BytesEnd::new("f"))).map_err(xml_err)?;
+            } else {
+                write_simple(w, "f", f)?;
+            }
             match cached {
                 Some(CachedValue::Number(n)) => write_simple(w, "v", &trim_float(*n))?,
                 Some(CachedValue::Str(s)) => write_simple(w, "v", &sanitize_xlsx_text(s))?,

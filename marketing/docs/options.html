@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CLI options and limits — GridPath Docs</title>
+  <meta name="description" content="Every flag of the gridpath MCP server (--allow, --review-required, --port, gridpath review), where pending batches live, supported file types, and the limits on reads, scripts and formatting." />
+  <link rel="canonical" href="https://gridpath.dev/docs/options" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="CLI options and limits — GridPath Docs" />
+  <meta property="og:description" content="Every flag of the gridpath MCP server (--allow, --review-required, --port, gridpath review), where pending batches live, supported file types, and the limits on reads, scripts and formatting." />
+  <meta property="og:url" content="https://gridpath.dev/docs/options" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CLI options and limits — GridPath Docs" />
+  <meta name="twitter:description" content="Every flag of the gridpath MCP server (--allow, --review-required, --port, gridpath review), where pending batches live, supported file types, and the limits on reads, scripts and formatting." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "CLI options and limits",
+    "description": "Every flag of the gridpath MCP server (--allow, --review-required, --port, gridpath review), where pending batches live, supported file types, and the limits on reads, scripts and formatting.",
+    "url": "https://gridpath.dev/docs/options",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "CLI options and limits", "item": "https://gridpath.dev/docs/options" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options" aria-current="page">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.1.9</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / CLI options and limits</p>
+<h1 class="legal-title">CLI options and limits.</h1>
+<p class="legal-lede">The server is one binary with two commands. Everything below applies to every host, since each host just launches <code>gridpath mcp</code> on stdio.</p>
+
+<h2 id="commands">Commands</h2>
+<pre><code>gridpath mcp [--allow &lt;dir&gt; ...] [--review-required] [--port &lt;n&gt;]
+gridpath review &lt;file.xlsx&gt; [--port &lt;n&gt;]</code></pre>
+<p>Run it with <code>npx -y gridpath …</code> to fetch the published package on first use, or install it globally with <code>npm install -g gridpath</code>.</p>
+
+<h2 id="flags">Flags for <code>gridpath mcp</code></h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>--allow &lt;dir&gt; [&lt;dir&gt; …]</code></td><td>Only open files under these folders. Repeat the flag or list several paths after it; <code>~/</code>, <code>$HOME</code> and <code>%USERPROFILE%</code> are expanded. Default: your home directory. A file outside the allowed folders is refused with a message telling the agent not to copy it elsewhere.</td></tr>
+<tr><td><code>--review-required</code></td><td>The agent cannot save. <code>save_workbook</code> returns the review link and the user accepts and saves from the review page. <code>save_workbook</code> with <code>as</code> still writes a copy. Also set by <code>GRIDPATH_REVIEW_REQUIRED=true</code>, which is how the Claude Desktop bundle passes its checkbox.</td></tr>
+<tr><td><code>--port &lt;n&gt;</code></td><td>Port for the local review server. Default: a random free port.</td></tr>
+</tbody>
+</table></div>
+<p>On startup the server prints one line to stderr with the allowed folders, the review server address, and whether review is required. Stdout is the MCP protocol channel and nothing else is written there.</p>
+
+<h2 id="review-command"><code>gridpath review</code></h2>
+<p>Starts a review server for one workbook's pending batches, prints the batch count and URL, and opens the page in your browser. Use it to pick up a review after the agent's session has ended. It keeps serving until you press Ctrl-C.</p>
+
+<h2 id="state">Where state lives</h2>
+<ul>
+  <li><strong>Pending batches:</strong> <code>&lt;workbook folder&gt;/.gridpath/&lt;file&gt;.batches.json</code>, written after every change and cleared on save. Add <code>.gridpath/</code> to your ignore files if the workbook sits in a repository.</li>
+  <li><strong>The workbook:</strong> untouched until <code>save_workbook</code> or Save on the review page.</li>
+  <li><strong>The review server:</strong> loopback only, one random token per process, carried in the review URL. Requests from a non-loopback origin are refused.</li>
+</ul>
+
+<h2 id="files">Supported files</h2>
+<p><code>.xlsx</code> and <code>.xlsm</code>. Verified on real analyst models, including a 1.4 MB, 12-sheet, 55,000-formula workbook with 76 package parts, 75 of them byte-identical after an edit, and a 13-sheet <code>.xlsm</code> whose <code>vbaProject.bin</code> came back byte-identical. Charts, pivots, macros, add-in data and custom XML are preserved, not authored: the agent cannot create or edit a chart or pivot. <code>.xls</code> and <code>.csv</code> are not supported.</p>
+
+<h2 id="limits">Limits</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>What</th><th>Limit</th></tr></thead>
+<tbody>
+<tr><td><code>read_range</code></td><td>500 cells per call. The reply sets <code>truncated</code> beyond that.</td></tr>
+<tr><td><code>query_rows</code></td><td>50 rows or groups by default, 500 maximum, with <code>matched</code> giving the full count.</td></tr>
+<tr><td><code>find_rows</code></td><td>20 matches by default.</td></tr>
+<tr><td><code>run_script</code></td><td>5 seconds of CPU, 20,000 written cells, 100 log entries of 4,000 characters.</td></tr>
+<tr><td>Write readback</td><td>The first 200 touched cells are returned.</td></tr>
+<tr><td>Formatting</td><td>Cell borders cannot be set in this version.</td></tr>
+<tr><td>Engine</td><td>AGGREGATE, GETPIVOTDATA, HYPERLINK, GROUPBY and PIVOTBY evaluate to <code>#NAME?</code> in the server. They are stored as written and Excel evaluates them on open.</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="requirements">Requirements</h2>
+<p>Node 20 or newer on macOS, Windows or Linux. No Python, no Excel, no LibreOffice. The Claude Desktop bundle includes its own Node.</p>
+
+<h2 id="license">License</h2>
+<p>FSL-1.1-Apache-2.0. Each release becomes Apache 2.0 two years after it ships. Source: <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath" rel="noopener" target="_blank">github.com/pixelsmasher13/gridpath</a>.</p>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">AI agent for Excel. Desktop app and MCP server.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

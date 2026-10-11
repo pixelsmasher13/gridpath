@@ -5,11 +5,28 @@ use crate::{
     calc_result::{CalcResult, Range},
     expressions::parser::{ArrayNode, Node},
     expressions::token::Error,
-    model::Model,
+    model::{IfsMatch, Model},
 };
+use std::sync::Arc;
 
 /// A compiled criterion predicate, as returned by `build_criteria`.
 type Criterion<'c> = Box<dyn Fn(&CalcResult) -> bool + 'c>;
+
+/// Largest criteria range (cells) the per-pass index covers; bigger shapes
+/// take the plain walk so one odd formula cannot pin a huge bitset.
+const MAX_INDEXED_IFS_CELLS: i64 = 4_000_000;
+
+/// Stable cache key for a scalar criterion. Ranges/arrays have none.
+fn criterion_key(c: &CalcResult) -> Option<String> {
+    match c {
+        CalcResult::Number(n) => Some(format!("n{}", n.to_bits())),
+        CalcResult::String(s) => Some(format!("s{s}")),
+        CalcResult::Boolean(b) => Some(format!("b{b}")),
+        CalcResult::EmptyCell | CalcResult::EmptyArg => Some("_".to_string()),
+        CalcResult::Error { error, .. } => Some(format!("e{error}")),
+        CalcResult::Range { .. } | CalcResult::Array(_) | CalcResult::Lambda(_) => None,
+    }
+}
 
 /// Converts a single array element into the equivalent scalar `CalcResult`,
 /// used to feed `build_criteria` from an inline-array criteria argument.
@@ -99,8 +116,8 @@ impl<'a> Model<'a> {
         let right_row = first_range.right.row;
         let right_column = first_range.right.column;
 
-        let dimension = match self.workbook.worksheet(first_range.left.sheet) {
-            Ok(s) => s.dimension(),
+        let dimension = match self.cached_dimension(first_range.left.sheet) {
+            Ok(d) => d,
             Err(_) => {
                 return CalcResult::new_error(
                     Error::ERROR,
@@ -243,7 +260,7 @@ impl<'a> Model<'a> {
             fn_criteria.push(build_criteria(criterion, self.locale));
         }
 
-        self.run_ifs(&sum_range, ranges.as_slice(), &fn_criteria, cell, apply)
+        self.run_ifs(&sum_range, ranges.as_slice(), &fn_criteria, &criteria, cell, apply)
     }
 
     /// Walks `sum_range` and applies `apply` to every numeric cell whose parallel
@@ -251,11 +268,23 @@ impl<'a> Model<'a> {
     /// `fn_criteria` are parallel (one criteria range and one predicate per case).
     ///
     /// Shared by [`Model::apply_ifs`] and the array-criteria path of SUMIF.
+    /// Walks `sum_range` and applies `apply` to every numeric cell whose
+    /// companion cells in each criteria range satisfy that criterion.
+    ///
+    /// Criteria are resolved through a per-pass index (`Model::ifs_cache`):
+    /// the first formula that tests a given (range, criterion) pair walks the
+    /// range once and records which offsets match; every later formula on the
+    /// same pair (the other 7,000 rows of a supply model all SUMIFS-ing the
+    /// same "type" column) reuses it and visits only the matched sum cells.
+    /// Result order and error semantics are those of the plain walk: matched
+    /// offsets are ascending row-major, and the first erroring matched sum
+    /// cell aborts.
     pub(crate) fn run_ifs<F>(
         &mut self,
         sum_range: &Range,
         ranges: &[Range],
         fn_criteria: &[Criterion<'_>],
+        criteria: &[CalcResult],
         cell: CellReferenceIndex,
         mut apply: F,
     ) -> Result<(), CalcResult>
@@ -268,8 +297,8 @@ impl<'a> Model<'a> {
         let mut right_column = sum_range.right.column;
 
         if left_row == 1 && right_row == LAST_ROW {
-            right_row = match self.workbook.worksheet(sum_range.left.sheet) {
-                Ok(s) => s.dimension().max_row,
+            right_row = match self.cached_dimension(sum_range.left.sheet) {
+                Ok(d) => d.max_row,
                 Err(_) => {
                     return Err(CalcResult::new_error(
                         Error::ERROR,
@@ -280,8 +309,8 @@ impl<'a> Model<'a> {
             };
         }
         if left_column == 1 && right_column == LAST_COLUMN {
-            right_column = match self.workbook.worksheet(sum_range.left.sheet) {
-                Ok(s) => s.dimension().max_column,
+            right_column = match self.cached_dimension(sum_range.left.sheet) {
+                Ok(d) => d.max_column,
                 Err(_) => {
                     return Err(CalcResult::new_error(
                         Error::ERROR,
@@ -292,11 +321,108 @@ impl<'a> Model<'a> {
             };
         }
 
+        let height = right_row - left_row + 1;
+        let width = right_column - left_column + 1;
+        let count = height as i64 * width as i64;
+        // Index only shapes worth indexing; a criterion that is itself a
+        // range/array has no stable key and takes the plain walk.
+        let keys: Option<Vec<String>> = if count > 0
+            && count <= MAX_INDEXED_IFS_CELLS
+            && criteria.len() == ranges.len()
+            && fn_criteria.len() == ranges.len()
+        {
+            criteria.iter().map(criterion_key).collect()
+        } else {
+            None
+        };
+
+        let Some(keys) = keys else {
+            return self.run_ifs_walk(sum_range, left_row, left_column, right_row, right_column, ranges, fn_criteria, cell, apply);
+        };
+
+        let mut sets: Vec<Arc<IfsMatch>> = Vec::with_capacity(ranges.len());
+        for (k, range) in ranges.iter().enumerate() {
+            let cache_key = (range.left.sheet, range.left.row, range.left.column, height, width, keys[k].clone());
+            let set = if let Some(hit) = self.ifs_cache.get(&cache_key) {
+                hit.clone()
+            } else {
+                let criterion = &fn_criteria[k];
+                let mut matched: Vec<u32> = Vec::new();
+                let mut bits = vec![0u64; (count as usize).div_ceil(64)];
+                for dr in 0..height {
+                    for dc in 0..width {
+                        let value = self.evaluate_cell(CellReferenceIndex {
+                            sheet: range.left.sheet,
+                            row: range.left.row + dr,
+                            column: range.left.column + dc,
+                        });
+                        if criterion(&value) {
+                            let i = (dr * width + dc) as usize;
+                            matched.push(i as u32);
+                            bits[i / 64] |= 1u64 << (i % 64);
+                        }
+                    }
+                }
+                let built = Arc::new(IfsMatch { matched, bits });
+                self.ifs_cache.insert(cache_key, built.clone());
+                built
+            };
+            sets.push(set);
+        }
+
+        // Drive the walk from the most selective criterion; the others are
+        // bitset lookups. Offsets are ascending row-major in every set, so
+        // the summation order matches the plain walk.
+        let Some((driver, _)) = sets.iter().enumerate().min_by_key(|(_, s)| s.matched.len()) else {
+            return Ok(());
+        };
+        for &offset in &sets[driver].matched {
+            let i = offset as usize;
+            let all = sets
+                .iter()
+                .enumerate()
+                .all(|(k, s)| k == driver || (s.bits[i / 64] >> (i % 64)) & 1 == 1);
+            if !all {
+                continue;
+            }
+            let row = left_row + offset as i32 / width;
+            let column = left_column + offset as i32 % width;
+            let v = self.evaluate_cell(CellReferenceIndex {
+                sheet: sum_range.left.sheet,
+                row,
+                column,
+            });
+            match v {
+                CalcResult::Number(n) => apply(n),
+                CalcResult::Error { .. } => return Err(v),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// The unindexed walk: every sum cell, criteria tested cell by cell.
+    #[allow(clippy::too_many_arguments)]
+    fn run_ifs_walk<F>(
+        &mut self,
+        sum_range: &Range,
+        left_row: i32,
+        left_column: i32,
+        right_row: i32,
+        right_column: i32,
+        ranges: &[Range],
+        fn_criteria: &[Criterion<'_>],
+        _cell: CellReferenceIndex,
+        mut apply: F,
+    ) -> Result<(), CalcResult>
+    where
+        F: FnMut(f64),
+    {
         for row in left_row..right_row + 1 {
             for column in left_column..right_column + 1 {
                 let mut is_true = true;
-                for (range, fn_criterion) in ranges.iter().zip(fn_criteria.iter()) {
-                    // We check if value in range n meets criterion n
+                for (case_index, range) in ranges.iter().enumerate() {
+                    let fn_criterion = &fn_criteria[case_index];
                     let value = self.evaluate_cell(CellReferenceIndex {
                         sheet: range.left.sheet,
                         row: range.left.row + row - sum_range.left.row,
@@ -425,6 +551,7 @@ impl<'a> Model<'a> {
                     &sum_range,
                     std::slice::from_ref(&criteria_range),
                     &fn_criteria,
+                    std::slice::from_ref(criterion),
                     cell,
                     |v| total += v,
                 ) {

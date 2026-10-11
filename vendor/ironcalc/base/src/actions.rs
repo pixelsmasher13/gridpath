@@ -578,6 +578,11 @@ impl<'a> Model<'a> {
         // TODO: If in a row the cell to the right and left have the same style we should copy it
 
         worksheet.cols = new_columns;
+        let outline = std::mem::take(&mut worksheet.col_outline);
+        worksheet.col_outline = outline
+            .into_iter()
+            .map(|(c, l)| if c >= column { (c + column_count, l) } else { (c, l) })
+            .collect();
 
         Ok(())
     }
@@ -702,6 +707,12 @@ impl<'a> Model<'a> {
             }
         }
         worksheet.cols = new_columns;
+        let outline = std::mem::take(&mut worksheet.col_outline);
+        worksheet.col_outline = outline
+            .into_iter()
+            .filter(|(c, _)| *c < column_start || *c > column_end)
+            .map(|(c, l)| if c > column_end { (c - column_count, l) } else { (c, l) })
+            .collect();
 
         Ok(())
     }
@@ -880,6 +891,12 @@ impl<'a> Model<'a> {
             }
         }
         self.workbook.worksheets[sheet as usize].rows = new_rows;
+        let ws = &mut self.workbook.worksheets[sheet as usize];
+        let outline = std::mem::take(&mut ws.row_outline);
+        ws.row_outline = outline
+            .into_iter()
+            .map(|(r, l)| if r >= row { (r + row_count, l) } else { (r, l) })
+            .collect();
 
         // Update all formulas in the workbook
         let disp = DisplaceData::Row {
@@ -953,6 +970,13 @@ impl<'a> Model<'a> {
             }
         }
         self.workbook.worksheets[sheet as usize].rows = new_rows;
+        let ws = &mut self.workbook.worksheets[sheet as usize];
+        let outline = std::mem::take(&mut ws.row_outline);
+        ws.row_outline = outline
+            .into_iter()
+            .filter(|(r, _)| *r < row || *r >= row + row_count)
+            .map(|(r, l)| if r >= row + row_count { (r - row_count, l) } else { (r, l) })
+            .collect();
         let disp = DisplaceData::Row {
             sheet,
             row,

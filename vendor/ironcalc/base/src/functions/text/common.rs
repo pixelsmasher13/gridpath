@@ -990,8 +990,8 @@ impl<'a> Model<'a> {
                     let column1 = left.column;
                     let mut column2 = right.column;
                     if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
+                        row2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_row,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -1002,8 +1002,8 @@ impl<'a> Model<'a> {
                         };
                     }
                     if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
+                        column2 = match self.cached_dimension(left.sheet) {
+                            Ok(d) => d.max_column,
                             Err(_) => {
                                 return CalcResult::new_error(
                                     Error::ERROR,
@@ -1064,11 +1064,36 @@ impl<'a> Model<'a> {
                     }
                 }
                 CalcResult::EmptyArg => {}
-                CalcResult::Array(_) | CalcResult::Lambda(_) => {
+                CalcResult::Array(array) => {
+                    // `TEXTJOIN(",", TRUE, IF(rng="x", vals, ""))`: the array
+                    // joins element by element, row-major, like a range.
+                    for row in array {
+                        for item in row {
+                            match item {
+                                ArrayNode::Number(value) => values.push(format!("{value}")),
+                                ArrayNode::String(value) => {
+                                    if !(ignore_empty && value.is_empty()) {
+                                        values.push(value)
+                                    }
+                                }
+                                ArrayNode::Boolean(value) => values.push(if value { "TRUE".to_string() } else { "FALSE".to_string() }),
+                                ArrayNode::Empty => {
+                                    if !ignore_empty {
+                                        values.push("".to_string())
+                                    }
+                                }
+                                ArrayNode::Error(error) => {
+                                    return CalcResult::Error { error, origin: cell, message: "".to_string() }
+                                }
+                            }
+                        }
+                    }
+                }
+                CalcResult::Lambda(_) => {
                     return CalcResult::Error {
                         error: Error::NIMPL,
                         origin: cell,
-                        message: "Arrays not supported yet".to_string(),
+                        message: "Lambdas not supported here".to_string(),
                     }
                 }
             };

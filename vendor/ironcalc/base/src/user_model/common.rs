@@ -300,6 +300,13 @@ impl<'a> UserModel<'a> {
         &self.model
     }
 
+    /// Mutable access to the internal model, for callers that drive
+    /// `Model::evaluate_edited` themselves (GridPath's wasm engine pauses
+    /// automatic evaluation and recalculates incrementally per batch).
+    pub fn get_model_mut(&mut self) -> &mut Model<'a> {
+        &mut self.model
+    }
+
     /// Returns the workbook name
     pub fn get_name(&self) -> String {
         self.model.workbook.name.clone()

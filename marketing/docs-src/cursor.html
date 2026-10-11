@@ -1,0 +1,28 @@
+<!-- title: Cursor -->
+<!-- description: Add the GridPath Excel MCP server to Cursor with one click or a line in mcp.json, so Cursor's agent can edit .xlsx files with a review step before saving. -->
+<h1 class="legal-title">Cursor.</h1>
+<p class="legal-lede">Install with one click, or add three lines to <code>mcp.json</code>. Cursor's agent then edits real Excel files through GridPath and gives you a review link before anything is saved.</p>
+
+<h2 id="one-click">One-click install</h2>
+<p><a class="btn btn-secondary" href="cursor://anysphere.cursor-deeplink/mcp/install?name=gridpath&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImdyaWRwYXRoIiwibWNwIiwiLS1yZXZpZXctcmVxdWlyZWQiXX0=">Add to Cursor</a></p>
+<p>This opens Cursor and pre-fills the server configuration below. Confirm to install.</p>
+
+<h2 id="mcp-json">Or edit mcp.json</h2>
+<p>For one project, create <code>.cursor/mcp.json</code> in the project root. For every project, use <code>~/.cursor/mcp.json</code>.</p>
+<pre><code>{
+  "mcpServers": {
+    "gridpath": {
+      "command": "npx",
+      "args": ["-y", "gridpath", "mcp", "--review-required"]
+    }
+  }
+}</code></pre>
+<p>Node 20 or newer must be on Cursor's PATH. Open Cursor's MCP settings to confirm GridPath shows as connected with its tools listed.</p>
+
+<h2 id="first-edit">First edit</h2>
+<p>In agent mode, ask for a change and give the file path:</p>
+<pre><code>In data/pipeline.xlsx, flag every row on the Deals sheet where Stage is "Closed Lost" and add a Lost Reason column.</code></pre>
+<p>The agent calls GridPath's read tools, writes the change, and the tool result contains a <code>review_url</code>. Open it, check the changed cells, and save from the page.</p>
+
+<h2 id="folders">Limiting folders</h2>
+<p>Add <code>"--allow", "./data"</code> or any absolute path to <code>args</code> to restrict which folders the server may open. The default is your home directory. See <a href="/docs/options">CLI options</a>.</p>

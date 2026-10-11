@@ -18,6 +18,18 @@ export type CapturedCell = {
   format: CellFormat | null;
 };
 
+/** Every sheet a list of mutations reads or writes (by name). */
+export function sheetsReferencedByMutations(mutations: UniverMutation[]): Set<string> {
+  const out = new Set<string>();
+  for (const m of mutations as any[]) {
+    if (typeof m.sheet === "string") out.add(m.sheet);
+    if (typeof m.address?.sheet === "string") out.add(m.address.sheet);
+    if (typeof m.old_name === "string") out.add(m.old_name);
+    if (m.type === "delete_sheet" && typeof m.name === "string") out.add(m.name);
+  }
+  return out;
+}
+
 /** Apply one mutation's NEW state (forward). Used by live agent apply + Redo. */
 export function applyMutationForward(
   grid: UniverGridHandle | null | undefined,

@@ -267,6 +267,17 @@ export interface CellFormatShape {
   indent?: number;
 }
 
+/** One filtered column of an AutoFilter: `colId` is the 0-based offset within
+ * the range; `values` (+ `blank`) keeps listed display strings, `custom`
+ * holds comparisons (equal, notEqual, greaterThan, greaterThanOrEqual,
+ * lessThan, lessThanOrEqual; text may use * and ? wildcards). */
+export interface AutoFilterColumn {
+  colId: number;
+  values?: string[];
+  blank?: boolean;
+  custom?: { and: boolean; items: Array<{ operator: string; val: string }> };
+}
+
 export type SaveMirror = {
   /** Format changes the agent applied — pushed onto ExcelJS cells. */
   cellFormats?: Array<{ sheet: string; row: number; col: number; format: CellFormatShape; background?: string | null }>;
@@ -286,6 +297,8 @@ export type SaveMirror = {
     | { kind: "create"; name: string; tabColor?: string | null }
     | { kind: "delete"; name: string }
     | { kind: "rename"; oldName: string; newName: string }
+    | { kind: "visibility"; name: string; hidden: boolean }
+    | { kind: "tabColor"; name: string; color: string | null }
   >;
   /** Cells the agent cleared. ExcelJS cell.value set to null but format preserved. */
   clears?: Array<{ sheet: string; row: number; col: number }>;
@@ -311,5 +324,5 @@ export type SaveMirror = {
    * Per-sheet AutoFilter range (A1 notation), or `null` to clear it. Written to
    * ExcelJS `worksheet.autoFilter`. Last entry per sheet wins.
    */
-  autoFilters?: Array<{ sheet: string; range: string | null }>;
+  autoFilters?: Array<{ sheet: string; range: string | null; columns?: AutoFilterColumn[] }>;
 };

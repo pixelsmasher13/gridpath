@@ -1125,6 +1125,12 @@ impl<'a> Model<'a> {
 
     /// Returns the extended cell style for (`sheet`, `row`, `column`), including
     /// any conditional-formatting overlay computed by the last evaluate() call.
+    /// GRIDPATH: whether any conditional-format rule matched this cell in the
+    /// last evaluation — a cheap check before resolving the extended style.
+    pub fn cell_has_conditional_format(&self, sheet: u32, row: i32, column: i32) -> bool {
+        self.cf_cache.contains_key(&(sheet, row, column))
+    }
+
     pub fn get_extended_style_for_cell(
         &self,
         sheet: u32,

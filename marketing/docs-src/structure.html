@@ -1,0 +1,33 @@
+<!-- title: Rows, columns and sheets -->
+<!-- description: Structural edits to Excel files through GridPath: insert and delete rows and columns, create, rename and delete sheets, and how formula references, conditional formatting and charts respond. -->
+<h1 class="legal-title">Rows, columns and sheets.</h1>
+<p class="legal-lede">Seven tools change the shape of a workbook. Formula references shift the way they do in Excel, and every change is a pending batch the user can reject.</p>
+
+<h2 id="rows">Rows</h2>
+<p><code>insert_rows</code> inserts <code>count</code> empty rows before 1-indexed row <code>before</code>; content from that row down shifts. <code>delete_rows</code> removes <code>count</code> rows from <code>start</code>; content below shifts up, and the removed rows are gone.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "before": 43, "count": 2 }</code></pre>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Scratch", "start": 10, "count": 5 }</code></pre>
+
+<h2 id="columns">Columns</h2>
+<p>Same shape, with column letters. <code>insert_columns</code> inserts before column <code>before</code>; <code>delete_columns</code> removes from column <code>start</code>.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "before": "G", "count": 1 }</code></pre>
+<p>Adding a period to a model is usually insert one column, then <a href="/docs/writing-cells#copy-range"><code>copy_range</code></a> the previous period's column into it, then set the header.</p>
+
+<h2 id="what-shifts">What shifts, and what might not</h2>
+<ul>
+  <li><strong>Formula references</strong> on every sheet shift to follow the moved cells, including sheet-qualified references from other sheets.</li>
+  <li><strong>Conditional formatting and data validation ranges</strong> on the edited sheet follow the shift.</li>
+  <li><strong>Chart series references and conditional-formatting rules elsewhere in the workbook</strong> may not adjust. Check the review page, and check the chart in Excel after saving, when inserting into a region a chart reads from.</li>
+  <li><strong>Deleting rows or columns that formulas reference</strong> turns those references into <code>#REF!</code>, as in Excel. The readback and <code>read_range</code> show it.</li>
+</ul>
+
+<h2 id="sheets">Sheets</h2>
+<p><code>create_sheet</code> adds an empty tab, optionally with a <code>tab_color</code>. Writing to a sheet name that does not exist creates it too, so an explicit create is only needed for a colored tab or an empty tab made ahead of time.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "name": "Assumptions", "tab_color": "#22c55e" }</code></pre>
+<p><code>rename_sheet</code> renames a tab and updates cross-sheet references in other sheets automatically.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "old_name": "Sheet1", "new_name": "Inputs" }</code></pre>
+<p><code>delete_sheet</code> removes a tab and every cell on it. Cross-sheet references to it become <code>#REF!</code>. Like every other write it is a pending batch until saved, so it can be rejected on the review page.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "name": "Scratch" }</code></pre>
+
+<h2 id="not-in-scripts">Not available inside run_script</h2>
+<p>None of these operations are in the <a href="/docs/run-script"><code>run_script</code></a> API. Scripts write cells; structure changes go through these tools, before or after the script.</p>

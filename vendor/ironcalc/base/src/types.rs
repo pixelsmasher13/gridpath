@@ -177,6 +177,39 @@ pub struct WorksheetView {
     pub top_row: i32,
     /// The column index of the leftmost visible cell in the worksheet view.
     pub left_column: i32,
+    /// GRIDPATH: the sheet's saved zoom in percent (`sheetView zoomScale`, 100 when absent).
+    pub zoom: i32,
+}
+
+/// GridPath: one `<customFilter operator="…" val="…"/>`.
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
+pub struct FilterCriterion {
+    pub operator: String,
+    pub value: String,
+}
+
+/// GridPath: one `<filterColumn>` of an AutoFilter.
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
+pub struct FilterColumn {
+    /// 0-based offset of the column within the filter range.
+    pub col_id: i32,
+    /// `<filters>`: the values to keep (display strings as Excel wrote them).
+    pub values: Option<Vec<String>>,
+    /// `<filters blank="1">`: blanks are kept too.
+    pub blank: bool,
+    /// `<customFilters and="…">`: (all must match, criteria).
+    pub custom: Option<(bool, Vec<FilterCriterion>)>,
+    /// A criterion kind this model does not represent (top10, dynamic,
+    /// colour, icon): the column is filtered but cannot be re-evaluated.
+    pub other: bool,
+}
+
+/// GridPath: the worksheet's `<autoFilter>` (not table filters).
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
+pub struct AutoFilter {
+    /// 1-based [row0, col0, row1, col1]; row0 is the header row.
+    pub range: [i32; 4],
+    pub columns: Vec<FilterColumn>,
 }
 
 /// Internal representation of a worksheet Excel object
@@ -199,6 +232,17 @@ pub struct Worksheet {
     /// Whether or not to show the grid lines in the worksheet
     pub show_grid_lines: bool,
     pub conditional_formatting: Vec<ConditionalFormatting>,
+    /// GridPath: outline (group) level per row, 1-based row index → 1..7.
+    /// Only rows that belong to a group are present.
+    pub row_outline: HashMap<i32, u8>,
+    /// GridPath: outline level per column, 1-based column index → 1..7.
+    pub col_outline: HashMap<i32, u8>,
+    /// GridPath: `<outlinePr summaryBelow="…" summaryRight="…"/>`; Excel's
+    /// defaults are true (the +/- button sits after the group).
+    pub outline_summary_below: bool,
+    pub outline_summary_right: bool,
+    /// GridPath: the sheet's AutoFilter, if any.
+    pub auto_filter: Option<AutoFilter>,
 }
 
 /// Internal representation of Excel's sheet_data

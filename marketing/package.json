@@ -2,9 +2,10 @@
   "name": "GridPath-marketing",
   "version": "0.1.0",
   "private": true,
-  "description": "Marketing site for GridPath — the AI agent for Excel.",
+  "description": "Marketing site for GridPath \u2014 the AI agent for Excel.",
   "scripts": {
     "dev": "python3 -m http.server 8000",
-    "preview": "npx serve . -l 8000"
+    "preview": "npx serve . -l 8000",
+    "docs": "cd ../packages/gridpath && npx -y tsx ../../marketing/scripts/build-docs.ts"
   }
 }

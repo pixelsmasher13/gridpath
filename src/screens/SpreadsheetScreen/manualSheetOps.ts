@@ -8,7 +8,9 @@
 export type SheetOp =
   | { kind: "create"; name: string; tabColor?: string | null }
   | { kind: "delete"; name: string }
-  | { kind: "rename"; oldName: string; newName: string };
+  | { kind: "rename"; oldName: string; newName: string }
+  | { kind: "visibility"; name: string; hidden: boolean }
+  | { kind: "tabColor"; name: string; color: string | null };
 
 /**
  * Append an op to the per-tab store, compacting no-op histories in place:
@@ -22,6 +24,19 @@ export type SheetOp =
  * store must describe the net session history, not just the latest click.
  */
 export function appendManualSheetOp(store: SheetOp[], op: SheetOp): void {
+  if (op.kind === "create") {
+    // The same name created twice in one session (a tool retry before the
+    // grid's sheet list caught up) is one creation; a second create op
+    // would make the patcher refuse the whole save.
+    for (let i = store.length - 1; i >= 0; i--) {
+      const prev = store[i];
+      if (prev.kind === "create" && prev.name === op.name) return;
+      if (prev.kind === "delete" && prev.name === op.name) break;
+      if (prev.kind === "rename" && (prev.newName === op.name || prev.oldName === op.name)) break;
+    }
+    store.push(op);
+    return;
+  }
   if (op.kind === "delete") {
     for (let i = store.length - 1; i >= 0; i--) {
       const prev = store[i];
@@ -47,6 +62,29 @@ export function appendManualSheetOp(store: SheetOp[], op: SheetOp): void {
         store[i] = { ...prev, newName: op.newName };
         return;
       }
+    }
+    store.push(op);
+    return;
+  }
+  if (op.kind === "tabColor") {
+    // Last colour per sheet wins.
+    for (let i = store.length - 1; i >= 0; i--) {
+      const prev = store[i];
+      if (prev.kind === "tabColor" && prev.name === op.name) { store.splice(i, 1); break; }
+      if (prev.kind !== "tabColor" && prev.kind !== "visibility") break;
+    }
+    store.push(op);
+    return;
+  }
+  if (op.kind === "visibility") {
+    // Last visibility change per sheet wins; a hide/show pair cancels out.
+    for (let i = store.length - 1; i >= 0; i--) {
+      const prev = store[i];
+      if (prev.kind === "visibility" && prev.name === op.name) {
+        store.splice(i, 1);
+        break;
+      }
+      if (prev.kind !== "visibility") break;
     }
     store.push(op);
     return;

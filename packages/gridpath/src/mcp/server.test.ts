@@ -63,6 +63,40 @@ describe.skipIf(!built)("mcp server", () => {
     expect(r.error).toMatch(/Do NOT copy/);
   });
 
+  it("query_rows filters, projects and groups rows through the engine", async () => {
+    const described = text(await client.callTool({ name: "describe_workbook", arguments: { path: file } }));
+    const sheetEntry = described.sheets.find((s: any) => s.header_row !== null) ?? described.sheets[0];
+    const sheet: string = sheetEntry.name;
+    // Every row, two columns, small limit: rows carry 1-indexed numbers and
+    // cells keyed by column letter; `matched` counts beyond the limit.
+    const all = text(await client.callTool({ name: "query_rows", arguments: { path: file, sheet, columns: ["A", "B"], limit: 3 } }));
+    expect(all.sheet).toBe(sheet);
+    expect(all.rows.length).toBeLessThanOrEqual(3);
+    expect(all.rows.length).toBeGreaterThan(0);
+    expect(all.matched).toBeGreaterThanOrEqual(all.rows.length);
+    expect(all.columns.map((c: any) => c.column)).toEqual(["A", "B"]);
+    for (const r of all.rows) {
+      expect(typeof r.row).toBe("number");
+      expect(Object.keys(r.cells).sort()).toEqual(["A", "B"]);
+    }
+    // A predicate on column A that nothing satisfies.
+    const none = text(await client.callTool({ name: "query_rows", arguments: { path: file, sheet, where: [{ column: "A", op: "eq", value: "no such label 1234" }] } }));
+    expect(none.matched).toBe(0);
+    expect(none.rows).toEqual([]);
+    // not_empty on A, grouped by A: every group has count ≥ 1.
+    const grouped = text(await client.callTool({ name: "query_rows", arguments: { path: file, sheet, where: [{ column: "A", op: "not_empty" }], group_by: "A", limit: 5 } }));
+    expect(grouped.group_by.column).toBe("A");
+    expect(grouped.groups.length).toBeGreaterThan(0);
+    for (const g of grouped.groups) expect(g.count).toBeGreaterThanOrEqual(1);
+    // Errors are readable, not thrown.
+    const bad = text(await client.callTool({ name: "query_rows", arguments: { path: file, sheet: "Nope" } }));
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/Sheet not found/);
+    const badOp = text(await client.callTool({ name: "query_rows", arguments: { path: file, sheet, where: [{ column: "A", op: "like", value: "x" }] } }));
+    expect(badOp.ok).toBe(false);
+    expect(badOp.error).toMatch(/unknown op/);
+  });
+
   it("describe → write → readback → script → save keeps untouched parts identical", async () => {
     const described = text(await client.callTool({ name: "describe_workbook", arguments: { path: file } }));
     const sheet: string = described.sheets?.[0]?.name ?? described.sheet_names?.[0];
@@ -90,9 +124,13 @@ describe.skipIf(!built)("mcp server", () => {
     const saved = text(await client.callTool({ name: "save_workbook", arguments: { path: file } }));
     expect(saved).toMatchObject({ ok: true, saved: true });
     const after = await parts(fs.readFileSync(file));
-    expect([...after.keys()].sort()).toEqual([...before.keys()].sort());
+    // Formulas are saved as dynamic-array formulas, which adds the one
+    // workbook-wide metadata part (and registers it in the content types
+    // and workbook relationships); everything else keeps its identity.
+    expect([...after.keys()].sort()).toEqual([...before.keys(), "xl/metadata.xml"].sort());
     const changed = [...before.keys()].filter((k) => !same(before.get(k)!, after.get(k)!));
-    expect(changed.every((k) => k === "xl/workbook.xml" || /^xl\/worksheets\/sheet\d+\.xml$/.test(k))).toBe(true);
+    const allowed = new Set(["xl/workbook.xml", "[Content_Types].xml", "xl/_rels/workbook.xml.rels"]);
+    expect(changed.every((k) => allowed.has(k) || /^xl\/worksheets\/sheet\d+\.xml$/.test(k))).toBe(true);
 
     // The saved file is the new baseline: reading it back shows the edit.
     const rr = text(await client.callTool({ name: "read_range", arguments: { path: file, sheet, range: "AO1:AO2" } }));

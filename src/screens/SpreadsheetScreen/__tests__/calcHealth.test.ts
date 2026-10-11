@@ -111,6 +111,22 @@ describe("computeCalcHealth", () => {
     expect(h.truncated).toBe(false);
   });
 
+  it("ignores the engine's unevaluated placeholder in the baseline", () => {
+    // A deferred-open baseline built before the first evaluate holds
+    // "#ERROR!" for formulas the file cached no value for; once evaluated
+    // they read "" or a number. Neither is a divergence from the FILE.
+    const bl = new Map<string, Map<string, BaselineCell>>([
+      ["Model", new Map<string, BaselineCell>([
+        ["0,0", { f: "=IF(A2>0,A2,\"\")", v: "#ERROR!" }],
+        ["1,0", { f: "=A3*2", v: "#ERROR!" }],
+      ])],
+    ]);
+    const snap = { sheets: { s1: { name: "Model", cellData: { 0: { 0: { f: "=IF(A2>0,A2,\"\")", v: "" } }, 1: { 0: { f: "=A3*2", v: 12 } } } } } };
+    const h = computeCalcHealth(snap, bl);
+    expect(h.divergent).toBe(0);
+    expect(fileSavedIfDivergent(null, "=IF(A2>0,A2,\"\")", { f: "=IF(A2>0,A2,\"\")", v: "#ERROR!" })).toBeUndefined();
+  });
+
   it("stops at the cap and reports truncation", () => {
     const h = computeCalcHealth(snapshot, baseline, 1);
     expect(h.checked).toBe(1);

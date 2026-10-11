@@ -479,7 +479,7 @@ impl Styles {
         cell_xf.quote_prefix
     }
 
-    pub(crate) fn get_style(&self, index: i32) -> Result<Style, String> {
+    pub fn get_style(&self, index: i32) -> Result<Style, String> {
         let cell_xf = &self
             .cell_xfs
             .get(index as usize)

@@ -267,3 +267,15 @@ fn format_millions_scale_decimal() {
     assert_eq!(r2.text, "12.0");
     assert_eq!(r3.text, "987.65");
 }
+
+#[test]
+fn test_half_values_round_like_excel() {
+    let locale = get_default_locale();
+    // Binary sums just under .5 still display as Excel shows them (15 digits first).
+    assert_eq!(format_number(940.49999999999994, "#,##0", locale).text, "941");
+    assert_eq!(format_number(3574.4999999999995, "#,##0", locale).text, "3,575");
+    assert_eq!(format_number(2.675, "0.00", locale).text, "2.68");
+    assert_eq!(format_number(940.5, "#,##0", locale).text, "941");
+    assert_eq!(format_number(-940.5, "#,##0", locale).text, "-941");
+}
+

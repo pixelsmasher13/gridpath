@@ -8,7 +8,7 @@ import {
   type ScriptModel,
 } from "../agent/scriptRunner";
 
-const LIMITS = { maxTouched: 20_000, maxLogs: 100 };
+const LIMITS = { maxTouched: 20_000, maxLogs: 100, maxLogChars: 4000, maxLogBytes: 65536 };
 
 /** Tiny model builder: cells as { "Sheet1": { A1: 5, B2: "=A1*2" } } with
  * A1-keyed values; strings starting with "=" become formulas whose cached
@@ -114,7 +114,7 @@ describe("scriptCore — writes", () => {
       `const s = sheet("Model");
        for (let i = 1; i <= 10; i++) s.set("A" + i, i);`,
       model({ Model: {} }),
-      { maxTouched: 5, maxLogs: 100 },
+      { maxTouched: 5, maxLogs: 100, maxLogChars: 4000, maxLogBytes: 65536 },
     );
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -192,7 +192,7 @@ describe("scriptCore — sheets, format, clear", () => {
     const r = run(
       `for (let i = 0; i < 500; i++) log(i);`,
       model({ M: {} }),
-      { maxTouched: 100, maxLogs: 3 },
+      { maxTouched: 100, maxLogs: 3, maxLogChars: 4000, maxLogBytes: 65536 },
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;

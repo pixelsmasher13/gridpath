@@ -38,8 +38,17 @@ export function sameFormula(liveFormula: string | null | undefined, savedFormula
 }
 
 function isExcelError(v: unknown): boolean {
-  return typeof v === "string" && ERROR_VALUES.has(v.trim());
+  if (typeof v !== "string") return false;
+  const t = v.trim();
+  // Excel's errors, plus the engine's own placeholders: "#ERROR!" is what
+  // IronCalc reports for a formula that has not been evaluated yet (a file
+  // with no cached value for it, before the deferred first evaluate), and
+  // "#N/IMPL!" / "#CIRC!" are its unimplemented / circular markers. A
+  // baseline holding one of these is not a file value to defend.
+  return ERROR_VALUES.has(t) || ENGINE_PLACEHOLDERS.has(t);
 }
+
+const ENGINE_PLACEHOLDERS = new Set(["#ERROR!", "#N/IMPL!", "#CIRC!", "#SPILL!", "#CALC!"]);
 
 function isEmpty(v: unknown): boolean {
   return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
