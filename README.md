@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner.svg" alt="GridPath — let AI edit the Excel files you already have. Review before save, live recalculation, file comes back intact." width="100%"/>
+  <img src="docs/images/hero.png" alt="GridPath: the SpaceX income statement model open in the desktop app with the agent conversation, beside four points: review every cell before save, byte-identical .xlsx saves, Rust engine with incremental recalc, MCP server for Claude Code, Claude Desktop, Cursor and Codex." width="100%"/>
 </p>
 
 # GridPath
