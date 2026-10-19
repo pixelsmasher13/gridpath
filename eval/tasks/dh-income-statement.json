@@ -1,0 +1,17 @@
+{
+  "id": "dh-income-statement",
+  "prompt": "can you put together a model on delivery hero income statement with details on growth",
+  "start_file": null,
+  "notes": "Blank-workbook build task. Ground truth from DH reporting: FY2025 IFRS revenue ~€14,060m, FY2024 net loss ~€(882)m, FY2025 net loss ~€(698)m. Assertions are layout-independent (label search).",
+  "assertions": [
+    { "type": "label_value", "label": "revenue", "value": 14060, "tolerance_pct": 2, "why": "FY2025 IFRS revenue ~14,060 (any column may hold it)" },
+    { "type": "label_value", "label": "net income|net loss", "value": -882, "tolerance_pct": 1.5, "why": "FY2024 reported net loss ties within 1.5%" },
+    { "type": "label_formula", "label": "gross profit", "why": "gross profit must be derived by formula, not hardcoded" },
+    { "type": "label_exists", "label": "growth|yoy|y/y", "why": "the ask was 'details on growth'" },
+    { "type": "label_exists", "label": "cagr", "why": "multi-year growth summary" },
+    { "type": "label_exists", "label": "source", "why": "rule 22: sources/notes provenance block" },
+    { "type": "check_rows_zero", "label": "check", "tolerance_abs": 1, "why": "rule 21: check rows must tie to ~0 (skipped if no check rows, reported as missing)" },
+    { "type": "min_formula_cells", "count": 20, "why": "a model, not a data dump" },
+    { "type": "no_error_cells", "why": "no #REF!/#DIV/0!/#VALUE! anywhere" }
+  ]
+}

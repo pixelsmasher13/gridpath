@@ -1,0 +1,22 @@
+{
+  "name": "gridpath-web",
+  "private": true,
+  "description": "Source of gridpath's browser build (the main `gridpath` export). Built into ../gridpath/dist/web; not published on its own.",
+  "type": "module",
+  "scripts": {
+    "build:engine": "../../crates/engine-wasm/build.sh",
+    "build": "tsup"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "dependencies": {
+    "styled-components": "^6.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "p159-scenario",
+  "start_file": "corpus/project-159.xlsx",
+  "prompt": "On the 'Assumptions' sheet, in the 'Azure Capacity-Based Revenue Forecast' block, apply this scenario to all four fiscal-2027 quarters (Q1-2027 to Q4-2027): set 'Utilization of external capacity, %' to 93%, set 'Revenue per utilized external GW / year, $mm' to 11,000, and set 'Capacity added, GW' to 1.0. Only those twelve input cells may change; every formula must stay a formula. When you are done, tell me the resulting FY2027 'Bottom-up Azure revenue incl. OpenAI share, $mm'.",
+  "notes": "LOCAL-ONLY. Multi-cell scenario edit on the 55k-formula model plus a recalculated readback. The Azure block has its own period header row (row 52) offset one column from the sheet header (row 5), so the twelve cells are BX54:CA54, BX58:CA58, BX60:CA60. Expected FY2027 bottom-up Azure revenue (CB65) = 135,720.4 (was 130,109.7). Strict per-cell and reported-answer checks: eval/verify-p159-complex.mjs.",
+  "assertions": [
+    { "type": "label_value", "label": "^Revenue per utilized external GW", "value": 11000, "tolerance_pct": 0, "sheet": "Assumptions", "why": "revenue-per-GW input landed" },
+    { "type": "label_value", "label": "^Utilization of external capacity", "value": 0.93, "tolerance_pct": 0, "sheet": "Assumptions", "why": "utilization input landed" },
+    { "type": "parts_preserved", "allow_removed": ["xl/calcChain.xml"], "must_keep": ["customXml/item1.xml", "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml", "xl/drawings/drawing1.xml", "xl/media/image1.png", "xl/metadata.xml", "xl/printerSettings/printerSettings1.bin"], "why": "fidelity" },
+    { "type": "min_formula_cells", "count": 55003, "why": "no formula was replaced by a value" },
+    { "type": "file_opens", "why": "valid workbook" }
+  ]
+}

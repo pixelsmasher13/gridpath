@@ -1,0 +1,12 @@
+gridpath
+Copyright 2026 Heelix Technologies Inc.
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+The calculation engine (engine/, dist/web/gridpath_engine_bg.wasm) is a fork
+of IronCalc, Copyright 2023 EqualTo GmbH and Nicolás Hatcher, licensed under
+the MIT License or the Apache License, Version 2.0. Third-party software
+compiled or bundled into this package, and its license texts, are listed in
+THIRD_PARTY_NOTICES.md.
+
+"GridPath" is a trademark of Heelix Technologies Inc.

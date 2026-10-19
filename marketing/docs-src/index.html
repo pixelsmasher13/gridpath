@@ -1,0 +1,52 @@
+<!-- title: GridPath documentation -->
+<!-- description: Documentation for the GridPath Excel MCP server: install it in Claude Code, Claude Desktop, Cursor or Codex, let your agent edit real .xlsx files, and review every change before it is saved. -->
+<h1 class="legal-title">GridPath docs.</h1>
+<p class="legal-lede">GridPath is an MCP server that lets an agent edit the <code>.xlsx</code> and <code>.xlsm</code> files you already have, with a review step before anything is written. It runs wherever Node runs, evaluates formulas in process, and saves by patching the original file so charts, pivots, macros and everything else come back byte-identical.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<p>One line in Claude Code:</p>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p>Then ask the agent to change a workbook. It reads the file, writes the change as a pending batch, and hands you a local review link. Open it, look at every changed cell before and after, reject what you don't want, and save.</p>
+
+<div class="docs-cards">
+  <a href="/docs/claude-code"><strong>Claude Code</strong><span>One command, works in every project.</span></a>
+  <a href="/docs/claude-desktop"><strong>Claude Desktop</strong><span>Download a bundle, no terminal needed.</span></a>
+  <a href="/docs/cursor"><strong>Cursor</strong><span>One-click install or a line in mcp.json.</span></a>
+  <a href="/docs/codex"><strong>Codex</strong><span>Three lines in config.toml.</span></a>
+</div>
+
+<h2 id="how-it-works">How it works</h2>
+<ol>
+  <li><strong>Open.</strong> The first call on a file parses it into an in-process calculation engine, a fork of <a href="https://github.com/ironcalc/IronCalc" rel="noopener" target="_blank">IronCalc</a> compiled to WebAssembly. No Excel, no LibreOffice, no Python.</li>
+  <li><strong>Read.</strong> The agent orients with <code>describe_workbook</code> and <code>find_rows</code>, filters data with <code>query_rows</code>, and reads exact cells with <code>read_range</code>. Values are evaluated, so the agent sees what Excel would show.</li>
+  <li><strong>Write.</strong> Every write tool lands as a pending batch in memory and returns a readback of what it wrote, plus a <code>review_url</code>. The file on disk is untouched.</li>
+  <li><strong>Review.</strong> The review page shows the workbook with changed cells highlighted and before/after for each one. Accept or reject per batch or per cell.</li>
+  <li><strong>Save.</strong> <code>save_workbook</code> diffs the model against the file as loaded and patches only the zip parts an edit touched. Everything else is copied through unchanged.</li>
+</ol>
+
+<h2 id="guides">Guides</h2>
+<div class="docs-cards">
+  <a href="/docs/review"><strong>Review before save</strong><span>Batches, the review page, review-required mode, save and save-as.</span></a>
+  <a href="/docs/reading-a-workbook"><strong>Reading a workbook</strong><span>The four read tools and the order to call them.</span></a>
+  <a href="/docs/writing-cells"><strong>Writing cells and formulas</strong><span>set_cell, set_range, copy_range, and what the readback tells you.</span></a>
+  <a href="/docs/run-script"><strong>run_script</strong><span>Sandboxed JavaScript for loop-shaped edits, one batch.</span></a>
+  <a href="/docs/formatting-and-layout"><strong>Formatting and layout</strong><span>Number formats, fills, widths, freezes, merges, notes, names.</span></a>
+  <a href="/docs/structure"><strong>Rows, columns and sheets</strong><span>Insert, delete, create, rename, and what shifts.</span></a>
+</div>
+
+<h2 id="reference">Reference</h2>
+<ul>
+  <li><a href="/docs/tools">All tools</a>: every tool with parameters, generated from the server's definitions.</li>
+  <li><a href="/docs/options">CLI options and limits</a>: flags, allowed folders, supported files, limits.</li>
+</ul>
+
+<h2 id="other-hosts">Other hosts</h2>
+<p>Gemini CLI, Windsurf, VS Code and any other MCP host that speaks stdio use the same command and arguments in that host's MCP settings:</p>
+<pre><code>{ "mcpServers": { "gridpath": { "command": "npx", "args": ["-y", "gridpath", "mcp", "--review-required"] } } }</code></pre>
+
+<h2 id="requirements">Requirements</h2>
+<ul>
+  <li>Node 20 or newer, on macOS, Windows or Linux. The Claude Desktop bundle ships its own Node.</li>
+  <li>Files: <code>.xlsx</code> and <code>.xlsm</code>. Macros, pivots, charts and add-in data are preserved, not edited.</li>
+</ul>
+<p>Source is public at <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath" rel="noopener" target="_blank">github.com/pixelsmasher13/gridpath</a> under FSL-1.1-Apache-2.0. GridPath is also a <a href="/">desktop app</a> with the same engine and review and its own agent built in.</p>

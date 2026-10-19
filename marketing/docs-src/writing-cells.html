@@ -1,0 +1,69 @@
+<!-- title: Writing cells and formulas -->
+<!-- description: How an agent writes to Excel through GridPath: set_cell, set_range, copy_range and clear_range, formulas versus values, and reading the write_check and row_map in every response. -->
+<h1 class="legal-title">Writing cells and formulas.</h1>
+<p class="legal-lede">Four tools cover direct writes. Each one lands as a pending batch, returns a readback of what it wrote, and never touches the file.</p>
+
+<h2 id="conventions">Conventions</h2>
+<ul>
+  <li><strong>Formulas, not computed numbers.</strong> A derived value is written as a formula starting with <code>=</code>, so the model stays live when inputs change.</li>
+  <li><strong>Raw numbers, not formatted strings.</strong> Write <code>1250</code>, not <code>"$1,250"</code>. Formatting is <a href="/docs/formatting-and-layout"><code>set_format</code></a>'s job.</li>
+  <li><strong>A1 references point at final positions.</strong> Formulas inside a block reference cells where they will end up, not offsets within the payload.</li>
+  <li><strong>Sheet names are case-sensitive.</strong> Writing to a sheet that does not exist creates it.</li>
+</ul>
+
+<h2 id="set-cell"><code>set_cell</code>: one cell</h2>
+<p>Pass <code>value</code> for a literal or <code>formula</code> for a formula, not both.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "cell": "F42", "formula": "=SUM(F5:F41)" }</code></pre>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Assumptions", "cell": "B7", "value": 0.21 }</code></pre>
+<p><code>null</code> as the value clears the cell's content and keeps its formatting.</p>
+
+<h2 id="set-range"><code>set_range</code>: a block</h2>
+<p>A 2D array starting at <code>top_left</code>: outer array is rows, inner is cells. Strings beginning with <code>=</code> are formulas. <code>null</code> or <code>""</code> leaves the existing cell as it is, so a sparse payload only overwrites what it names.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "top_left": "A44",
+  "values": [
+    ["Contingency", "=B42*0.05", "=C42*0.05", "=D42*0.05"],
+    ["Total with contingency", "=B42+B44", "=C42+C44", "=D42+D44"]
+  ]
+}</code></pre>
+
+<h2 id="copy-range"><code>copy_range</code>: Excel copy and paste</h2>
+<p>Copies a rectangle to a destination with Excel semantics: relative references shift by the offset, <code>$</code> anchors stay put, and formatting travels with the cells. Prefer it over re-typing shifted formulas; it cannot mis-shift.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "source": "E5:E120",
+  "dest": "F5",
+  "mode": "all"
+}</code></pre>
+<p><code>mode</code> is <code>all</code> (default: formulas, values and formats), <code>values</code> (evaluated values only, to freeze a calculation as hardcodes) or <code>formats</code> (formatting only). <code>dest_sheet</code> copies to another sheet; sheet-qualified references keep pointing at their original sheets. The reply adds <code>dest_range</code> and <code>copied_cells</code>.</p>
+<p>Extending a model by one period is the canonical use: copy the last column to the next one, then fix the header.</p>
+
+<h2 id="clear-range"><code>clear_range</code>: delete content</h2>
+<p>Empties values and formulas in a range. Formatting is preserved. Use it to delete content rather than overwriting with blanks.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Scratch", "range": "A1:K40" }</code></pre>
+
+<h2 id="readback">Reading the response</h2>
+<p>Every write returns the same shape:</p>
+<pre><code>{
+  "ok": true,
+  "batch_id": "b4",
+  "write_check": "ok",
+  "cells": [
+    { "sheet": "Model", "cell": "B44", "value": 1562.5, "formula": "=B42*0.05", "text": "1,563" }
+  ],
+  "row_map": [ { "sheet": "Model", "row": 44, "label": "Contingency" } ],
+  "pending_batches": 4,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "Changes are pending in memory. …"
+}</code></pre>
+<ul>
+  <li><code>write_check</code> is <code>ok</code> when every cell the call meant to write now holds a value or formula, <code>partial</code> when some did not land, <code>FAILED</code> when none did. A <code>FAILED</code> write sets <code>ok: false</code>.</li>
+  <li><code>cells</code> is the evaluated readback, up to 200 cells, so the agent can see a formula's result immediately and catch a reference pointing at the wrong row.</li>
+  <li><code>row_map</code> lists the label found in the first columns of each touched row, which is how the agent confirms it wrote "Contingency" on the Contingency row.</li>
+</ul>
+
+<h2 id="loops">When the edit is loop-shaped</h2>
+<p>"For every row where margin is negative, …", "repeat this formula across 40 columns", or anything that depends on reading cells first is a job for <a href="/docs/run-script"><code>run_script</code></a>: one call, one batch, addresses computed in code.</p>

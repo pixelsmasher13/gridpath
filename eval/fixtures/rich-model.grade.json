@@ -1,0 +1,60 @@
+{
+  "task": "fixture-model-edit",
+  "output": "eval/fixtures/rich-model.xlsx",
+  "counts": {
+    "pass": 6,
+    "fail": 1,
+    "warn": 0
+  },
+  "results": [
+    {
+      "status": "fail",
+      "detail": "no row labeled /Eval marker/i",
+      "type": "label_value",
+      "label": "Eval marker",
+      "why": "the requested edit landed"
+    },
+    {
+      "status": "pass",
+      "detail": "all 16 original parts survive",
+      "type": "parts_preserved",
+      "label": "",
+      "why": "chart + drawings + parts OUTSIDE library feature models must survive — this is the discriminating axis"
+    },
+    {
+      "status": "pass",
+      "detail": "xl/worksheets/sheet2.xml contains /conditionalFormatting/i",
+      "type": "part_contains",
+      "label": "",
+      "why": "the margin color scale survives inside the edited sheet's XML"
+    },
+    {
+      "status": "pass",
+      "detail": "xl/worksheets/sheet2.xml contains /dataValidation/i",
+      "type": "part_contains",
+      "label": "",
+      "why": "the scenario dropdown survives"
+    },
+    {
+      "status": "pass",
+      "detail": "xl/workbook.xml contains /GrowthRate/i",
+      "type": "part_contains",
+      "label": "",
+      "why": "the defined name survives (forecast formulas depend on it)"
+    },
+    {
+      "status": "pass",
+      "detail": "parsed: 2 sheets",
+      "type": "file_opens",
+      "label": "",
+      "why": "output parses as a valid workbook"
+    },
+    {
+      "status": "pass",
+      "detail": "no error values",
+      "type": "no_error_cells",
+      "label": "",
+      "why": "the edited sheet gained no formula errors"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+-- SQLite doesn't support DROP COLUMN before 3.35.0
+-- For rollback, recreate table without description column

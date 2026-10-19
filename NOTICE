@@ -1,0 +1,18 @@
+GridPath
+Copyright 2026 Heelix Technologies Inc.
+
+This product is licensed under the Apache License, Version 2.0 (LICENSE),
+except the directories listed below, which carry their own LICENSE file
+(the Functional Source License, Version 1.1, with Apache 2.0 Future
+License): the desktop app (src/, src-tauri/) and the hosted services
+(proxy-server/, billing-portal/, cloudflare-proxy/, marketing/). Files in
+those directories marked "SPDX-License-Identifier: Apache-2.0" are under
+the Apache License.
+
+The calculation engine is a fork of IronCalc (vendor/ironcalc), Copyright
+2023 EqualTo GmbH and Nicolás Hatcher, licensed under the MIT License or
+the Apache License, Version 2.0 (vendor/ironcalc/LICENSE-MIT,
+vendor/ironcalc/LICENSE-Apache-2.0).
+
+"GridPath" and the GridPath logo are trademarks of Heelix Technologies
+Inc.; see TRADEMARKS.md. The licenses grant no rights to them.

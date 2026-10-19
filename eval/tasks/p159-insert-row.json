@@ -1,0 +1,46 @@
+{
+  "id": "p159-insert-row",
+  "start_file": "corpus/project-159.xlsx",
+  "prompt": "On the 'Update Log' sheet, insert a new row at the top of the log table (directly under the header row) with the text 'Eval insert marker' in the first column of the table and 42 in the cell next to it. Everything below shifts down by one. Change nothing else in the workbook.",
+  "notes": "LOCAL-ONLY. Row insert on a sheet with 54 hyperlinks, VML comment anchors and 4 formulas inside a 55k-formula workbook; the rest of the workbook must be byte-identical.",
+  "assertions": [
+    {
+      "type": "label_value",
+      "label": "Eval insert marker",
+      "value": 42,
+      "tolerance_pct": 0,
+      "sheet": "Update Log",
+      "why": "the row landed"
+    },
+    {
+      "type": "parts_preserved",
+      "allow_removed": [
+        "xl/calcChain.xml"
+      ],
+      "must_keep": [
+        "customXml/item1.xml",
+        "xl/comments1.xml",
+        "xl/drawings/vmlDrawing1.vml",
+        "xl/drawings/drawing1.xml",
+        "xl/media/image1.png",
+        "xl/metadata.xml",
+        "xl/printerSettings/printerSettings1.bin"
+      ],
+      "why": "fidelity"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 50000,
+      "why": "formulas survive"
+    },
+    {
+      "type": "file_opens",
+      "why": "valid workbook"
+    },
+    {
+      "type": "no_error_cells",
+      "sheet": "Update Log",
+      "why": "no errors on the edited sheet"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "fixture-model-edit",
+  "prompt": "On the 'Model' sheet, add a memo row at the bottom labeled 'Eval marker' with the value 42 in the cell next to the label. Change nothing else.",
+  "start_file": "fixtures/rich-model.xlsx",
+  "notes": "PUBLISHABLE edit-preservation task — same design as gs-model-edit (trivial edit, fidelity graded) but on the committed self-authored fixture (regenerate with fixtures/make_rich_model.py), so results can be shared and reproduced by anyone. Covers chart, drawings, conditional formatting, data validation, merges, freeze panes, defined names. Pivot tables and cell comments remain covered only by the private gs-model-edit corpus task (openpyxl can't author pivots; its comment layout crashes ExcelJS).",
+  "assertions": [
+    { "type": "label_value", "label": "Eval marker", "value": 42, "tolerance_pct": 0, "sheet": "Model", "why": "the requested edit landed" },
+    { "type": "parts_preserved", "allow_removed": ["xl/calcChain.xml"], "must_keep": ["xl/charts/chart1.xml", "xl/drawings/drawing1.xml", "customXml/item1.xml", "xl/printerSettings/printerSettings1.bin"], "why": "chart + drawings + parts OUTSIDE library feature models must survive — this is the discriminating axis" },
+    { "type": "part_contains", "part": "xl/worksheets/sheet2.xml", "needle": "conditionalFormatting", "why": "the margin color scale survives inside the edited sheet's XML" },
+    { "type": "part_contains", "part": "xl/worksheets/sheet2.xml", "needle": "dataValidation", "why": "the scenario dropdown survives" },
+    { "type": "part_contains", "part": "xl/workbook.xml", "needle": "GrowthRate", "why": "the defined name survives (forecast formulas depend on it)" },
+    { "type": "min_formula_cells", "count": 16, "why": "all 16 live formulas must survive AS formulas — replacing them with computed values kills the model (observed: 1 of 5 CC runs did exactly this)" },
+    { "type": "file_opens", "why": "output parses as a valid workbook" },
+    { "type": "no_error_cells", "sheet": "Model", "why": "the edited sheet gained no formula errors" }
+  ]
+}

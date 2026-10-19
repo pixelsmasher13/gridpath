@@ -1,0 +1,2 @@
+-- No-op: 'local' was the original default; we can't reliably reconstruct which
+-- rows used to be 'force_cloud' so we leave them as 'local' on rollback.

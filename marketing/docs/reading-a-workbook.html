@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reading a workbook — GridPath Docs</title>
+  <meta name="description" content="How an agent reads an Excel file through GridPath: describe_workbook for structure, find_rows for labels, query_rows to filter and aggregate data, read_range for exact cells." />
+  <link rel="canonical" href="https://gridpath.dev/docs/reading-a-workbook" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Reading a workbook — GridPath Docs" />
+  <meta property="og:description" content="How an agent reads an Excel file through GridPath: describe_workbook for structure, find_rows for labels, query_rows to filter and aggregate data, read_range for exact cells." />
+  <meta property="og:url" content="https://gridpath.dev/docs/reading-a-workbook" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Reading a workbook — GridPath Docs" />
+  <meta name="twitter:description" content="How an agent reads an Excel file through GridPath: describe_workbook for structure, find_rows for labels, query_rows to filter and aggregate data, read_range for exact cells." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Reading a workbook",
+    "description": "How an agent reads an Excel file through GridPath: describe_workbook for structure, find_rows for labels, query_rows to filter and aggregate data, read_range for exact cells.",
+    "url": "https://gridpath.dev/docs/reading-a-workbook",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "Reading a workbook", "item": "https://gridpath.dev/docs/reading-a-workbook" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook" aria-current="page">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.2.0</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / Reading a workbook</p>
+<h1 class="legal-title">Reading a workbook.</h1>
+<p class="legal-lede">Four read-only tools, each answering a different question. Used in order, they let an agent orient on a 50,000-formula model in three calls without reading it cell by cell.</p>
+
+<div class="docs-callout"><p>All four are marked read-only in the tool annotations, so hosts that gate writes behind approval prompts can run them freely. Values are evaluated by the in-process engine, so the agent sees what Excel would show, not raw formulas.</p></div>
+
+<h2 id="describe">1. <code>describe_workbook</code>: what is in the file</h2>
+<p>A structural map without cell data. For each sheet: the used range, the detected header row with its headers mapped to column letters, and a table of contents of sections, the contiguous row bands with their titles. Also lists defined names. Served from an in-memory index, so it is near-instant.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx" }</code></pre>
+<pre><code>{
+  "sheets": [
+    {
+      "name": "Model",
+      "used_range": "A1:BX412",
+      "header_row": 4,
+      "headers": { "B": "FY2023A", "C": "FY2024A", "D": "FY2025E", "E": "FY2026E" },
+      "sections": [
+        { "rows": "5-42", "title": "Revenue build" },
+        { "rows": "44-97", "title": "Operating expenses" }
+      ]
+    }
+  ],
+  "defined_names": [ { "name": "TaxRate", "ref": "Assumptions!B7" } ]
+}</code></pre>
+<p>Pass <code>sheet</code> to limit the map to one sheet. Call it first on any file.</p>
+
+<h2 id="find">2. <code>find_rows</code>: where is the row I need</h2>
+<p>Searches row labels and column headers by name and returns exact positions. Matching is case-insensitive substring plus word prefix, so <code>"tot rev"</code> matches "Total revenue". Each match carries its sheet, 1-indexed row, containing section, and one evaluated sample cell read live from the grid.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "query": "total revenue" }</code></pre>
+<pre><code>{
+  "matches": [
+    { "sheet": "Model", "row": 42, "label": "Total revenue", "section": "Revenue build",
+      "sample": "E42 = =SUM(E5:E41) → 39001.1" }
+  ],
+  "total": 1,
+  "truncated": false
+}</code></pre>
+<p><code>max_results</code> defaults to 20. Use this instead of scanning with <code>read_range</code>: the row numbers in the reply are exact and go straight into formulas.</p>
+
+<h2 id="query">3. <code>query_rows</code>: which rows match</h2>
+<p>Filter, project and aggregate the rows of one sheet by column values, served by the calculation engine on any sheet size. Columns are letters or header texts, matched case-insensitively. Predicates in <code>where</code> are ANDed.</p>
+<pre><code>{
+  "path": "~/data/stores.xlsx",
+  "sheet": "Stores",
+  "where": [
+    { "column": "Owner", "op": "contains", "value": "Acme" },
+    { "column": "Revenue ($m)", "op": "gte", "value": 100 }
+  ],
+  "columns": ["Store", "Region", "Revenue ($m)", "Opened"],
+  "order_by": { "column": "Revenue ($m)", "desc": true },
+  "limit": 20
+}</code></pre>
+<p>Operators: <code>eq</code>, <code>ne</code>, <code>contains</code>, <code>not_contains</code>, <code>starts_with</code>, <code>ends_with</code>, <code>gt</code>, <code>gte</code>, <code>lt</code>, <code>lte</code>, <code>between</code> (value is <code>[low, high]</code>), <code>in</code> and <code>not_in</code> (value is a list), <code>empty</code>, <code>not_empty</code>. Text compares trimmed and case-insensitively, numbers numerically, dates as ISO strings against date-formatted cells.</p>
+<p>The reply holds matching rows with their 1-indexed <code>row</code> and the requested columns keyed by letter, plus <code>matched</code> (the total count) and <code>truncated</code>. <code>limit</code> defaults to 50, maximum 500.</p>
+<p>With <code>group_by</code> and <code>aggregate</code> you get one entry per distinct value instead of rows:</p>
+<pre><code>{
+  "path": "~/data/stores.xlsx",
+  "sheet": "Stores",
+  "group_by": "Region",
+  "aggregate": [ { "column": "Revenue ($m)", "fn": "sum" } ]
+}</code></pre>
+<p>Aggregates are <code>sum</code>, <code>count</code>, <code>min</code>, <code>max</code>, <code>avg</code>. The header row is auto-detected; pass <code>header_row</code> when it picks the wrong one, and <code>start_row</code> or <code>end_row</code> to bound the scan.</p>
+
+<h2 id="read">4. <code>read_range</code>: exact cells</h2>
+<p>Evaluated values and formulas for a specific A1 range, up to 500 cells. Use it to verify a write landed where expected, or to pull the handful of values a formula needs to reference.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "range": "B42:E42" }</code></pre>
+<pre><code>{
+  "sheet": "Model",
+  "range": "B42:E42",
+  "cells": [
+    { "cell": "B42", "value": 31250.4, "formula": "=SUM(B5:B41)", "text": "31,250" },
+    { "cell": "C42", "value": 34800.0, "formula": "=SUM(C5:C41)", "text": "34,800" }
+  ],
+  "truncated": false
+}</code></pre>
+<p>For anything larger than 500 cells, use <code>query_rows</code>, or read inside a <a href="/docs/run-script"><code>run_script</code></a>, where reads are unbudgeted.</p>
+
+<h2 id="engine">What the engine evaluates</h2>
+<p>Dynamic arrays and spills (FILTER, UNIQUE, SORT, SORTBY, SEQUENCE, VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS, CHOOSEROWS, TOCOL, WRAPROWS), LET and LAMBDA with MAP, BYROW and SCAN, XLOOKUP, the IFS family, SUMPRODUCT, TEXTJOIN over arrays, OFFSET and INDIRECT, date and finance functions, RANK, PERCENTILE, QUARTILE, MEDIAN and STDEV. Not implemented and returning <code>#NAME?</code>: AGGREGATE, GETPIVOTDATA, HYPERLINK, GROUPBY, PIVOTBY. Formulas are stored as written, so Excel recalculates them on open regardless.</p>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

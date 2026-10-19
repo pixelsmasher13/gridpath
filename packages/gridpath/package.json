@@ -1,0 +1,101 @@
+{
+  "name": "gridpath",
+  "version": "0.2.0",
+  "description": "Real Excel files in your web app and in your agent: an embeddable spreadsheet with a Rust/WebAssembly engine, in-place .xlsx saves and AI tools, plus an MCP server for coding agents.",
+  "mcpName": "io.github.pixelsmasher13/gridpath",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "excel",
+    "xlsx",
+    "spreadsheet",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-agent",
+    "ironcalc",
+    "react",
+    "embed",
+    "embeddable",
+    "webassembly",
+    "grid"
+  ],
+  "homepage": "https://gridpath.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pixelsmasher13/gridpath.git",
+    "directory": "packages/gridpath"
+  },
+  "bugs": {
+    "url": "https://github.com/pixelsmasher13/gridpath/issues"
+  },
+  "author": "GridPath",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "gridpath": "dist/bin/gridpath.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.js"
+    },
+    "./agent": {
+      "types": "./dist/web/agent.d.ts",
+      "import": "./dist/web/agent.js"
+    },
+    "./headless": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./engine.worker.js": "./dist/web/engine.worker.js",
+    "./gridpath_engine_bg.wasm": "./dist/web/gridpath_engine_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/web/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "engine",
+    "ui",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:engine": "../../crates/engine-wasm/build.sh",
+    "build": "tsup && npm --prefix ../grid run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "build:ui": "cd ../.. && npx vite build -c vite.review.config.ts",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^3.23.8",
+    "styled-components": "^6.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10",
+    "@types/node": "^22.0.0",
+    "jszip": "^3.10.1",
+    "tsup": "^8.3.0"
+  }
+}

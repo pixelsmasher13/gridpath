@@ -1,0 +1,26 @@
+<!-- title: Claude Desktop -->
+<!-- description: Install GridPath in Claude Desktop by opening a .mcpb bundle. No terminal, Node included. Claude edits your Excel files and you accept and save on a review page. -->
+<h1 class="legal-title">Claude Desktop.</h1>
+<p class="legal-lede">Download one file and open it. Claude Desktop installs GridPath as an extension, with Node bundled, so there is nothing else to set up.</p>
+
+<h2 id="install">Install</h2>
+<ol>
+  <li>Download the latest <code>gridpath-&lt;version&gt;.mcpb</code> from the <a href="https://github.com/pixelsmasher13/gridpath/releases/latest" rel="noopener" target="_blank">releases page</a>.</li>
+  <li>Open the file. Claude Desktop shows an install dialog with two settings.</li>
+  <li><strong>Limit Claude to these folders</strong> is optional. Leave it as is to allow your whole home directory.</li>
+  <li><strong>Require review before saving</strong> is on by default. Keep it on: Claude cannot write the file, you accept and save on the review page it links you to.</li>
+  <li>Click install.</li>
+</ol>
+<div class="docs-callout"><p>Claude Desktop shows its standard "not verified" warning for any extension installed from a file. The source is <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath" rel="noopener" target="_blank">public</a>, and nothing is written to any file until you accept and save on the review page.</p></div>
+
+<h2 id="first-edit">First edit</h2>
+<p>Start a chat and name the file by path:</p>
+<pre><code>Open ~/Documents/budget.xlsx and add a 5% contingency line under each department's total.</code></pre>
+<p>Claude reads the structure, writes the change as a pending batch, and replies with a review link. Click it. The page shows the workbook with changed cells highlighted and a panel of pending batches. Accept, reject, then Save to file or Save as a copy.</p>
+
+<h2 id="settings">Changing the settings later</h2>
+<p>Open Claude Desktop's extensions settings, find GridPath, and edit the folder list or the review setting. The review setting maps to the server's <code>--review-required</code> flag; see <a href="/docs/options">CLI options</a>.</p>
+
+<h2 id="pending">If a chat ends with changes pending</h2>
+<p>Pending batches are stored next to the workbook in a <code>.gridpath</code> folder, so they survive the chat ending. The next time Claude opens the same file they are picked up, and the review link shows them. You can also reopen the review page from a terminal if you have Node installed:</p>
+<pre><code>npx -y gridpath review ~/Documents/budget.xlsx</code></pre>

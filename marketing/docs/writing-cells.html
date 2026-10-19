@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Writing cells and formulas — GridPath Docs</title>
+  <meta name="description" content="How an agent writes to Excel through GridPath: set_cell, set_range, copy_range and clear_range, formulas versus values, and reading the write_check and row_map in every response." />
+  <link rel="canonical" href="https://gridpath.dev/docs/writing-cells" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Writing cells and formulas — GridPath Docs" />
+  <meta property="og:description" content="How an agent writes to Excel through GridPath: set_cell, set_range, copy_range and clear_range, formulas versus values, and reading the write_check and row_map in every response." />
+  <meta property="og:url" content="https://gridpath.dev/docs/writing-cells" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Writing cells and formulas — GridPath Docs" />
+  <meta name="twitter:description" content="How an agent writes to Excel through GridPath: set_cell, set_range, copy_range and clear_range, formulas versus values, and reading the write_check and row_map in every response." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Writing cells and formulas",
+    "description": "How an agent writes to Excel through GridPath: set_cell, set_range, copy_range and clear_range, formulas versus values, and reading the write_check and row_map in every response.",
+    "url": "https://gridpath.dev/docs/writing-cells",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "Writing cells and formulas", "item": "https://gridpath.dev/docs/writing-cells" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells" aria-current="page">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.2.0</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / Writing cells and formulas</p>
+<h1 class="legal-title">Writing cells and formulas.</h1>
+<p class="legal-lede">Four tools cover direct writes. Each one lands as a pending batch, returns a readback of what it wrote, and never touches the file.</p>
+
+<h2 id="conventions">Conventions</h2>
+<ul>
+  <li><strong>Formulas, not computed numbers.</strong> A derived value is written as a formula starting with <code>=</code>, so the model stays live when inputs change.</li>
+  <li><strong>Raw numbers, not formatted strings.</strong> Write <code>1250</code>, not <code>"$1,250"</code>. Formatting is <a href="/docs/formatting-and-layout"><code>set_format</code></a>'s job.</li>
+  <li><strong>A1 references point at final positions.</strong> Formulas inside a block reference cells where they will end up, not offsets within the payload.</li>
+  <li><strong>Sheet names are case-sensitive.</strong> Writing to a sheet that does not exist creates it.</li>
+</ul>
+
+<h2 id="set-cell"><code>set_cell</code>: one cell</h2>
+<p>Pass <code>value</code> for a literal or <code>formula</code> for a formula, not both.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Model", "cell": "F42", "formula": "=SUM(F5:F41)" }</code></pre>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Assumptions", "cell": "B7", "value": 0.21 }</code></pre>
+<p><code>null</code> as the value clears the cell's content and keeps its formatting.</p>
+
+<h2 id="set-range"><code>set_range</code>: a block</h2>
+<p>A 2D array starting at <code>top_left</code>: outer array is rows, inner is cells. Strings beginning with <code>=</code> are formulas. <code>null</code> or <code>""</code> leaves the existing cell as it is, so a sparse payload only overwrites what it names.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "top_left": "A44",
+  "values": [
+    ["Contingency", "=B42*0.05", "=C42*0.05", "=D42*0.05"],
+    ["Total with contingency", "=B42+B44", "=C42+C44", "=D42+D44"]
+  ]
+}</code></pre>
+
+<h2 id="copy-range"><code>copy_range</code>: Excel copy and paste</h2>
+<p>Copies a rectangle to a destination with Excel semantics: relative references shift by the offset, <code>$</code> anchors stay put, and formatting travels with the cells. Prefer it over re-typing shifted formulas; it cannot mis-shift.</p>
+<pre><code>{
+  "path": "~/models/forecast.xlsx",
+  "sheet": "Model",
+  "source": "E5:E120",
+  "dest": "F5",
+  "mode": "all"
+}</code></pre>
+<p><code>mode</code> is <code>all</code> (default: formulas, values and formats), <code>values</code> (evaluated values only, to freeze a calculation as hardcodes) or <code>formats</code> (formatting only). <code>dest_sheet</code> copies to another sheet; sheet-qualified references keep pointing at their original sheets. The reply adds <code>dest_range</code> and <code>copied_cells</code>.</p>
+<p>Extending a model by one period is the canonical use: copy the last column to the next one, then fix the header.</p>
+
+<h2 id="clear-range"><code>clear_range</code>: delete content</h2>
+<p>Empties values and formulas in a range. Formatting is preserved. Use it to delete content rather than overwriting with blanks.</p>
+<pre><code>{ "path": "~/models/forecast.xlsx", "sheet": "Scratch", "range": "A1:K40" }</code></pre>
+
+<h2 id="readback">Reading the response</h2>
+<p>Every write returns the same shape:</p>
+<pre><code>{
+  "ok": true,
+  "batch_id": "b4",
+  "write_check": "ok",
+  "cells": [
+    { "sheet": "Model", "cell": "B44", "value": 1562.5, "formula": "=B42*0.05", "text": "1,563" }
+  ],
+  "row_map": [ { "sheet": "Model", "row": 44, "label": "Contingency" } ],
+  "pending_batches": 4,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "Changes are pending in memory. …"
+}</code></pre>
+<ul>
+  <li><code>write_check</code> is <code>ok</code> when every cell the call meant to write now holds a value or formula, <code>partial</code> when some did not land, <code>FAILED</code> when none did. A <code>FAILED</code> write sets <code>ok: false</code>.</li>
+  <li><code>cells</code> is the evaluated readback, up to 200 cells, so the agent can see a formula's result immediately and catch a reference pointing at the wrong row.</li>
+  <li><code>row_map</code> lists the label found in the first columns of each touched row, which is how the agent confirms it wrote "Contingency" on the Contingency row.</li>
+</ul>
+
+<h2 id="loops">When the edit is loop-shaped</h2>
+<p>"For every row where margin is negative, …", "repeat this formula across 40 columns", or anything that depends on reading cells first is a job for <a href="/docs/run-script"><code>run_script</code></a>: one call, one batch, addresses computed in code.</p>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

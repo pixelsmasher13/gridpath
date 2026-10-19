@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code — GridPath Docs</title>
+  <meta name="description" content="Install the GridPath Excel MCP server in Claude Code with one command, then let Claude edit .xlsx files with a review link before anything is saved." />
+  <link rel="canonical" href="https://gridpath.dev/docs/claude-code" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Claude Code — GridPath Docs" />
+  <meta property="og:description" content="Install the GridPath Excel MCP server in Claude Code with one command, then let Claude edit .xlsx files with a review link before anything is saved." />
+  <meta property="og:url" content="https://gridpath.dev/docs/claude-code" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Claude Code — GridPath Docs" />
+  <meta name="twitter:description" content="Install the GridPath Excel MCP server in Claude Code with one command, then let Claude edit .xlsx files with a review link before anything is saved." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Claude Code",
+    "description": "Install the GridPath Excel MCP server in Claude Code with one command, then let Claude edit .xlsx files with a review link before anything is saved.",
+    "url": "https://gridpath.dev/docs/claude-code",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "Claude Code", "item": "https://gridpath.dev/docs/claude-code" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code" aria-current="page">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.2.0</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / Claude Code</p>
+<h1 class="legal-title">Claude Code.</h1>
+<p class="legal-lede">One command registers GridPath as an MCP server. Claude Code then has every GridPath tool, and every edit comes back with a review link.</p>
+
+<h2 id="install">Install</h2>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p>This registers the server for the current project. To make it available in every project, add the user scope flag:</p>
+<pre><code>claude mcp add -s user gridpath -- npx -y gridpath mcp --review-required</code></pre>
+<p><code>npx -y</code> fetches the latest published version on first run and caches it. Node 20 or newer is required.</p>
+
+<h2 id="check">Check it is running</h2>
+<p>Inside Claude Code, run <code>/mcp</code>. GridPath should be listed as connected with its tools. On startup the server prints one line to stderr naming the allowed folders and the review server address.</p>
+
+<h2 id="first-edit">First edit</h2>
+<p>Ask for a change by file path:</p>
+<pre><code>In ~/models/forecast.xlsx, add a Q3 2026 column after Q2 and extend every formula.</code></pre>
+<p>Claude will call <code>describe_workbook</code> and <code>find_rows</code> to orient, then write the change. The result includes a <code>review_url</code>, and the server's instructions tell the agent to show it to you. Open the link to see the changed cells, then save from the page.</p>
+
+<h2 id="review-required">Why review-required</h2>
+<p>With <code>--review-required</code>, <code>save_workbook</code> does not write. It returns the review link and the agent hands it to you. Nothing reaches disk until you accept and save on the review page. Drop the flag if you want the agent to save on its own; the review link still comes back with every write so you can check afterwards. See <a href="/docs/review">Review before save</a>.</p>
+
+<h2 id="folders">Limiting folders</h2>
+<p>By default the server can open files anywhere under your home directory. To box it in:</p>
+<pre><code>claude mcp add gridpath -- npx -y gridpath mcp --review-required --allow ~/models ~/clients</code></pre>
+<p>Files outside the allowed folders are refused, and the error tells the agent not to copy the file somewhere else to work around it.</p>
+
+<h2 id="remove">Remove</h2>
+<pre><code>claude mcp remove gridpath</code></pre>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

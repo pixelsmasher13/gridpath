@@ -1,0 +1,18 @@
+{
+  "id": "pltr-q1-model",
+  "prompt": "build a quarterly financial model for Palantir Technologies (PLTR) in Excel. Include: quarterly income statement actuals for FY2025 and Q1 FY2026 ONLY — do NOT include Q2 2026 or any later quarter even if reported, treat Q1 2026 as the latest actual; then assumption-driven quarterly forecasts for Q2 FY2026 through Q4 FY2027, every forecast cell driven by formulas off an explicit assumptions block (growth rates, margins, opex ratios, tax rate, share count); revenue split by segment as disclosed (US/international, government/commercial); YoY and QoQ growth rows; and a sources block. Label actual columns 'A' and estimate columns 'E' clearly. Use blue font for hardcoded inputs and black for formulas.",
+  "start_file": null,
+  "notes": "FIXTURE GENERATOR, not a scoring task. Purpose: author a realistic, well-structured quarterly model whose actuals deliberately stop at Q1 FY2026, so the roll-forward edit task ('update this model with Q2 2026 actuals') has a genuinely stale workbook to operate on — and Q2 2026 is publicly reported, so the roll-forward can be verified against real figures. Built by Claude Code so the fixture isn't authored by us to suit our own agent. Assertions below are a QUALITY GATE on the fixture (is it formula-driven, forecast-bearing, error-free?), not a harness comparison. No value anchors: PLTR figures are not verified by the eval author.",
+  "assertions": [
+    { "type": "label_exists", "label": "q1", "why": "quarterly granularity present" },
+    { "type": "label_exists", "label": "2027|fy27", "why": "forecast horizon reaches FY2027" },
+    { "type": "label_exists", "label": "assumption", "why": "explicit assumptions block driving the forecast" },
+    { "type": "label_exists", "label": "revenue", "why": "income statement present" },
+    { "type": "label_exists", "label": "government|commercial|international", "why": "segment split as disclosed" },
+    { "type": "label_exists", "label": "growth|yoy|qoq", "why": "growth rows present" },
+    { "type": "label_exists", "label": "source", "why": "sources block for provenance" },
+    { "type": "label_formula", "label": "revenue", "why": "forecast revenue must be formula-driven off assumptions" },
+    { "type": "min_formula_cells", "count": 60, "why": "a live model, not a static table — the roll-forward test needs formulas to preserve" },
+    { "type": "no_error_cells", "why": "fixture must open clean" }
+  ]
+}

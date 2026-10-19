@@ -1,0 +1,13 @@
+{
+  "id": "p159-add-metric-row",
+  "start_file": "corpus/project-159.xlsx",
+  "prompt": "On the 'Assumptions' sheet, in the 'Azure Capacity-Based Revenue Forecast' block, insert a new row directly below 'Capacity-based Azure revenue, $mm' labeled 'Capacity-based Azure revenue per ending GW, $mm'. In every period column where the row above has a value, add a formula that divides capacity-based Azure revenue by 'Ending total capacity, GW' for that period. The rows below shift down by one and every existing formula in the workbook must keep pointing at the same data as before. Change nothing else.",
+  "notes": "LOCAL-ONLY. Structural edit mid-block plus a 26-column formula fill: the new row is Assumptions row 62, formulas =X61/X55 for BE:BK and BO:CG. Same-sheet references to rows 62+ (e.g. row 19 -> row 79, the reconciliation block) and any defined names must follow the shift. Strict checks (every pre-existing formula cell still evaluates to its old value, new-row formulas correct): eval/verify-p159-complex.mjs.",
+  "assertions": [
+    { "type": "label_exists", "label": "Capacity-based Azure revenue per ending GW", "sheet": "Assumptions", "why": "the row landed" },
+    { "type": "label_formula", "label": "Capacity-based Azure revenue per ending GW", "sheet": "Assumptions", "why": "new row holds formulas" },
+    { "type": "parts_preserved", "allow_removed": ["xl/calcChain.xml"], "must_keep": ["customXml/item1.xml", "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml", "xl/drawings/drawing1.xml", "xl/media/image1.png", "xl/metadata.xml", "xl/printerSettings/printerSettings1.bin"], "why": "fidelity" },
+    { "type": "min_formula_cells", "count": 55029, "why": "55,003 existing + 26 new" },
+    { "type": "file_opens", "why": "valid workbook" }
+  ]
+}

@@ -1,0 +1,200 @@
+diff --git a/node_modules/@univerjs/sheets-ui/lib/cjs/index.js b/node_modules/@univerjs/sheets-ui/lib/cjs/index.js
+index 632ee43..d7c3f4b 100644
+--- a/node_modules/@univerjs/sheets-ui/lib/cjs/index.js
++++ b/node_modules/@univerjs/sheets-ui/lib/cjs/index.js
+@@ -6929,7 +6929,7 @@ const ExpandSelectionCommand = {
+ 				primary
+ 			}],
+ 			extra,
+-			reveal: true
++			reveal: false /* GRIDPATH PATCH: expand handles its own reveal (moving edge); generic reveal scrolled to the ANCHOR first, causing a viewport round-trip flicker per keypress */
+ 		});
+ 	}
+ };
+@@ -7437,29 +7437,65 @@ let SheetsScrollRenderController = class SheetsScrollRenderController extends _u
+ 		}
+ 		if (startSheetViewRow === void 0 && startSheetViewColumn === void 0) return false;
+ 		let { offsetX, offsetY, sheetViewStartRow: preSheetViewStartRow, sheetViewStartColumn: preSheetViewStartColumn } = this._scrollManagerService.getCurrentScrollState() || {};
+-		startSheetViewRow = startSheetViewRow ? Math.min(startSheetViewRow, row) : preSheetViewStartRow + freezedRowCount;
+-		startSheetViewColumn = startSheetViewColumn ? Math.min(startSheetViewColumn, column) : preSheetViewStartColumn + freezedColCount;
+-		if (forceLeft) {
+-			offsetX = 0;
+-			startSheetViewColumn = column;
+-			const hiddenColumns = skeleton.getHiddenColumnsInRange({
+-				startColumn: startSheetViewColumn - freezedColCount,
+-				endColumn: startSheetViewColumn
+-			});
+-			startSheetViewColumn = startSheetViewColumn - hiddenColumns.length;
+-		}
+-		if (forceTop) {
+-			offsetY = 0;
+-			startSheetViewRow = row;
+-			const hiddenRows = skeleton.getHiddenRowsInRange({
+-				startRow: startSheetViewRow - freezedRowCount,
+-				endRow: startSheetViewRow
+-			});
+-			startSheetViewRow = startSheetViewRow - hiddenRows.length;
++		offsetX = offsetX || 0;
++		offsetY = offsetY || 0;
++		// GRIDPATH PATCH (scroll-to-cell, see patches/): the ScrollCommand
++		// consumer maps sheetViewStartRow/Column to pixels via the ABSOLUTE
++		// coordinate of that index (skeleton.getCellWithCoordByIndex), while
++		// the viewport origin sits after the frozen band's PIXEL width. Stock
++		// code subtracted the freeze COUNT (index arithmetic) and patched one
++		// case with a hidden-column count — only correct for uniform column
++		// widths with nothing hidden; on sheets with a wide frozen label
++		// column + collapsed outline columns the view lands several columns
++		// away from the selection. Compute params in pixel space instead:
++		// pick the index whose absolute coordinate equals the target's
++		// coordinate minus the frozen band's pixel size, carrying the
++		// remainder in offsetX/offsetY.
++		const startXOf = (i) => i <= 0 ? 0 : columnWidthAccumulation[i - 1];
++		const startYOf = (i) => i <= 0 ? 0 : rowHeightAccumulation[i - 1];
++		const colParamFor = (firstCol) => {
++			const frozenPx = startXOf(scrollableStartCol) - startXOf(scrollableStartCol - freezedColCount);
++			const scrollX = Math.max(0, startXOf(firstCol) - frozenPx);
++			let lo = 0, hi = columnWidthAccumulation.length - 1, p = 0;
++			while (lo <= hi) {
++				const mid = (lo + hi) >> 1;
++				if (startXOf(mid) <= scrollX) {
++					p = mid;
++					lo = mid + 1;
++				} else hi = mid - 1;
++			}
++			return { index: p, offset: scrollX - startXOf(p) };
++		};
++		const rowParamFor = (firstRow) => {
++			const frozenPx = startYOf(scrollableStartRow) - startYOf(scrollableStartRow - freezedRowCount);
++			const scrollY = Math.max(0, startYOf(firstRow) - frozenPx);
++			let lo = 0, hi = rowHeightAccumulation.length - 1, p = 0;
++			while (lo <= hi) {
++				const mid = (lo + hi) >> 1;
++				if (startYOf(mid) <= scrollY) {
++					p = mid;
++					lo = mid + 1;
++				} else hi = mid - 1;
++			}
++			return { index: p, offset: scrollY - startYOf(p) };
++		};
++		let cmdRow = preSheetViewStartRow;
++		let cmdCol = preSheetViewStartColumn;
++		if (startSheetViewRow !== void 0 || forceTop) {
++			const targetRow = forceTop ? row : Math.min(startSheetViewRow, row);
++			const p = rowParamFor(targetRow);
++			cmdRow = p.index;
++			offsetY = p.offset;
++		}
++		if (startSheetViewColumn !== void 0 || forceLeft) {
++			const targetCol = forceLeft ? column : Math.min(startSheetViewColumn, column);
++			const p = colParamFor(targetCol);
++			cmdCol = p.index;
++			offsetX = p.offset;
+ 		}
+ 		return this._commandService.syncExecuteCommand(ScrollCommand.id, {
+-			sheetViewStartRow: Math.max(0, startSheetViewRow - freezedRowCount),
+-			sheetViewStartColumn: Math.max(0, startSheetViewColumn - freezedColCount),
++			sheetViewStartRow: Math.max(0, cmdRow != null ? cmdRow : 0),
++			sheetViewStartColumn: Math.max(0, cmdCol != null ? cmdCol : 0),
+ 			offsetX,
+ 			offsetY
+ 		});
+diff --git a/node_modules/@univerjs/sheets-ui/lib/es/index.js b/node_modules/@univerjs/sheets-ui/lib/es/index.js
+index f7987c3..ad15ef8 100644
+--- a/node_modules/@univerjs/sheets-ui/lib/es/index.js
++++ b/node_modules/@univerjs/sheets-ui/lib/es/index.js
+@@ -6900,7 +6900,7 @@ const ExpandSelectionCommand = {
+ 				primary
+ 			}],
+ 			extra,
+-			reveal: true
++			reveal: false /* GRIDPATH PATCH: expand handles its own reveal (moving edge); generic reveal scrolled to the ANCHOR first, causing a viewport round-trip flicker per keypress */
+ 		});
+ 	}
+ };
+@@ -7408,29 +7408,65 @@ let SheetsScrollRenderController = class SheetsScrollRenderController extends Di
+ 		}
+ 		if (startSheetViewRow === void 0 && startSheetViewColumn === void 0) return false;
+ 		let { offsetX, offsetY, sheetViewStartRow: preSheetViewStartRow, sheetViewStartColumn: preSheetViewStartColumn } = this._scrollManagerService.getCurrentScrollState() || {};
+-		startSheetViewRow = startSheetViewRow ? Math.min(startSheetViewRow, row) : preSheetViewStartRow + freezedRowCount;
+-		startSheetViewColumn = startSheetViewColumn ? Math.min(startSheetViewColumn, column) : preSheetViewStartColumn + freezedColCount;
+-		if (forceLeft) {
+-			offsetX = 0;
+-			startSheetViewColumn = column;
+-			const hiddenColumns = skeleton.getHiddenColumnsInRange({
+-				startColumn: startSheetViewColumn - freezedColCount,
+-				endColumn: startSheetViewColumn
+-			});
+-			startSheetViewColumn = startSheetViewColumn - hiddenColumns.length;
+-		}
+-		if (forceTop) {
+-			offsetY = 0;
+-			startSheetViewRow = row;
+-			const hiddenRows = skeleton.getHiddenRowsInRange({
+-				startRow: startSheetViewRow - freezedRowCount,
+-				endRow: startSheetViewRow
+-			});
+-			startSheetViewRow = startSheetViewRow - hiddenRows.length;
++		offsetX = offsetX || 0;
++		offsetY = offsetY || 0;
++		// GRIDPATH PATCH (scroll-to-cell, see patches/): the ScrollCommand
++		// consumer maps sheetViewStartRow/Column to pixels via the ABSOLUTE
++		// coordinate of that index (skeleton.getCellWithCoordByIndex), while
++		// the viewport origin sits after the frozen band's PIXEL width. Stock
++		// code subtracted the freeze COUNT (index arithmetic) and patched one
++		// case with a hidden-column count — only correct for uniform column
++		// widths with nothing hidden; on sheets with a wide frozen label
++		// column + collapsed outline columns the view lands several columns
++		// away from the selection. Compute params in pixel space instead:
++		// pick the index whose absolute coordinate equals the target's
++		// coordinate minus the frozen band's pixel size, carrying the
++		// remainder in offsetX/offsetY.
++		const startXOf = (i) => i <= 0 ? 0 : columnWidthAccumulation[i - 1];
++		const startYOf = (i) => i <= 0 ? 0 : rowHeightAccumulation[i - 1];
++		const colParamFor = (firstCol) => {
++			const frozenPx = startXOf(scrollableStartCol) - startXOf(scrollableStartCol - freezedColCount);
++			const scrollX = Math.max(0, startXOf(firstCol) - frozenPx);
++			let lo = 0, hi = columnWidthAccumulation.length - 1, p = 0;
++			while (lo <= hi) {
++				const mid = (lo + hi) >> 1;
++				if (startXOf(mid) <= scrollX) {
++					p = mid;
++					lo = mid + 1;
++				} else hi = mid - 1;
++			}
++			return { index: p, offset: scrollX - startXOf(p) };
++		};
++		const rowParamFor = (firstRow) => {
++			const frozenPx = startYOf(scrollableStartRow) - startYOf(scrollableStartRow - freezedRowCount);
++			const scrollY = Math.max(0, startYOf(firstRow) - frozenPx);
++			let lo = 0, hi = rowHeightAccumulation.length - 1, p = 0;
++			while (lo <= hi) {
++				const mid = (lo + hi) >> 1;
++				if (startYOf(mid) <= scrollY) {
++					p = mid;
++					lo = mid + 1;
++				} else hi = mid - 1;
++			}
++			return { index: p, offset: scrollY - startYOf(p) };
++		};
++		let cmdRow = preSheetViewStartRow;
++		let cmdCol = preSheetViewStartColumn;
++		if (startSheetViewRow !== void 0 || forceTop) {
++			const targetRow = forceTop ? row : Math.min(startSheetViewRow, row);
++			const p = rowParamFor(targetRow);
++			cmdRow = p.index;
++			offsetY = p.offset;
++		}
++		if (startSheetViewColumn !== void 0 || forceLeft) {
++			const targetCol = forceLeft ? column : Math.min(startSheetViewColumn, column);
++			const p = colParamFor(targetCol);
++			cmdCol = p.index;
++			offsetX = p.offset;
+ 		}
+ 		return this._commandService.syncExecuteCommand(ScrollCommand.id, {
+-			sheetViewStartRow: Math.max(0, startSheetViewRow - freezedRowCount),
+-			sheetViewStartColumn: Math.max(0, startSheetViewColumn - freezedColCount),
++			sheetViewStartRow: Math.max(0, cmdRow != null ? cmdRow : 0),
++			sheetViewStartColumn: Math.max(0, cmdCol != null ? cmdCol : 0),
+ 			offsetX,
+ 			offsetY
+ 		});

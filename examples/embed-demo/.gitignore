@@ -1,0 +1,4 @@
+node_modules
+dist
+# Pins the local tarball by hash; it changes with every package build.
+package-lock.json

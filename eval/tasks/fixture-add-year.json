@@ -1,0 +1,69 @@
+{
+  "id": "fixture-add-year",
+  "start_file": "fixtures/rich-model.xlsx",
+  "prompt": "On the 'Model' sheet, extend the forecast by one year: add an FY2029E column to the right of FY2028E with the header and the same formula pattern as FY2028E for Revenue, COGS, Gross profit and Gross margin. Use formulas, not values. Change nothing else.",
+  "notes": "Formula-pattern extension. Values are only gradable after recalc; the formulas must reference the new column correctly.",
+  "assertions": [
+    {
+      "type": "label_exists",
+      "label": "FY2029E",
+      "sheet": "Model",
+      "why": "header added"
+    },
+    {
+      "type": "label_value",
+      "label": "^Revenue$",
+      "value": 14315.3,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "FY2029E revenue = FY2028E * (1+4g)"
+    },
+    {
+      "type": "label_value",
+      "label": "^Gross margin$",
+      "value": 0.38,
+      "tolerance_pct": 0.5,
+      "sheet": "Model",
+      "why": "margin formula carried"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 20,
+      "why": "four new formula cells"
+    },
+    {
+      "type": "parts_preserved",
+      "allow_removed": [
+        "xl/calcChain.xml"
+      ],
+      "must_keep": [
+        "xl/charts/chart1.xml",
+        "xl/drawings/drawing1.xml",
+        "customXml/item1.xml",
+        "xl/printerSettings/printerSettings1.bin"
+      ],
+      "why": "fidelity"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/worksheets/sheet2.xml",
+      "needle": "conditionalFormatting",
+      "why": "CF survives"
+    },
+    {
+      "type": "part_contains",
+      "part": "xl/worksheets/sheet2.xml",
+      "needle": "dataValidation",
+      "why": "DV survives"
+    },
+    {
+      "type": "file_opens",
+      "why": "valid workbook"
+    },
+    {
+      "type": "no_error_cells",
+      "sheet": "Model",
+      "why": "no errors introduced"
+    }
+  ]
+}

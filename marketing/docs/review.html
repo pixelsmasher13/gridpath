@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Review before save — GridPath Docs</title>
+  <meta name="description" content="How GridPath's review step works: pending batches, the local review page, accepting and rejecting per batch or per cell, review-required mode, save and save-as." />
+  <link rel="canonical" href="https://gridpath.dev/docs/review" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="Review before save — GridPath Docs" />
+  <meta property="og:description" content="How GridPath's review step works: pending batches, the local review page, accepting and rejecting per batch or per cell, review-required mode, save and save-as." />
+  <meta property="og:url" content="https://gridpath.dev/docs/review" />
+  <meta property="og:image" content="https://gridpath.dev/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Review before save — GridPath Docs" />
+  <meta name="twitter:description" content="How GridPath's review step works: pending batches, the local review page, accepting and rejecting per batch or per cell, review-required mode, save and save-as." />
+  <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css?v=r5" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Review before save",
+    "description": "How GridPath's review step works: pending batches, the local review page, accepting and rejecting per batch or per cell, review-required mode, save and save-as.",
+    "url": "https://gridpath.dev/docs/review",
+    "author": { "@type": "Organization", "name": "GridPath" },
+    "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
+    "isPartOf": { "@type": "WebSite", "name": "GridPath", "url": "https://gridpath.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Docs", "item": "https://gridpath.dev/docs" },
+      { "@type": "ListItem", "position": 2, "name": "Review before save", "item": "https://gridpath.dev/docs/review" }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/#download" class="nav-cta">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="docs">
+    <div class="container docs-layout">
+      <aside class="docs-side">
+<nav class="docs-nav" aria-label="Docs">
+  <p class="docs-nav-group">Getting started</p>
+  <ul>
+    <li><a href="/docs">Overview</a></li>
+    <li><a href="/docs/claude-code">Claude Code</a></li>
+    <li><a href="/docs/claude-desktop">Claude Desktop</a></li>
+    <li><a href="/docs/cursor">Cursor</a></li>
+    <li><a href="/docs/codex">Codex</a></li>
+  </ul>
+  <p class="docs-nav-group">Guides</p>
+  <ul>
+    <li><a href="/docs/review" aria-current="page">Review before save</a></li>
+    <li><a href="/docs/reading-a-workbook">Reading a workbook</a></li>
+    <li><a href="/docs/writing-cells">Writing cells and formulas</a></li>
+    <li><a href="/docs/run-script">run_script</a></li>
+    <li><a href="/docs/formatting-and-layout">Formatting and layout</a></li>
+    <li><a href="/docs/structure">Rows, columns and sheets</a></li>
+  </ul>
+  <p class="docs-nav-group">Reference</p>
+  <ul>
+    <li><a href="/docs/tools">All tools</a></li>
+    <li><a href="/docs/options">CLI options and limits</a></li>
+  </ul>
+  <p class="docs-nav-version">gridpath 0.2.0</p>
+</nav>
+      </aside>
+      <article class="docs-body legal post">
+        <p class="docs-crumb"><a href="/docs">Docs</a> / Review before save</p>
+<h1 class="legal-title">Review before save.</h1>
+<p class="legal-lede">No GridPath tool writes to your file except <code>save_workbook</code>. Everything else accumulates as pending batches you can inspect, reject and save from a local review page.</p>
+
+<h2 id="batches">Pending batches</h2>
+<p>Each write tool call becomes one batch: <code>set_cell</code> is one batch of one mutation, a <code>run_script</code> that writes 2,000 cells is one batch of 2,000. Batches apply to an in-memory model of the workbook, so the agent's next read sees them, but the <code>.xlsx</code> on disk is untouched.</p>
+<p>Every write returns the batch id, a readback of what landed, the number of pending batches, and a <code>review_url</code>:</p>
+<pre><code>{
+  "ok": true,
+  "batch_id": "b3",
+  "write_check": "ok",
+  "cells": [ { "sheet": "Model", "cell": "F12", "value": 1250, "formula": "=E12*1.05" } ],
+  "row_map": [ { "sheet": "Model", "row": 12, "label": "Revenue" } ],
+  "pending_batches": 3,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "Changes are pending in memory. …"
+}</code></pre>
+<p>Batches are also written to disk next to the workbook, at <code>.gridpath/&lt;file&gt;.batches.json</code>, so they survive the agent's session ending and a later <code>gridpath review</code> can pick them up.</p>
+
+<h2 id="review-page">The review page</h2>
+<p>The <code>review_url</code> opens a page served by the MCP server on loopback only. The address carries a per-process token, so another web page cannot drive it. The page shows:</p>
+<ul>
+  <li>The workbook, sheet by sheet, with changed cells highlighted and the first change already in view.</li>
+  <li>Before and after for each changed cell: value, formula and display text.</li>
+  <li>A panel of pending batches, each named for the tool that produced it, with its mutation count.</li>
+</ul>
+<p>From there you can:</p>
+<ul>
+  <li><strong>Accept</strong> a batch, or Accept all.</li>
+  <li><strong>Reject</strong> a batch. The remaining batches are replayed onto a fresh model, so a later edit that depended on the rejected one may change. Check the page again.</li>
+  <li><strong>Reject individual cells</strong> inside a batch and keep the rest.</li>
+  <li><strong>Save to file</strong>, which patches the original in place and clears the batches.</li>
+  <li><strong>Save as</strong>, which writes a patched copy to a path you choose and leaves the original and its pending batches exactly as they were.</li>
+</ul>
+
+<h2 id="review-required">Review-required mode</h2>
+<p>Start the server with <code>--review-required</code>, or set <code>GRIDPATH_REVIEW_REQUIRED=true</code>, and the agent cannot save. <code>save_workbook</code> returns the review link with <code>saved: false</code> and a note telling the agent to hand you the link:</p>
+<pre><code>{
+  "ok": true,
+  "saved": false,
+  "pending_batches": 3,
+  "review_url": "http://127.0.0.1:51234/review?path=…&amp;token=…",
+  "note": "This server requires human review before saving. …"
+}</code></pre>
+<p>The Claude Desktop bundle turns this on by default. One exception: <code>save_workbook</code> with <code>as</code> still writes a copy, because the original is never touched.</p>
+<p>Without the flag, the agent may call <code>save_workbook</code> itself. The review link still comes back with every write, so you can inspect afterwards.</p>
+
+<h2 id="agent-tools">What the agent can do with batches</h2>
+<ul>
+  <li><code>list_batches</code>: pending batches with ids, status and mutation counts, plus the review link.</li>
+  <li><code>reject_batch</code>: drop one batch by id. Same replay behaviour as rejecting from the page.</li>
+  <li><code>save_workbook</code>: write every pending batch, or with <code>as</code> write a copy.</li>
+</ul>
+
+<h2 id="what-save-does">What save does to the file</h2>
+<p>Save diffs the in-memory model against the file as it was loaded and rewrites only the zip parts an edit touched, typically one sheet XML and the shared strings. Untouched parts are copied through byte for byte: charts, pivot caches, <code>vbaProject.bin</code>, add-in data, custom XML, themes, printer settings. If an edit cannot be represented as a surgical patch, the save is refused with a reason instead of falling back to a full rewrite. See <a href="/fidelity">Fidelity</a>.</p>
+
+<h2 id="reopen">Reopening a review later</h2>
+<pre><code>npx -y gridpath review ~/models/forecast.xlsx</code></pre>
+<p>Starts a review server for that workbook's pending batches and opens the page in your browser. Press Ctrl-C when you are done.</p>
+        <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#providers">Models</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/#faq">FAQ</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+</body>
+</html>

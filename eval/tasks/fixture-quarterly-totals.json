@@ -1,0 +1,70 @@
+{
+  "id": "fixture-quarterly-totals",
+  "start_file": "fixtures/rich-model.xlsx",
+  "prompt": "On the 'Data' sheet: add a 'Gross margin' column D with a formula for every quarter (1 - COGS/Revenue), and add a row at the bottom labeled 'FY2025 total' that sums Revenue and COGS for the four 2025 quarters with formulas. No hardcoded results.",
+  "notes": "Cross-cell formulas on a second sheet; the FY2025 revenue total equals the Model sheet's FY2025A input (6,055), a natural tie-out.",
+  "assertions": [
+    {
+      "type": "label_value",
+      "label": "FY2025 total",
+      "value": 6055,
+      "tolerance_pct": 0,
+      "sheet": "Data",
+      "why": "revenue total correct"
+    },
+    {
+      "type": "label_value",
+      "label": "FY2025 total",
+      "value": 3754,
+      "tolerance_pct": 0,
+      "sheet": "Data",
+      "why": "COGS total correct"
+    },
+    {
+      "type": "label_formula",
+      "label": "FY2025 total",
+      "sheet": "Data",
+      "why": "totals are formulas"
+    },
+    {
+      "type": "label_formula",
+      "label": "^Q1-24$",
+      "sheet": "Data",
+      "why": "margin column is a formula"
+    },
+    {
+      "type": "label_value",
+      "label": "^Q4-25$",
+      "value": 0.3801,
+      "tolerance_pct": 0.5,
+      "sheet": "Data",
+      "why": "margin evaluates (1-1029/1660)"
+    },
+    {
+      "type": "min_formula_cells",
+      "count": 26,
+      "why": "16 existing + 8 margins + 2 totals"
+    },
+    {
+      "type": "parts_preserved",
+      "allow_removed": [
+        "xl/calcChain.xml"
+      ],
+      "must_keep": [
+        "xl/charts/chart1.xml",
+        "xl/drawings/drawing1.xml",
+        "customXml/item1.xml",
+        "xl/printerSettings/printerSettings1.bin"
+      ],
+      "why": "fidelity"
+    },
+    {
+      "type": "file_opens",
+      "why": "valid workbook"
+    },
+    {
+      "type": "no_error_cells",
+      "why": "no errors anywhere"
+    }
+  ]
+}
