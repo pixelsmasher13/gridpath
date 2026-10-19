@@ -1,26 +1,42 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { PendingChangesError, Spreadsheet, type AgentBatch, type Spreadsheet as SheetApi } from "gridpath";
+import { browserStore, Spreadsheet, type Spreadsheet as SheetApi } from "gridpath";
 import { ask, type AgentEvent, type Message } from "./agentLoop";
 
-type Source = { key: number; name: string; file?: ArrayBuffer };
 type LogLine = { who: "you" | "agent" | "tool" | "error"; text: string };
 
 // ?worker=0 runs the engine on the page instead of a Web Worker.
-const engineOptions = new URLSearchParams(location.search).get("worker") === "0" ? { worker: false } : undefined;
+const params = new URLSearchParams(location.search);
+const engineOptions = params.get("worker") === "0" ? { worker: false } : undefined;
+// ?versions=all keeps a version for every save (default: one per 5 minutes).
+const store = params.get("versions") === "all" ? browserStore({ checkpointMinutes: 0 }) : undefined;
+// Site mode (VITE_SITE=1, the build at gridpath.dev/demo): a static page with
+// no server, so no Ask panel; a sample workbook, and a scripted AI edit that
+// shows the review flow without calling a model.
+const SITE = (import.meta as any).env?.VITE_SITE === "1";
+const BASE: string = (import.meta as any).env?.BASE_URL ?? "/";
+
+/** The scripted "AI edit": the tool calls an agent would make, run through
+ * sheet.ai like a real agent's, so they land as changes to review. */
+async function sampleEdit(sheet: SheetApi): Promise<string | null> {
+  if (!sheet.getSheetNames().includes("Sales")) return "The sample edit works on the sample workbook (File → Recent → Sample sales.xlsx).";
+  const header = { bold: true, font_color: "#FFFFFF", background_color: "#1F4E79", horizontal_align: "center" };
+  await sheet.ai.run("set_range", { sheet: "Sales", top_left: "H1", values: [["Share"], ...[2, 3, 4, 5, 6, 7, 8].map((r) => [`=E${r}/$E$8`])] });
+  await sheet.ai.run("set_format", { sheet: "Sales", range: "H2:H8", format: { number_format: "0.0%" } });
+  await sheet.ai.run("set_range", { sheet: "Sales", top_left: "I1", values: [["Rank"], ...[2, 3, 4, 5, 6, 7].map((r) => [`=RANK(E${r},$E$2:$E$7)`])] });
+  await sheet.ai.run("set_format", { sheet: "Sales", range: "H1:I1", format: header });
+  return null;
+}
 
 function AgentPanel({ sheet }: { sheet: SheetApi | null }) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<LogLine[]>([]);
-  const [batches, setBatches] = useState<AgentBatch[]>([]);
   const history = useRef<Message[]>([]);
 
   useEffect(() => {
     history.current = [];
     setLog([]);
-    setBatches(sheet?.ai.list() ?? []);
-    return sheet?.ai.onChange(setBatches);
   }, [sheet]);
 
   const submit = useCallback(async () => {
@@ -40,7 +56,6 @@ function AgentPanel({ sheet }: { sheet: SheetApi | null }) {
     }
   }, [sheet, prompt, busy]);
 
-  const pending = batches.filter((b) => b.status === "pending");
   return (
     <aside style={{ width: 340, borderLeft: "1px solid #ddd", display: "flex", flexDirection: "column", fontSize: 13 }}>
       <div style={{ padding: 10, borderBottom: "1px solid #eee" }}>
@@ -65,67 +80,20 @@ function AgentPanel({ sheet }: { sheet: SheetApi | null }) {
           </div>
         ))}
       </div>
-      <div style={{ padding: 10, borderTop: "1px solid #eee" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-          <strong style={{ flex: 1 }}>Changes{pending.length ? ` (${pending.length} pending)` : ""}</strong>
-          <button disabled={!pending.length} onClick={() => sheet?.ai.accept()}>Accept all</button>
-          <button disabled={!pending.length} onClick={() => void sheet?.ai.reject()}>Reject all</button>
-        </div>
-        <div style={{ maxHeight: 160, overflow: "auto" }}>
-          {batches.map((b) => (
-            <div key={b.id} style={{ display: "flex", gap: 6, alignItems: "center", color: b.status === "pending" ? "#7a5c00" : "#666" }}>
-              <span style={{ flex: 1 }}>
-                {b.tool} · {b.cells.length} cell{b.cells.length === 1 ? "" : "s"}
-              </span>
-              {b.status === "pending" ? (
-                <button title="Undo this change and every change after it" onClick={() => void sheet?.ai.reject(b.id)}>Undo from here</button>
-              ) : (
-                <span>accepted</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Reviewing the agent's changes (accept, reject, jump to cells) is the
+          spreadsheet's own "AI changes" panel. */}
     </aside>
   );
 }
 
 function App() {
-  const [source, setSource] = useState<Source>({ key: 0, name: "Untitled.xlsx" });
   const [sheet, setSheet] = useState<SheetApi | null>(null);
   const [status, setStatus] = useState("Starting the engine…");
-  const [edits, setEdits] = useState(0);
-
-  const open = useCallback(async (f: File) => {
-    setSheet(null);
-    setEdits(0);
-    setSource((s) => ({ key: s.key + 1, name: f.name, file: undefined }));
-    const buf = await f.arrayBuffer();
-    setSource((s) => ({ ...s, file: buf }));
+  const [sample, setSample] = useState<ArrayBuffer | null>(null);
+  const describe = (api: SheetApi) => `${api.getDocument().name}: ${api.getSheetNames().length} sheet(s)`;
+  useEffect(() => {
+    if (SITE) void fetch(`${BASE}sample.xlsx`).then((r) => r.arrayBuffer()).then(setSample);
   }, []);
-
-  const download = useCallback(async () => {
-    if (!sheet) return;
-    setStatus("Saving…");
-    let blob: Blob;
-    try {
-      blob = await sheet.saveBlob();
-    } catch (err) {
-      // The AI's changes are reviewed first: save() refuses while any are pending.
-      if (err instanceof PendingChangesError) return setStatus(`Accept or reject the ${err.pending} pending change${err.pending === 1 ? "" : "s"} before saving.`);
-      throw err;
-    }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = source.name;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus(`Saved ${source.name} (${(blob.size / 1024).toFixed(0)} KB)`);
-  }, [sheet, source.name]);
-
-  // A file being read: wait for its bytes before mounting the grid.
-  const waiting = source.key > 0 && source.name !== "Untitled.xlsx" && !source.file;
 
   return (
     <div
@@ -134,55 +102,58 @@ function App() {
       onDrop={(e) => {
         e.preventDefault();
         const f = e.dataTransfer.files[0];
-        if (f) void open(f);
+        if (f && sheet) void f.arrayBuffer().then((b) => sheet.open(b, { name: f.name }));
       }}
     >
-      <header style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
-        <strong>GridPath embed demo</strong>
-        <label style={{ cursor: "pointer", padding: "4px 10px", border: "1px solid #bbb", borderRadius: 4 }}>
-          Open .xlsx
-          <input type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => e.target.files?.[0] && void open(e.target.files[0])} />
-        </label>
-        <button
-          onClick={() => {
-            setSheet(null);
-            setEdits(0);
-            setSource((s) => ({ key: s.key + 1, name: "Untitled.xlsx" }));
-          }}
-        >
-          New blank
-        </button>
-        <button disabled={!sheet} onClick={() => void download()}>
-          Download .xlsx
-        </button>
-        <span style={{ color: "#666" }}>
-          {status}
-          {edits > 0 ? ` · ${edits} edit${edits === 1 ? "" : "s"}` : ""}
-        </span>
-      </header>
+      {SITE ? (
+        <header style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
+          <a href="/" style={{ fontWeight: 700, color: "#111", textDecoration: "none" }}>GridPath</a>
+          <span style={{ color: "#555" }}>The embeddable spreadsheet. Open, edit and save real .xlsx files; everything stays in this browser.</span>
+          <span style={{ flex: 1 }} />
+          <button
+            disabled={!sheet}
+            title="Runs the tool calls an agent would make (scripted; no AI model is called)"
+            onClick={() => void (sheet && sampleEdit(sheet).then((msg) => msg && alert(msg)))}
+            style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #1F4E79", background: "#1F4E79", color: "#fff", cursor: "pointer" }}
+          >
+            Try a sample AI edit
+          </button>
+          <a href="/embed" style={{ color: "#1F4E79" }}>Embed it in your app →</a>
+        </header>
+      ) : (
+        <header style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
+          <strong>GridPath embed demo</strong>
+          <span style={{ color: "#666" }}>{status}</span>
+        </header>
+      )}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <main style={{ flex: 1, minWidth: 0 }}>
-          {!waiting && (
-            <Spreadsheet
-              key={source.key}
-              file={source.file}
-              fileName={source.name}
-              engine={engineOptions}
-              onProgress={setStatus}
-              onEdit={() => setEdits((n) => n + 1)}
-              onReady={(api) => {
-                setSheet(api);
-                setStatus(`${source.name}: ${api.getSheetNames().length} sheet(s)`);
-                (window as any).__demo = { sheet: api, ready: true };
-              }}
-              onError={(err) => {
-                setStatus(`Error: ${err.message}`);
-                (window as any).__demo = { error: err.message, ready: true };
-              }}
-            />
+          {/* The toolbar, File menu (open, new, recent, version history),
+              save status and Download are the component's own; it saves in
+              this browser as you work and reopens where you left off. */}
+          {SITE && !sample ? null : (
+          <Spreadsheet
+            engine={engineOptions}
+            store={store}
+            {...(SITE && sample ? { file: sample, fileName: "Sample sales.xlsx", documentId: "gridpath-demo-sample" } : {})}
+            onProgress={setStatus}
+            onReady={(api) => {
+              setSheet(api);
+              setStatus(describe(api));
+              (window as any).__demo = { sheet: api, ready: true };
+            }}
+            onDocumentChange={() => {
+              const api = (window as any).__demo?.sheet as SheetApi | undefined;
+              if (api) setStatus(describe(api));
+            }}
+            onError={(err) => {
+              setStatus(`Error: ${err.message}`);
+              (window as any).__demo = { error: err.message, ready: true };
+            }}
+          />
           )}
         </main>
-        <AgentPanel sheet={sheet} />
+        {!SITE && <AgentPanel sheet={sheet} />}
       </div>
     </div>
   );

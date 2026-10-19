@@ -3,10 +3,10 @@
 //
 //   node scripts/third-party-notices.mjs
 //
-// Covers the Rust crates compiled into the engine (engine/, dist/web/*.wasm)
-// and the npm packages bundled into the review page (ui/). The JavaScript in
-// dist/ bundles no third-party code: React, styled-components and the MCP
-// SDK are installed as dependencies and carry their own licenses.
+// Covers the Rust crates compiled into the engine (engine/, dist/web/*.wasm),
+// the npm packages bundled into the web build (dist/web/, built first) and
+// into the review page (ui/). React, styled-components and the MCP SDK are
+// installed as dependencies and carry their own licenses.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -57,10 +57,8 @@ function rustCrates() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// npm: the packages the review page's production bundle contains.
-function reviewPagePackages() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gridpath-notices-"));
-  execFileSync("npx", ["vite", "build", "-c", "vite.review.config.ts", "--sourcemap", "--outDir", tmp, "--emptyOutDir"], { cwd: ROOT, stdio: "ignore" });
+// npm: the packages whose code a bundle's source maps list.
+function bundledPackages(dir) {
   const names = new Set();
   const walk = (d) => {
     for (const f of fs.readdirSync(d)) {
@@ -74,9 +72,11 @@ function reviewPagePackages() {
         }
     }
   };
-  walk(tmp);
-  fs.rmSync(tmp, { recursive: true, force: true });
-  return [...names].sort().map((name) => {
+  walk(dir);
+  // A package's own source map can point into its source repository
+  // (lucide-react's "shared/src/…"): only installed packages are listed;
+  // that code is part of the package that ships it.
+  return [...names].filter((name) => fs.existsSync(path.join(ROOT, "node_modules", name, "package.json"))).sort().map((name) => {
     const dir = path.join(ROOT, "node_modules", name);
     const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
     const license = typeof pj.license === "string" ? pj.license : "see text";
@@ -97,9 +97,22 @@ function standardText(license, holder) {
   return [];
 }
 
+function reviewPagePackages() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gridpath-notices-"));
+  execFileSync("npx", ["vite", "build", "-c", "vite.review.config.ts", "--sourcemap", "--outDir", tmp, "--emptyOutDir"], { cwd: ROOT, stdio: "ignore" });
+  try {
+    return bundledPackages(tmp);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+const WEB = path.join(ROOT, "packages/gridpath/dist/web");
+if (!fs.existsSync(WEB)) throw new Error("build the package first (npm run build in packages/gridpath)");
 const rust = rustCrates();
+const web = bundledPackages(WEB);
 const npm = reviewPagePackages();
-const missing = [...rust, ...npm].filter((p) => p.texts.length === 0);
+const missing = [...rust, ...web, ...npm].filter((p) => p.texts.length === 0);
 
 // Identical texts are printed once and referenced.
 const textIds = new Map();
@@ -123,6 +136,12 @@ they are installed as dependencies and carry their own licenses.
 |---|---|---|---|
 ${rust.map(row).join("\n")}
 
+## Bundled into the web build (\`dist/web/\`)
+
+| Package | Version | License | Text |
+|---|---|---|---|
+${web.map(row).join("\n") || "| none | | | |"}
+
 ## Bundled into the review page (\`ui/\`)
 
 | Package | Version | License | Text |
@@ -133,5 +152,5 @@ ${npm.map(row).join("\n")}
 `;
 for (const [text, id] of textIds) md += `\n### License text ${id}\n\n\`\`\`\n${text}\n\`\`\`\n`;
 fs.writeFileSync(OUT, md);
-console.log(`${rust.length} crates, ${npm.length} npm packages, ${textIds.size} distinct license texts -> ${path.relative(ROOT, OUT)}`);
+console.log(`${rust.length} crates, ${web.length} + ${npm.length} npm packages, ${textIds.size} distinct license texts -> ${path.relative(ROOT, OUT)}`);
 if (missing.length) console.log("no license file found for:", missing.map((p) => `${p.name}@${p.version} (${p.license})`).join(", "));

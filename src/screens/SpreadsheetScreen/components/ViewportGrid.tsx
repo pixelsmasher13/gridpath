@@ -15,7 +15,7 @@
  *
  * Opt-in: localStorage gridpath.viewportGrid = "1" (see SpreadsheetScreen).
  */
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import type { GridEngine } from "../../../../packages/grid/src/engine";
 import {
@@ -298,6 +298,48 @@ const Menu = styled.div`
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   font-size: 13px;
 `;
+/**
+ * A context menu at (x, y) in its positioned parent, moved to stay in view:
+ * above or left of the point when there's no room below or right, and
+ * scrolling when it is taller than the visible part of the parent (the
+ * parent's box within the window; an embedding page may show only part of it).
+ */
+function FitMenu({ x, y, children, ...rest }: { x: number; y: number; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<{ left: number; top: number; maxHeight?: number }>({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!el || !parent) return;
+    const pr = parent.getBoundingClientRect();
+    const vTop = Math.max(0, -pr.top) + 4;
+    const vBottom = Math.min(pr.height, window.innerHeight - pr.top) - 4;
+    const vLeft = Math.max(0, -pr.left) + 4;
+    const vRight = Math.min(pr.width, window.innerWidth - pr.left) - 4;
+    const h = el.scrollHeight;
+    const w = el.offsetWidth;
+    let top = y;
+    let maxHeight: number | undefined;
+    if (h > vBottom - vTop) {
+      top = vTop;
+      maxHeight = Math.max(80, vBottom - vTop);
+    } else if (y + h > vBottom) {
+      top = y - h >= vTop ? y - h : vBottom - h;
+    }
+    let left = x;
+    if (x + w > vRight) left = x - w >= vLeft ? x - w : Math.max(vLeft, vRight - w);
+    setBox({ left, top, maxHeight });
+  }, [x, y]);
+  return (
+    <Menu
+      ref={ref}
+      {...rest}
+      style={{ left: box.left, top: box.top, boxSizing: "border-box", ...(box.maxHeight ? { maxHeight: box.maxHeight, overflowY: "auto" } : {}) }}
+    >
+      {children}
+    </Menu>
+  );
+}
 const MenuItem = styled.button`
   display: block;
   width: 100%;
@@ -401,8 +443,13 @@ export const ViewportGrid = React.memo(
       engine: GridEngine;
       onUserEdit?: () => void;
       onManualSheetOp?: (op: ManualSheetOp) => void;
+      /** Anything undoable happened, or an undo/redo ran: the workbook (and
+       * undo/redo availability) may have changed. */
+      onChange?: () => void;
     }
-  >(function ViewportGrid({ tabId, engine, onUserEdit, onManualSheetOp }, ref) {
+  >(function ViewportGrid({ tabId, engine, onUserEdit, onManualSheetOp, onChange }, ref) {
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
     const scrollerRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const outlineCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -480,6 +527,7 @@ export const ViewportGrid = React.memo(
       undoRef.current.push(entry);
       if (undoRef.current.length > 200) undoRef.current.shift();
       redoRef.current = [];
+      onChangeRef.current?.();
     };
     const withUndoGroup = (label: string, fn: () => void) => {
       if (groupRef.current) { fn(); return; }
@@ -592,7 +640,7 @@ export const ViewportGrid = React.memo(
     const capturesRef = useRef<Array<Promise<unknown>>>([]);
     /** Fill-handle drag: the source range and the current target extent. */
     const filling = useRef<{ r0: number; c0: number; r1: number; c1: number; toR: number; toC: number } | null>(null);
-    const structuralRef = useRef<(op: string, sheetName: string, index1: number, count: number) => boolean>(() => false);
+    const structuralRef = useRef<(op: string, sheetName: string, index1: number, count: number, history?: "record" | "skip", log?: boolean) => boolean>(() => false);
     const prefetchRef = useRef<(sheet: number, r0: number, r1: number, c0: number, c1: number) => Promise<void>>(async () => {});
     const applyFormatRef = useRef<(sheetName: string, sr: number, sc: number, er: number, ec: number, format: CellFormatShape, history?: "record" | "skip") => void>(() => {});
     /** Row/column ops the user made from the grid (the agent's come via the mirror). */
@@ -1957,6 +2005,7 @@ export const ViewportGrid = React.memo(
       entry.undo();
       redoRef.current.push(entry);
       onUserEdit?.();
+      onChangeRef.current?.();
     };
     const redo = () => {
       const entry = redoRef.current.pop();
@@ -1964,6 +2013,7 @@ export const ViewportGrid = React.memo(
       entry.redo();
       undoRef.current.push(entry);
       onUserEdit?.();
+      onChangeRef.current?.();
     };
 
     /** Paste TSV/plain text at the active cell (Excel's clipboard text form). */
@@ -2328,7 +2378,8 @@ export const ViewportGrid = React.memo(
       const move = (dr: number, dc: number) => {
         e.preventDefault();
         if (!e.shiftKey) extraRanges.current = [];
-        const r = s.ar + dr, c = s.ac + dc;
+        // Shift extends from the selection's moving end (Excel), not the active cell.
+        const r = (e.shiftKey ? s.r1 : s.ar) + dr, c = (e.shiftKey ? s.c1 : s.ac) + dc;
         setSelection(r, c, e.shiftKey);
         scrollIntoView(Math.max(0, Math.min(g.rowCount - 1, r)), Math.max(0, Math.min(g.colCount - 1, c)));
       };
@@ -2366,7 +2417,7 @@ export const ViewportGrid = React.memo(
         const dr = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
         const dc = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
         const extend = e.shiftKey;
-        void jumpBlock(dr, dc).then(({ r, c }) => {
+        void jumpBlock(dr, dc, extend).then(({ r, c }) => {
           setSelection(r, c, extend);
           scrollIntoView(r, c);
         });
@@ -2436,7 +2487,8 @@ export const ViewportGrid = React.memo(
      * last block it lands on the grid edge (Excel's XFD / 1048576). A merged
      * range counts as one cell (its anchor's content), as in Excel. Tiles
      * along the way are fetched on demand. */
-    const jumpBlock = async (dr: number, dc: number): Promise<{ r: number; c: number }> => {
+    /** `fromEnd`: start at the selection's moving end (Ctrl+Shift+Arrow extends). */
+    const jumpBlock = async (dr: number, dc: number, fromEnd = false): Promise<{ r: number; c: number }> => {
       const sheet = activeRef.current;
       const g = geom(sheet);
       const s = selRef.current;
@@ -2462,7 +2514,7 @@ export const ViewportGrid = React.memo(
       };
       const anchorOf = (r: number, c: number) => { const m = g.mergeOf(r, c); return m ? { r: m.r0, c: m.c0 } : { r, c }; };
       const inExtent = (rr: number, cc: number) => rr >= 0 && cc >= 0 && rr <= maxR && cc <= maxC;
-      let { r, c } = anchorOf(s.ar, s.ac);
+      let { r, c } = fromEnd ? anchorOf(s.r1, s.c1) : anchorOf(s.ar, s.ac);
       let n = step(r, c);
       if (!inExtent(n.r, n.c)) return gridEdge(r, c);
       const here = await has(r, c);
@@ -2846,8 +2898,6 @@ export const ViewportGrid = React.memo(
       selPosRef.current.clear();
       zoomRef.current = zoomForSheet(firstVisible);
       setZoom(zoomRef.current);
-      const total = layout.sheets.reduce((n, s) => n + s.cellCount, 0);
-      setStatus(`${layout.sheets.length} sheets · ${total.toLocaleString()} cells · viewport grid`);
       updateSpacer();
       applySavedView(firstVisible);
       refreshFormulaBar();
@@ -3287,10 +3337,12 @@ export const ViewportGrid = React.memo(
           void engine.settled().then(reloadLayout);
           return true;
         },
-        insertRows: (sheetName: string, at: number, count: number) => structural("insert_rows", sheetName, at + 1, count),
-        deleteRows: (sheetName: string, at: number, count: number) => structural("delete_rows", sheetName, at + 1, count),
-        insertColumns: (sheetName: string, at: number, count: number) => structural("insert_columns", sheetName, at + 1, count),
-        deleteColumns: (sheetName: string, at: number, count: number) => structural("delete_columns", sheetName, at + 1, count),
+        insertRows: (sheetName: string, at: number, count: number, opts?: { log?: boolean }) => structural("insert_rows", sheetName, at + 1, count, "record", !!opts?.log),
+        deleteRows: (sheetName: string, at: number, count: number, opts?: { log?: boolean }) => structural("delete_rows", sheetName, at + 1, count, "record", !!opts?.log),
+        insertColumns: (sheetName: string, at: number, count: number, opts?: { log?: boolean }) => structural("insert_columns", sheetName, at + 1, count, "record", !!opts?.log),
+        deleteColumns: (sheetName: string, at: number, count: number, opts?: { log?: boolean }) => structural("delete_columns", sheetName, at + 1, count, "record", !!opts?.log),
+        canUndo: () => undoRef.current.length > 0,
+        canRedo: () => redoRef.current.length > 0,
         getSourceBytes: () => sourceBytesRef.current,
         syncEditLog: async () => {
           // The edit log keeps each formula as it was written, keyed by
@@ -3488,8 +3540,16 @@ export const ViewportGrid = React.memo(
           }
         });
       };
-      const structural = (op: string, sheetName: string, index1: number, count: number, history: "record" | "skip" = "record") => {
+      /** `log`: a user's own row/column op (not the agent's, which the save
+       * mirror carries): recorded for the save, and so are its undo (the
+       * inverse op) and redo, so the saved structure follows the live one. */
+      const structural = (op: string, sheetName: string, index1: number, count: number, history: "record" | "skip" = "record", log = false) => {
         structuralRef.current = structural;
+        if (log) {
+          const kinds: Record<string, "insertRows" | "deleteRows" | "insertColumns" | "deleteColumns"> = { insert_rows: "insertRows", delete_rows: "deleteRows", insert_columns: "insertColumns", delete_columns: "deleteColumns" };
+          const kind = kinds[op];
+          if (kind) manualRowColOpsRef.current.push(kind.startsWith("insert") ? { kind, sheet: sheetName, before: index1 - 1, count } : { kind, sheet: sheetName, start: index1 - 1, count });
+        }
         if (history === "record") {
           const inverse: Record<string, string> = { insert_rows: "delete_rows", delete_rows: "insert_rows", insert_columns: "delete_columns", delete_columns: "insert_columns" };
           const isDelete = op.startsWith("delete");
@@ -3509,10 +3569,10 @@ export const ViewportGrid = React.memo(
           pushUndo({
             label: op,
             undo: () => {
-              structural(inverse[op], sheetName, index1, count, "skip");
+              structural(inverse[op], sheetName, index1, count, "skip", log);
               if (band.length) writeCells(sheetName, band, "undo " + op, "skip");
             },
-            redo: () => structural(op, sheetName, index1, count, "skip"),
+            redo: () => structural(op, sheetName, index1, count, "skip", log),
           });
         }
         engine.structural(op, sheetName, index1, count);
@@ -3640,7 +3700,7 @@ export const ViewportGrid = React.memo(
             spellCheck={false}
           />
           <Status>
-            <span>{calculating ? "calculating… " : ""}{stats || status}</span>
+            <span>{calculating ? "Calculating… " : ""}{stats || status}</span>
             <ZoomCtl>
               <button onClick={() => setZoomLevel(zoomRef.current - 0.1)} title="Zoom out (Cmd Option -)">−</button>
               <button onClick={() => setZoomLevel(1)} title="Reset zoom (Cmd Option 0)">{Math.round(zoom * 100)}%</button>
@@ -3833,24 +3893,46 @@ export const ViewportGrid = React.memo(
           const nR = r1 - r0 + 1, nC = c1 - c0 + 1;
           const name = layoutRef.current?.sheets[activeRef.current]?.name ?? "";
           const close = () => { setMenu(null); scrollerRef.current?.focus(); };
+          // Logged for the save, undo and redo included.
           const rowOp = (kind: "insertRows" | "deleteRows", at: number, count: number) => {
             close();
-            manualRowColOpsRef.current.push(kind === "insertRows" ? { kind, sheet: name, before: at, count } : { kind, sheet: name, start: at, count });
-            structuralRef.current(kind === "insertRows" ? "insert_rows" : "delete_rows", name, at + 1, count);
+            structuralRef.current(kind === "insertRows" ? "insert_rows" : "delete_rows", name, at + 1, count, "record", true);
             onUserEdit?.();
           };
           const colOp = (kind: "insertColumns" | "deleteColumns", at: number, count: number) => {
             close();
-            manualRowColOpsRef.current.push(kind === "insertColumns" ? { kind, sheet: name, before: at, count } : { kind, sheet: name, start: at, count });
-            structuralRef.current(kind === "insertColumns" ? "insert_columns" : "delete_columns", name, at + 1, count);
+            structuralRef.current(kind === "insertColumns" ? "insert_columns" : "delete_columns", name, at + 1, count, "record", true);
             onUserEdit?.();
           };
           const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+          const paste = async (mode: "normal" | "values") => {
+            close();
+            try {
+              const t = await navigator.clipboard.readText();
+              if (t) pasteText(t, undefined, mode);
+            } catch {
+              /* clipboard unavailable */
+            }
+          };
+          const sort = (direction: "asc" | "desc") => {
+            close();
+            handle.sortRange(name, r0, c0, r1, c1, c0, direction);
+            onUserEdit?.();
+          };
+          const clearFormatting = () => {
+            close();
+            applyFormatRef.current(name, r0, c0, r1, c1, {
+              bold: false, italic: false, underline: false, strike: false, font_color: "#000000", background_color: null,
+              number_format: "General", wrap_text: false, horizontal_align: "left", vertical_align: "bottom",
+            });
+            onUserEdit?.();
+          };
           return (
-            <Menu data-vp-menu="1" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+            <FitMenu data-vp-menu="1" x={menu.x} y={menu.y} onMouseDown={(e) => e.stopPropagation()}>
               <MenuItem onClick={() => { close(); copySelection(true); }}>Cut</MenuItem>
               <MenuItem onClick={() => { close(); copySelection(false); }}>Copy</MenuItem>
-              <MenuItem onClick={async () => { close(); try { const t = await navigator.clipboard.readText(); if (t) pasteText(t); } catch { /* clipboard unavailable */ } }}>Paste</MenuItem>
+              <MenuItem onClick={() => void paste("normal")}>Paste</MenuItem>
+              <MenuItem onClick={() => void paste("values")}>Paste values only</MenuItem>
               <MenuItem onClick={() => { close(); const cells: Array<{ row: number; col: number; value: null }> = []; for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells.push({ row: r, col: c, value: null }); if (cells.length <= 50_000 && name) { writeCells(name, cells, "clear"); onUserEdit?.(); } }}>Clear contents</MenuItem>
               <MenuSep />
               {(() => {
@@ -3865,16 +3947,28 @@ export const ViewportGrid = React.memo(
                 );
               })()}
               <MenuSep />
+              <MenuItem onClick={clearFormatting}>Clear formatting</MenuItem>
+              {nR > 1 && (
+                <>
+                  <MenuSep />
+                  <MenuItem onClick={() => sort("asc")}>Sort A → Z</MenuItem>
+                  <MenuItem onClick={() => sort("desc")}>Sort Z → A</MenuItem>
+                </>
+              )}
+              <MenuSep />
               <MenuItem onClick={() => rowOp("insertRows", r0, nR)}>Insert {plural(nR, "row")} above</MenuItem>
+              <MenuItem onClick={() => rowOp("insertRows", r1 + 1, nR)}>Insert {plural(nR, "row")} below</MenuItem>
               <MenuItem onClick={() => rowOp("deleteRows", r0, nR)}>Delete {plural(nR, "row")}</MenuItem>
+              <MenuSep />
               <MenuItem onClick={() => colOp("insertColumns", c0, nC)}>Insert {plural(nC, "column")} left</MenuItem>
+              <MenuItem onClick={() => colOp("insertColumns", c1 + 1, nC)}>Insert {plural(nC, "column")} right</MenuItem>
               <MenuItem onClick={() => colOp("deleteColumns", c0, nC)}>Delete {plural(nC, "column")}</MenuItem>
               {menu.header && <MenuSep />}
               {menu.header === "row" && <MenuItem onClick={() => { close(); for (let r = r0; r <= r1; r++) setSize(activeRef.current, "row", r, 0, true); onUserEdit?.(); }}>Hide {plural(nR, "row")}</MenuItem>}
               {menu.header === "row" && <MenuItem onClick={() => { close(); const g = geom(activeRef.current); for (let r = Math.max(0, r0 - 1); r <= Math.min((g?.rowCount ?? 0) - 1, r1 + 1); r++) if (g && g.rowHeight(r) === 0) setSize(activeRef.current, "row", r, DEFAULT_ROW_PX, true); onUserEdit?.(); }}>Unhide rows</MenuItem>}
               {menu.header === "col" && <MenuItem onClick={() => { close(); for (let c = c0; c <= c1; c++) setSize(activeRef.current, "col", c, 0, true); onUserEdit?.(); }}>Hide {plural(nC, "column")}</MenuItem>}
               {menu.header === "col" && <MenuItem onClick={() => { close(); const g = geom(activeRef.current); for (let c = Math.max(0, c0 - 1); c <= Math.min((g?.colCount ?? 0) - 1, c1 + 1); c++) if (g && g.colWidth(c) === 0) setSize(activeRef.current, "col", c, DEFAULT_COL_PX, true); onUserEdit?.(); }}>Unhide columns</MenuItem>}
-            </Menu>
+            </FitMenu>
           );
         })()}
         <TabBar>

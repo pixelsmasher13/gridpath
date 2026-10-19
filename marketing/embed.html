@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Embeddable spreadsheet for React and Next.js: real .xlsx files, formulas, AI review — GridPath</title>
+  <meta name="description" content="Put an Excel-compatible spreadsheet in your web app: open your users' .xlsx files, calculate in the browser, save them back intact. Toolbar, autosave and version history built in; AI tools for your own model and key. Apache-2.0." />
+  <link rel="canonical" href="https://gridpath.dev/embed" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GridPath" />
+  <meta property="og:title" content="An embeddable spreadsheet: real .xlsx files, saved back intact — GridPath" />
+  <meta property="og:description" content="npm install gridpath. Opens your users' Excel files, calculates in a Web Worker, saves them back without losing charts or names. Toolbar, autosave, version history, AI review built in." />
+  <meta property="og:url" content="https://gridpath.dev/embed" />
+  <meta property="og:image" content="https://gridpath.dev/embed-demo.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="An embeddable spreadsheet: real .xlsx files, saved back intact — GridPath" />
+  <meta name="twitter:description" content="npm install gridpath. Real Excel files, a calculation engine in the browser, AI with your own key." />
+  <meta name="twitter:image" content="https://gridpath.dev/embed-demo.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="style.css?v=20260930" />
+  <style>
+    .em-install { margin: 24px auto 8px; max-width: 720px; }
+    .em-install pre, .em-code pre { margin: 0; padding: 14px 18px; background: #1e1e1e; color: #e5e7eb; border-radius: 10px; font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
+    .em-install pre { font-size: 15px; }
+    .em-code pre .c { color: #8a8a8a; }
+    .em-links { margin-top: 14px; }
+    .em-links a { margin: 0 6px; }
+    .em-h2 { text-align: center; margin: 64px 0 20px; }
+    .em-code { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+    .em-code h3 { margin: 0 0 8px; font-size: 14px; }
+    .em-code p { font-size: 14px; color: var(--text-muted, #6b7280); margin: 8px 0 0; }
+    .em-note { font-size: 14px; color: var(--text-muted, #6b7280); border-left: 3px solid var(--border); padding-left: 14px; margin: 24px auto 0; max-width: 760px; }
+    @media (max-width: 900px) { .em-code { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .wide-only { display: none; } }
+  </style>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="/">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+          <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+        </svg>
+        GridPath
+      </a>
+      <nav class="nav-links">
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/embed">Embed</a>
+        <a href="/mcp">MCP</a>
+        <a href="/docs">Docs</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+        <a href="/demo" class="nav-cta">Try the demo</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-inner">
+        <p class="fidelity-eyebrow" style="margin-bottom:14px">For React, Next.js and any web app</p>
+        <h1>An embeddable spreadsheet. <br class="wide-only">Real Excel files, saved back intact.</h1>
+        <p class="lede">
+          Open your users' .xlsx files, calculate in the browser with a real engine, and save them back without losing what you didn't touch. Toolbar, autosave and version history come with it; so do AI tools for your own model and key.
+        </p>
+        <div class="em-install">
+          <pre>npm install gridpath</pre>
+        </div>
+        <p class="em-links"><a href="/demo">Try the live demo</a> · <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#in-your-web-app" rel="noopener" target="_blank">Read the guide</a> · <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank">Next.js example</a></p>
+      </div>
+    </section>
+
+    <section class="screenshot-section">
+      <div class="container">
+        <a class="screenshot-frame" href="/demo" style="display:block">
+          <img src="/embed-demo.png" alt="The GridPath spreadsheet in a web page: a sales sheet with an AI's added Share and Rank columns highlighted, and the AI changes panel listing each change with Accept and Reject" style="width:100%;display:block" />
+        </a>
+      </div>
+    </section>
+
+    <section class="fidelity-page-points">
+      <div class="container">
+        <h2 class="section-title" style="text-align:center;margin-bottom:8px">A spreadsheet your users already know how to use</h2>
+        <p class="section-sub" style="text-align:center">On top of the files they already have. Apache-2.0.</p>
+        <div class="cap-grid">
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-emerald">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h11l7 7v17H8z"/><path d="M19 4v7h7"/><path d="M12 19h8M12 24h8"/></svg>
+            </div>
+            <h3>Saves the file back intact</h3>
+            <p>A save patches only the parts of the .xlsx the session changed; charts, pivots, macros, names and custom XML come back byte-identical. On a 1.4&nbsp;MB analyst model, 75 of 76 parts were unchanged and nothing was lost; the other embeddable spreadsheets we measured dropped custom XML and printer settings, or most of the defined names.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-rose">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6c-3 0-4 2-4 5v15"/><path d="M10 14h10"/><path d="M20 20l6 6M26 20l-6 6"/></svg>
+            </div>
+            <h3>A real calculation engine</h3>
+            <p>A Rust engine (an IronCalc fork, compiled to WebAssembly) runs in a Web Worker: dynamic arrays, LET and LAMBDA, XLOOKUP, the IFS family, AGGREGATE. A 1.4&nbsp;MB, 55,000-formula model is usable in 0.6&nbsp;s. A model with 2.3 million cells is usable in 4&nbsp;s and fully recalculated in 11&nbsp;s; in the same test SpreadJS crashed the tab and the Handsontable stack took 11 minutes.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-amber">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 26h22"/><path d="M8 22V13M14 22V8M20 22v-6M26 22V11"/></svg>
+            </div>
+            <h3>Toolbar and saving built in</h3>
+            <p>Formatting, number formats, insert and delete, sort, filter, freeze. Autosave with "Saving… / Saved", reopen where you left off, recent workbooks, version history with restore, and Download as .xlsx. In the browser by default, or to your backend through <code>onSave</code> or a store of your own.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-indigo">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16 Q16 5 28 16 Q16 27 4 16 Z"/><circle cx="16" cy="16" r="4.5"/></svg>
+            </div>
+            <h3>AI that asks before it saves</h3>
+            <p>Give <code>sheet.ai.tools()</code> to your model; its edits land highlighted, and the AI changes panel lists each one (before → after) to accept or reject. Nothing an agent did is saved until the user accepts it.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-sky">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l11 6.5v13L16 29 5 22.5v-13z"/><path d="M16 16v13M16 16L5 9.5M16 16l11-6.5"/></svg>
+            </div>
+            <h3>Your model, your key</h3>
+            <p>The model call happens on your server with your key; the tools run in the browser, where the workbook is. GridPath never sees a key or a file.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon cap-icon-teal">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10l-6 6 6 6"/><path d="M20 10l6 6-6 6"/><path d="M18 7l-4 18"/></svg>
+            </div>
+            <h3>No configuration</h3>
+            <p>Next.js (Turbopack and webpack), Vite and webpack bundle the worker and engine on their own. React component or <code>createSpreadsheet(el)</code> for any page.</p>
+          </div>
+        </div>
+
+        <h2 class="section-title em-h2">Two files</h2>
+        <div class="em-code">
+          <div>
+            <h3>The spreadsheet</h3>
+            <pre><span class="c">// app/Sheet.tsx</span>
+"use client";
+import { Spreadsheet } from "gridpath";
+
+export function Sheet({ file }: { file?: ArrayBuffer }) {
+  return (
+    &lt;div style={{ height: 600 }}&gt;
+      &lt;Spreadsheet file={file} fileName="Budget.xlsx" /&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+            <p>That's a working spreadsheet with a toolbar, autosave and version history. Pass <code>onSave</code> to keep the bytes on your side.</p>
+          </div>
+          <div>
+            <h3>AI, with your key (optional)</h3>
+            <pre><span class="c">// app/api/agent/route.ts</span>
+import Anthropic from "@anthropic-ai/sdk";
+import { AGENT_INSTRUCTIONS, agentTools } from "gridpath/agent";
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  const reply = await new Anthropic().messages.create({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    system: AGENT_INSTRUCTIONS,
+    tools: agentTools(),
+    messages,
+  });
+  return Response.json(reply);
+}</pre>
+            <p>Add your own auth and rate limits. In the browser, run each tool call with <code>sheet.ai.run(name, input)</code> and send the results back; <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#ai-your-model-your-key" rel="noopener" target="_blank">the loop is twenty lines</a>.</p>
+          </div>
+        </div>
+        <p class="em-note">Measured in Chromium on an M2 Pro against SpreadJS 19.2 and Handsontable 18.1 with HyperFormula and ExcelJS; <a href="https://github.com/pixelsmasher13/gridpath/tree/main/eval/embed-bench#results-2026-10-19" rel="noopener" target="_blank">method and full results</a>. The two real models are private; the benchmark reads your own copies.</p>
+      </div>
+    </section>
+
+    <section class="fidelity-page-cta">
+      <div class="container download-inner">
+        <h2>Try it on your own file</h2>
+        <p class="download-sub">The demo runs entirely in your browser: open an .xlsx from File, edit it, try a sample AI edit, download it back.</p>
+        <div class="download-buttons">
+          <a class="btn btn-primary btn-large" href="/demo">Open the demo</a>
+          <a class="btn btn-secondary btn-large" href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#in-your-web-app" rel="noopener" target="_blank">Read the guide</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.6" />
+            <path d="M5 8.5 H17 M5 13.5 H17 M8.5 5 V17 M13.5 5 V17" stroke="currentColor" stroke-width="1.4" />
+          </svg>
+          GridPath
+        </a>
+        <p class="footer-tag">Best way to build spreadsheets with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="/#capabilities">Capabilities</a>
+        <a href="/embed">Embeddable spreadsheet</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/fidelity">Fidelity</a>
+        <a href="/#download">Download</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/docs">Docs</a>
+        <a href="/demo">Live demo</a>
+        <a href="/blog">Blog</a>
+        <a href="https://github.com/pixelsmasher13/gridpath" rel="noopener" target="_blank">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <a href="/contact">Contact</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 GridPath</span>
+      <span>Made for people who actually live in spreadsheets.</span>
+    </div>
+  </footer>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

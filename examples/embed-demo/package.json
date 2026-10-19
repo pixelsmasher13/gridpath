@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:site": "VITE_SITE=1 vite build --base /demo/ --outDir ../../marketing/demo --emptyOutDir",
     "preview": "vite preview"
   },
   "dependencies": {
-    "gridpath": "file:../../packages/gridpath/gridpath-0.2.1.tgz",
+    "gridpath": "file:../../packages/gridpath/gridpath-0.3.0.tgz",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -38,7 +38,7 @@ It comes as three front doors on the same engine:
 | The agent | Yours: your model and key, on your server | Yours: Claude Code, Cursor, Codex, any MCP host | GridPath's own, in the app |
 | You review | Highlighted in the grid; accept or reject | In a local browser tab the agent links you to | In the app's diff panel |
 | Install | `npm install gridpath` (React peer) | One line, Node only | Download for Mac / Windows |
-| Where | [`packages/gridpath`](packages/gridpath#in-your-web-app) · [demo](examples/embed-demo) | [`packages/gridpath`](packages/gridpath#in-your-coding-agent-mcp) · [gridpath.dev/mcp](https://gridpath.dev/mcp) | [Download](https://gridpath.dev/#download) · [gridpath.dev](https://gridpath.dev) |
+| Where | [`packages/gridpath`](packages/gridpath#in-your-web-app) · [live demo](https://gridpath.dev/demo) · [gridpath.dev/embed](https://gridpath.dev/embed) | [`packages/gridpath`](packages/gridpath#in-your-coding-agent-mcp) · [gridpath.dev/mcp](https://gridpath.dev/mcp) | [Download](https://gridpath.dev/#download) · [gridpath.dev](https://gridpath.dev) |
 
 The engine, the in-place saver and the `gridpath` package (web spreadsheet and MCP server) are open source under [Apache-2.0](LICENSE). The desktop app is source-available under the FSL-1.1-Apache-2.0 ([details](#license)).
 

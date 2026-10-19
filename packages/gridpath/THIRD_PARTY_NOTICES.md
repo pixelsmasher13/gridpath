@@ -68,43 +68,49 @@ they are installed as dependencies and carry their own licenses.
 | zmij | 1.0.23 | MIT | [3](#license-text-3) |
 | zopfli | 0.8.3 | Apache-2.0 | [44](#license-text-44) |
 
+## Bundled into the web build (`dist/web/`)
+
+| Package | Version | License | Text |
+|---|---|---|---|
+| lucide-react | 0.427.0 | ISC | [45](#license-text-45) |
+
 ## Bundled into the review page (`ui/`)
 
 | Package | Version | License | Text |
 |---|---|---|---|
-| @babel/runtime | 7.25.6 | MIT | [45](#license-text-45) |
-| @flatten-js/interval-tree | 1.1.3 | MIT | [46](#license-text-46) |
-| @floating-ui/core | 1.8.0 | MIT | [47](#license-text-47) |
-| @floating-ui/dom | 1.8.0 | MIT | [47](#license-text-47) |
-| @floating-ui/react-dom | 2.1.9 | MIT | [47](#license-text-47) |
-| @floating-ui/utils | 0.2.12 | MIT | [47](#license-text-47) |
-| @radix-ui/primitive | 1.1.7 | MIT | [48](#license-text-48) |
-| @radix-ui/react-collection | 1.1.13 | MIT | [48](#license-text-48) |
-| @radix-ui/react-compose-refs | 1.1.4 | MIT | [48](#license-text-48) |
-| @radix-ui/react-context | 1.2.1 | MIT | [48](#license-text-48) |
-| @radix-ui/react-dialog | 1.1.21 | MIT | [48](#license-text-48) |
-| @radix-ui/react-direction | 1.1.3 | MIT | [48](#license-text-48) |
-| @radix-ui/react-dismissable-layer | 1.1.17 | MIT | [48](#license-text-48) |
-| @radix-ui/react-dropdown-menu | 2.1.22 | MIT | [48](#license-text-48) |
-| @radix-ui/react-focus-guards | 1.1.5 | MIT | [48](#license-text-48) |
-| @radix-ui/react-focus-scope | 1.1.14 | MIT | [48](#license-text-48) |
-| @radix-ui/react-hover-card | 1.1.21 | MIT | [48](#license-text-48) |
-| @radix-ui/react-id | 1.1.3 | MIT | [48](#license-text-48) |
-| @radix-ui/react-menu | 2.1.22 | MIT | [48](#license-text-48) |
-| @radix-ui/react-popover | 1.1.21 | MIT | [48](#license-text-48) |
-| @radix-ui/react-popper | 1.3.5 | MIT | [48](#license-text-48) |
-| @radix-ui/react-portal | 1.1.15 | MIT | [48](#license-text-48) |
-| @radix-ui/react-presence | 1.1.9 | MIT | [48](#license-text-48) |
-| @radix-ui/react-primitive | 2.1.8 | MIT | [48](#license-text-48) |
-| @radix-ui/react-roving-focus | 1.1.17 | MIT | [48](#license-text-48) |
-| @radix-ui/react-separator | 1.1.13 | MIT | [48](#license-text-48) |
-| @radix-ui/react-slot | 1.3.1 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-callback-ref | 1.1.3 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-controllable-state | 1.2.5 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-effect-event | 0.0.4 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-is-hydrated | 0.1.2 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-layout-effect | 1.1.3 | MIT | [48](#license-text-48) |
-| @radix-ui/react-use-size | 1.1.3 | MIT | [48](#license-text-48) |
+| @babel/runtime | 7.25.6 | MIT | [46](#license-text-46) |
+| @flatten-js/interval-tree | 1.1.3 | MIT | [47](#license-text-47) |
+| @floating-ui/core | 1.8.0 | MIT | [48](#license-text-48) |
+| @floating-ui/dom | 1.8.0 | MIT | [48](#license-text-48) |
+| @floating-ui/react-dom | 2.1.9 | MIT | [48](#license-text-48) |
+| @floating-ui/utils | 0.2.12 | MIT | [48](#license-text-48) |
+| @radix-ui/primitive | 1.1.7 | MIT | [49](#license-text-49) |
+| @radix-ui/react-collection | 1.1.13 | MIT | [49](#license-text-49) |
+| @radix-ui/react-compose-refs | 1.1.4 | MIT | [49](#license-text-49) |
+| @radix-ui/react-context | 1.2.1 | MIT | [49](#license-text-49) |
+| @radix-ui/react-dialog | 1.1.21 | MIT | [49](#license-text-49) |
+| @radix-ui/react-direction | 1.1.3 | MIT | [49](#license-text-49) |
+| @radix-ui/react-dismissable-layer | 1.1.17 | MIT | [49](#license-text-49) |
+| @radix-ui/react-dropdown-menu | 2.1.22 | MIT | [49](#license-text-49) |
+| @radix-ui/react-focus-guards | 1.1.5 | MIT | [49](#license-text-49) |
+| @radix-ui/react-focus-scope | 1.1.14 | MIT | [49](#license-text-49) |
+| @radix-ui/react-hover-card | 1.1.21 | MIT | [49](#license-text-49) |
+| @radix-ui/react-id | 1.1.3 | MIT | [49](#license-text-49) |
+| @radix-ui/react-menu | 2.1.22 | MIT | [49](#license-text-49) |
+| @radix-ui/react-popover | 1.1.21 | MIT | [49](#license-text-49) |
+| @radix-ui/react-popper | 1.3.5 | MIT | [49](#license-text-49) |
+| @radix-ui/react-portal | 1.1.15 | MIT | [49](#license-text-49) |
+| @radix-ui/react-presence | 1.1.9 | MIT | [49](#license-text-49) |
+| @radix-ui/react-primitive | 2.1.8 | MIT | [49](#license-text-49) |
+| @radix-ui/react-roving-focus | 1.1.17 | MIT | [49](#license-text-49) |
+| @radix-ui/react-separator | 1.1.13 | MIT | [49](#license-text-49) |
+| @radix-ui/react-slot | 1.3.1 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-callback-ref | 1.1.3 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-controllable-state | 1.2.5 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-effect-event | 0.0.4 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-is-hydrated | 0.1.2 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-layout-effect | 1.1.3 | MIT | [49](#license-text-49) |
+| @radix-ui/react-use-size | 1.1.3 | MIT | [49](#license-text-49) |
 | @univerjs/core | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/design | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/docs | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
@@ -112,11 +118,11 @@ they are installed as dependencies and carry their own licenses.
 | @univerjs/drawing | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/engine-formula | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/engine-render | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @univerjs/icons | 1.4.0 | MIT | [49](#license-text-49) |
+| @univerjs/icons | 1.4.0 | MIT | [50](#license-text-50) |
 | @univerjs/network | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/preset-sheets-core | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/presets | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @univerjs/protocol | 0.25.1 | Apache-2.0 | [50](#license-text-50) |
+| @univerjs/protocol | 0.25.1 | Apache-2.0 | [51](#license-text-51) |
 | @univerjs/rpc | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/sheets | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/sheets-formula | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
@@ -127,46 +133,46 @@ they are installed as dependencies and carry their own licenses.
 | @univerjs/telemetry | 0.25.1 | see text | [32](#license-text-32) |
 | @univerjs/themes | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/ui | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @wendellhu/redi | 1.1.1 | MIT | [51](#license-text-51) |
-| aria-hidden | 1.2.4 | MIT | [52](#license-text-52) |
-| async-lock | 1.4.1 | MIT | [53](#license-text-53) |
-| cjk-regex | 3.4.0 | MIT | [54](#license-text-54) |
-| class-variance-authority | 0.7.1 | Apache-2.0 | [55](#license-text-55) |
-| clsx | 2.1.1 | MIT | [56](#license-text-56) |
-| collapse-white-space | 2.1.0 | MIT | [57](#license-text-57) |
-| decimal.js | 10.6.0 | MIT | [58](#license-text-58) |
-| dom-helpers | 5.2.1 | MIT | [59](#license-text-59) |
-| fast-diff | 1.1.2 | Apache-2.0 | [60](#license-text-60) |
-| franc-min | 6.2.0 | MIT | [61](#license-text-61) |
-| get-nonce | 1.0.1 | MIT | [62](#license-text-62) |
-| kdbush | 4.1.0 | ISC | [63](#license-text-63) |
-| localforage | 1.10.0 | Apache-2.0 | [64](#license-text-64) |
-| lodash-es | 4.18.1 | MIT | [65](#license-text-65) |
-| n-gram | 2.0.2 | MIT | [66](#license-text-66) |
-| nanoid | 3.3.16 | MIT | [67](#license-text-67) |
-| numfmt | 3.2.6 | MIT | [68](#license-text-68) |
-| opentype.js | 2.0.0 | MIT | [69](#license-text-69) |
-| ot-json1 | 1.0.2 | ISC | [70](#license-text-70) |
-| ot-text-unicode | 4.0.0 | ISC | [70](#license-text-70) |
-| quickselect | 3.0.0 | ISC | [71](#license-text-71) |
-| rbush | 4.0.1 | MIT | [72](#license-text-72) |
-| react | 18.3.1 | MIT | [73](#license-text-73) |
-| react-dom | 18.3.1 | MIT | [73](#license-text-73) |
-| react-remove-scroll | 2.7.2 | MIT | [52](#license-text-52) |
-| react-remove-scroll-bar | 2.3.8 | MIT | [74](#license-text-74) |
-| react-style-singleton | 2.2.3 | MIT | [52](#license-text-52) |
-| react-transition-group | 4.4.5 | BSD-3-Clause | [75](#license-text-75) |
-| regexp-util | 2.0.3 | MIT | [54](#license-text-54) |
-| rxjs | 7.8.2 | Apache-2.0 | [76](#license-text-76) |
-| scheduler | 0.23.2 | MIT | [73](#license-text-73) |
-| sonner | 2.0.7 | MIT | [77](#license-text-77) |
-| tailwind-merge | 2.6.0 | MIT | [78](#license-text-78) |
-| trigram-utils | 2.0.1 | MIT | [66](#license-text-66) |
-| tslib | 2.8.1 | 0BSD | [79](#license-text-79) |
-| unicode-regex | 4.2.0 | MIT | [54](#license-text-54) |
-| unicount | 1.1.0 | ISC | [70](#license-text-70) |
-| use-callback-ref | 1.3.3 | MIT | [52](#license-text-52) |
-| use-sidecar | 1.1.3 | MIT | [52](#license-text-52) |
+| @wendellhu/redi | 1.1.1 | MIT | [52](#license-text-52) |
+| aria-hidden | 1.2.4 | MIT | [53](#license-text-53) |
+| async-lock | 1.4.1 | MIT | [54](#license-text-54) |
+| cjk-regex | 3.4.0 | MIT | [55](#license-text-55) |
+| class-variance-authority | 0.7.1 | Apache-2.0 | [56](#license-text-56) |
+| clsx | 2.1.1 | MIT | [57](#license-text-57) |
+| collapse-white-space | 2.1.0 | MIT | [58](#license-text-58) |
+| decimal.js | 10.6.0 | MIT | [59](#license-text-59) |
+| dom-helpers | 5.2.1 | MIT | [60](#license-text-60) |
+| fast-diff | 1.1.2 | Apache-2.0 | [61](#license-text-61) |
+| franc-min | 6.2.0 | MIT | [62](#license-text-62) |
+| get-nonce | 1.0.1 | MIT | [63](#license-text-63) |
+| kdbush | 4.1.0 | ISC | [64](#license-text-64) |
+| localforage | 1.10.0 | Apache-2.0 | [65](#license-text-65) |
+| lodash-es | 4.18.1 | MIT | [66](#license-text-66) |
+| n-gram | 2.0.2 | MIT | [67](#license-text-67) |
+| nanoid | 3.3.16 | MIT | [68](#license-text-68) |
+| numfmt | 3.2.6 | MIT | [69](#license-text-69) |
+| opentype.js | 2.0.0 | MIT | [70](#license-text-70) |
+| ot-json1 | 1.0.2 | ISC | [71](#license-text-71) |
+| ot-text-unicode | 4.0.0 | ISC | [71](#license-text-71) |
+| quickselect | 3.0.0 | ISC | [72](#license-text-72) |
+| rbush | 4.0.1 | MIT | [73](#license-text-73) |
+| react | 18.3.1 | MIT | [74](#license-text-74) |
+| react-dom | 18.3.1 | MIT | [74](#license-text-74) |
+| react-remove-scroll | 2.7.2 | MIT | [53](#license-text-53) |
+| react-remove-scroll-bar | 2.3.8 | MIT | [75](#license-text-75) |
+| react-style-singleton | 2.2.3 | MIT | [53](#license-text-53) |
+| react-transition-group | 4.4.5 | BSD-3-Clause | [76](#license-text-76) |
+| regexp-util | 2.0.3 | MIT | [55](#license-text-55) |
+| rxjs | 7.8.2 | Apache-2.0 | [77](#license-text-77) |
+| scheduler | 0.23.2 | MIT | [74](#license-text-74) |
+| sonner | 2.0.7 | MIT | [78](#license-text-78) |
+| tailwind-merge | 2.6.0 | MIT | [79](#license-text-79) |
+| trigram-utils | 2.0.1 | MIT | [67](#license-text-67) |
+| tslib | 2.8.1 | 0BSD | [80](#license-text-80) |
+| unicode-regex | 4.2.0 | MIT | [55](#license-text-55) |
+| unicount | 1.1.0 | ISC | [71](#license-text-71) |
+| use-callback-ref | 1.3.3 | MIT | [53](#license-text-53) |
+| use-sidecar | 1.1.3 | MIT | [53](#license-text-53) |
 
 ## License texts
 
@@ -3317,6 +3323,26 @@ Apache License
 ### License text 45
 
 ```
+ISC License
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+### License text 46
+
+```
 MIT License
 
 Copyright (c) 2014-present Sebastian McKenzie and other contributors
@@ -3341,7 +3367,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 46
+### License text 47
 
 ```
 MIT License
@@ -3367,7 +3393,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 47
+### License text 48
 
 ```
 MIT License
@@ -3392,7 +3418,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 48
+### License text 49
 
 ```
 MIT License
@@ -3418,7 +3444,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 49
+### License text 50
 
 ```
 MIT License
@@ -3444,7 +3470,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 50
+### License text 51
 
 ```
 Apache License
@@ -3641,7 +3667,7 @@ Apache License
 Copyright DreamNum Co., Ltd. <developer@univer.ai>
 ```
 
-### License text 51
+### License text 52
 
 ```
 Copyright 2021 Wendell Hu
@@ -3653,7 +3679,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 52
+### License text 53
 
 ```
 MIT License
@@ -3679,7 +3705,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 53
+### License text 54
 
 ```
 The MIT License (MIT)
@@ -3705,7 +3731,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 54
+### License text 55
 
 ```
 MIT License
@@ -3731,7 +3757,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 55
+### License text 56
 
 ```
 Apache License
@@ -3926,7 +3952,7 @@ Apache License
    limitations under the License.
 ```
 
-### License text 56
+### License text 57
 
 ```
 MIT License
@@ -3940,7 +3966,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 57
+### License text 58
 
 ```
 (The MIT License)
@@ -3967,7 +3993,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 58
+### License text 59
 
 ```
 The MIT Licence.
@@ -3994,7 +4020,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 59
+### License text 60
 
 ```
 The MIT License (MIT)
@@ -4020,7 +4046,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 60
+### License text 61
 
 ```
 Apache License
@@ -4217,7 +4243,7 @@ Apache License
 Copyright Jason Chen <jhchen7@gmail.com>
 ```
 
-### License text 61
+### License text 62
 
 ```
 MIT License
@@ -4231,7 +4257,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 62
+### License text 63
 
 ```
 MIT License
@@ -4257,7 +4283,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 63
+### License text 64
 
 ```
 ISC License
@@ -4277,7 +4303,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### License text 64
+### License text 65
 
 ```
 Apache License
@@ -4483,7 +4509,7 @@ Apache License
    limitations under the License.
 ```
 
-### License text 65
+### License text 66
 
 ```
 Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
@@ -4535,7 +4561,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ```
 
-### License text 66
+### License text 67
 
 ```
 (The MIT License)
@@ -4562,7 +4588,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 67
+### License text 68
 
 ```
 The MIT License (MIT)
@@ -4587,7 +4613,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 68
+### License text 69
 
 ```
 Copyright (c) 2020, Borgar Þorsteinsson <borgar@borgar.net>
@@ -4611,7 +4637,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License text 69
+### License text 70
 
 ```
 The MIT License (MIT)
@@ -4636,7 +4662,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 70
+### License text 71
 
 ```
 ISC License
@@ -4648,7 +4674,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 71
+### License text 72
 
 ```
 ISC License
@@ -4668,7 +4694,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### License text 72
+### License text 73
 
 ```
 MIT License
@@ -4694,7 +4720,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License text 73
+### License text 74
 
 ```
 MIT License
@@ -4720,7 +4746,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 74
+### License text 75
 
 ```
 MIT License
@@ -4734,7 +4760,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 75
+### License text 76
 
 ```
 BSD 3-Clause License
@@ -4769,7 +4795,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### License text 76
+### License text 77
 
 ```
 Apache License
@@ -4975,7 +5001,7 @@ Apache License
  limitations under the License.
 ```
 
-### License text 77
+### License text 78
 
 ```
 MIT License
@@ -5001,7 +5027,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 78
+### License text 79
 
 ```
 MIT License
@@ -5027,7 +5053,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 79
+### License text 80
 
 ```
 Copyright (c) Microsoft Corporation.

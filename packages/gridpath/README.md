@@ -56,16 +56,66 @@ import { Spreadsheet } from "gridpath";
 </div>;
 ```
 
-The workbook loads once per mount. To open another file, remount with a new
-`key`.
+### What users get without any code
+
+- **A toolbar**: undo and redo, font and size, bold / italic / underline,
+  font and fill colour, alignment and wrap, currency / percent / comma and
+  more or fewer decimals, number formats, insert and delete rows and
+  columns, sort, filter, freeze panes, clear. Keyboard shortcuts (⌘B, ⌘Z,
+  ⌘S…) work in the grid. `toolbar={false}` hides it.
+- **Saving as they work**: the status reads "Saving…", "Saved" or "Unsaved
+  changes"; edits are saved two seconds after they pause (`autosave`), and
+  ⌘S or the Save button saves at once. While agent changes await review it
+  reads "Review 2 AI changes to save" and saves after they are accepted or
+  rejected.
+- **Reopen where they left off**: the workbook, and the cell they were on,
+  come back after a reload.
+- **Recent workbooks** and **Open… / New** in the File menu (`fileMenu={false}`
+  removes those entries).
+- **Version history**: a snapshot every five minutes of editing, the newest 20
+  kept as they are and one per day for 30 days before that. Restore one (the
+  state it replaces is kept as a version too) or download it.
+- **Download** as `.xlsx`, a separate button from Save.
+- **An "AI changes" panel** when an agent works through `sheet.ai`: each
+  change with what it did ("D2: empty → =C2/B2-1", "A1:C1: bold"), where,
+  and Accept / Reject (rejecting also undoes the changes made after it, as
+  the button says); clicking one shows its cells. It opens when changes
+  arrive and from the status line; `reviewPanel={false}` if your app has its
+  own review UI.
+
+By default all of this is kept in the user's browser (IndexedDB). Point it at
+your backend with `onSave` (you receive the bytes on every save) or a `store`
+of your own (also serves the recent list and versions):
+
+```ts
+const store: WorkbookStore = {
+  save: ({ id, name, bytes }) => fetch(`/api/books/${id}`, { method: "PUT", body: bytes }).then(() => {}),
+  load: (id) => /* the latest saved state, or null */,
+  list: () => /* recent workbooks */,
+  versions: (id) => /* newest first */,
+  loadVersion: (id, versionId) => /* the bytes */,
+};
+<Spreadsheet store={store} documentId={book.id} fileName={book.name} />;
+```
+
+`store={false}` turns saving off: then there is Download and `save()`.
 
 #### Options
 
 | Option | |
 |---|---|
-| `file` | `.xlsx` bytes (`ArrayBuffer` or `Uint8Array`). Without it the workbook starts blank. |
+| `file` | `.xlsx` bytes (`ArrayBuffer` or `Uint8Array`). Without it the workbook starts blank, or reopens the stored one. Read when the component mounts; open others with `open()`. |
 | `sheets` | Sheet names for a blank workbook (default `["Sheet1"]`). |
-| `fileName` | Name used in messages. |
+| `fileName` | The workbook's file name (downloads, the recent list). |
+| `documentId` | Which stored workbook this is (default: `fileName`). The stored state is opened instead of `file` when it was saved from the same file. |
+| `toolbar` | `false` hides the toolbar. |
+| `fileMenu` | `false` removes Open, New and Recent from the File menu. |
+| `reviewPanel` | `false` turns off the "AI changes" panel (build your own from `sheet.ai.list()`, `accept()`, `reject()`). |
+| `store` | Where saves, recent workbooks and versions go: default `browserStore()` (this browser; `browserStore({ checkpointMinutes, keepRecent, keepDays })` to tune), your own `WorkbookStore`, or `false`. |
+| `autosave` | `true` (default, 2 s after edits pause), a delay in ms, or `false`. |
+| `onSave` | `({ id, name, bytes }) => …` on every save. |
+| `onStatusChange` | The save status changed: `{ state: "saved" \| "unsaved" \| "saving" \| "error" \| "review" \| "idle", … }`. |
+| `onDocumentChange` | Another workbook was opened (File menu, recent, restore, `open()`). |
 | `onEdit` | Called after each user edit. |
 | `onProgress` | Loading stages. |
 | `engine.worker` | `false` runs the engine on the page instead of a worker. |
@@ -81,7 +131,12 @@ The workbook loads once per mount. To open another file, remount with a new
 | `setCells(sheet, [{ row, col, value }])` | Many cells in one step (0-based). |
 | `whenCalculated()` | Resolves when pending writes are recalculated. |
 | `select(sheet, "A1")`, `focus()` | Move the selection; give the grid keyboard focus. |
+| `undo()`, `redo()` | The last change, the user's or an agent's. |
 | `save()`, `saveBlob()` | The workbook as `.xlsx`. Throws `PendingChangesError` while agent changes await review; `{ includePending: true }` saves them anyway. |
+| `saveNow()` | Save to the store and `onSave` now (what autosave and ⌘S do). |
+| `download(fileName?)` | Download the `.xlsx`. |
+| `getStatus()`, `getDocument()` | The save status; the open workbook's `{ id, name }`. |
+| `open(bytes, { name? })` | Open another workbook here (the current one is saved first). |
 | `destroy()` | Unmount and stop the engine (`createSpreadsheet` only). |
 
 ### AI: your model, your key
@@ -90,7 +145,8 @@ The workbook loads once per mount. To open another file, remount with a new
 the [MCP server](#in-your-coding-agent-mcp)) acting on the grid the user is
 looking at. Give the tools to your model, run its tool calls with
 `sheet.ai.run()`, and let the user review: every write lands at once,
-highlighted, as a pending batch they accept or reject.
+highlighted, as a pending batch they accept or reject in the "AI changes"
+panel (or your own UI).
 
 GridPath never sees a key. The model call happens on your server; the tool
 calls run in the browser, where the workbook is.
@@ -277,7 +333,7 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
 
 #### Claude Desktop (no terminal)
 
-Download [`gridpath-0.2.1.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.2.1/gridpath-0.2.1.mcpb)
+Download [`gridpath-0.3.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.3.0/gridpath-0.3.0.mcpb)
 and open it. Claude Desktop shows an install dialog where you pick the folders
 Claude may edit and whether saving requires review. Node is bundled; nothing else
 to install. Claude Desktop shows its standard "not verified" warning for any

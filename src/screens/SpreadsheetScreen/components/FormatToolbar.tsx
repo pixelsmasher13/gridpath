@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+// SPDX-License-Identifier: Apache-2.0
+// Ships in the gridpath package (packages/gridpath); licensed under the repository root LICENSE.
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import {
   Bold,
@@ -34,6 +36,7 @@ import {
   Search,
   Palette,
   ListChecks,
+  MoreHorizontal,
 } from "lucide-react";
 
 /**
@@ -50,9 +53,37 @@ export type InsertAction =
   | "deleteRows"
   | "deleteColumns";
 
+/** Controls a host can leave out (the embeddable package hides the ones its
+ * grid has no panel or save path for yet). */
+export type ToolbarControl =
+  | "painter"
+  | "merge"
+  | "borders"
+  | "conditionalFormatting"
+  | "dataValidation"
+  | "findReplace"
+  | "outline"
+  | "font";
+
+/** Controls that can move into a "More" menu (a compact bar for narrow embeds). */
+export type MoreControl = "fontSizeStep" | "strike" | "verticalAlign" | "align";
+
 export type FormatToolbarProps = {
   /** No active workbook tab — controls are inert. */
   disabled: boolean;
+  /** Controls not to render. Default: all shown. */
+  hidden?: ReadonlyArray<ToolbarControl>;
+  /** Controls shown as items of a "More" menu instead of buttons. */
+  more?: ReadonlyArray<MoreControl>;
+  /** Icon-only menu buttons (Insert, Sort, Freeze, Format…): a narrow bar. */
+  compact?: boolean;
+  /** Undo / redo availability (buttons grey out). Default: available. */
+  canUndo?: boolean;
+  canRedo?: boolean;
+  /** Rendered at the start of the bar (a File menu…). */
+  leading?: React.ReactNode;
+  /** Rendered at the right end of the bar (save status, download…). */
+  trailing?: React.ReactNode;
   /** Undo / redo the most recent action (manual edit or agent batch). */
   onUndo: () => void;
   onRedo: () => void;
@@ -156,6 +187,13 @@ const OutlineDigit = styled.span`
 
 export const FormatToolbar: React.FC<FormatToolbarProps> = ({
   disabled,
+  hidden,
+  more,
+  compact = false,
+  canUndo = true,
+  canRedo = true,
+  leading,
+  trailing,
   onUndo,
   onRedo,
   onFormatPainter,
@@ -186,7 +224,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
 }) => {
   // Which popover (if any) is open. Only one at a time.
   const [open, setOpen] = useState<
-    null | "font" | "fill" | "number" | "borders" | "merge" | "insert" | "sort" | "clear" | "freeze"
+    null | "font" | "fill" | "number" | "borders" | "merge" | "insert" | "sort" | "clear" | "freeze" | "more"
   >(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -209,25 +247,35 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
 
   const toggle = (which: NonNullable<typeof open>) =>
     setOpen((cur) => (cur === which ? null : which));
+  const shown = (c: ToolbarControl) => !hidden?.includes(c);
+  const inBar = (c: MoreControl) => !more?.includes(c);
 
   return (
     <Bar ref={rootRef} aria-disabled={disabled}>
+      {leading && (
+        <>
+          <Group>{leading}</Group>
+          <Divider />
+        </>
+      )}
       <Group>
-        <IconBtn title="Undo (⌘Z)" disabled={disabled} onClick={() => onUndo()}>
+        <IconBtn title="Undo (⌘Z)" disabled={disabled || !canUndo} onClick={() => onUndo()}>
           <Undo2 size={14} />
         </IconBtn>
-        <IconBtn title="Redo (⌘⇧Z)" disabled={disabled} onClick={() => onRedo()}>
+        <IconBtn title="Redo (⌘⇧Z)" disabled={disabled || !canRedo} onClick={() => onRedo()}>
           <Redo2 size={14} />
         </IconBtn>
-        <IconBtn
-          title="Format painter"
-          disabled={disabled}
-          aria-pressed={painterActive}
-          $active={painterActive}
-          onClick={() => onFormatPainter()}
-        >
-          <Paintbrush size={14} />
-        </IconBtn>
+        {shown("painter") && (
+          <IconBtn
+            title="Format painter"
+            disabled={disabled}
+            aria-pressed={painterActive}
+            $active={painterActive}
+            onClick={() => onFormatPainter()}
+          >
+            <Paintbrush size={14} />
+          </IconBtn>
+        )}
         <PopoverHost>
           <IconBtn title="Clear" disabled={disabled} onClick={() => toggle("clear")}>
             <Eraser size={14} />
@@ -246,11 +294,13 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
       <Divider />
 
       <Group>
+        {shown("font") && (
+        <>
         <Select
           title="Font"
           disabled={disabled}
           defaultValue=""
-          style={{ width: 116 }}
+          style={{ width: compact ? 92 : 116 }}
           onChange={(e) => {
             if (e.target.value) onFontFamily(e.target.value);
             e.currentTarget.selectedIndex = 0;
@@ -277,12 +327,18 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
             <option key={s} value={s}>{s}</option>
           ))}
         </Select>
-        <IconBtn title="Increase font size" disabled={disabled} onClick={() => onAdjustFontSize(1)}>
-          <AArrowUp size={15} />
-        </IconBtn>
-        <IconBtn title="Decrease font size" disabled={disabled} onClick={() => onAdjustFontSize(-1)}>
-          <AArrowDown size={15} />
-        </IconBtn>
+        </>
+        )}
+        {inBar("fontSizeStep") && (
+          <>
+            <IconBtn title="Increase font size" disabled={disabled} onClick={() => onAdjustFontSize(1)}>
+              <AArrowUp size={15} />
+            </IconBtn>
+            <IconBtn title="Decrease font size" disabled={disabled} onClick={() => onAdjustFontSize(-1)}>
+              <AArrowDown size={15} />
+            </IconBtn>
+          </>
+        )}
       </Group>
 
       <Divider />
@@ -297,9 +353,11 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
         <IconBtn title="Underline (⌘U)" disabled={disabled} onClick={() => onToggle("underline")}>
           <Underline size={14} />
         </IconBtn>
-        <IconBtn title="Strikethrough" disabled={disabled} onClick={() => onToggle("strike")}>
-          <Strikethrough size={14} />
-        </IconBtn>
+        {inBar("strike") && (
+          <IconBtn title="Strikethrough" disabled={disabled} onClick={() => onToggle("strike")}>
+            <Strikethrough size={14} />
+          </IconBtn>
+        )}
       </Group>
 
       <Divider />
@@ -339,55 +397,65 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
 
       <Divider />
 
+      {inBar("verticalAlign") && (
+        <>
+          <Group>
+            <IconBtn title="Align top" disabled={disabled} onClick={() => onVerticalAlign("top")}>
+              <AlignVerticalJustifyStart size={14} />
+            </IconBtn>
+            <IconBtn title="Align middle" disabled={disabled} onClick={() => onVerticalAlign("middle")}>
+              <AlignVerticalJustifyCenter size={14} />
+            </IconBtn>
+            <IconBtn title="Align bottom" disabled={disabled} onClick={() => onVerticalAlign("bottom")}>
+              <AlignVerticalJustifyEnd size={14} />
+            </IconBtn>
+          </Group>
+
+          <Divider />
+        </>
+      )}
+
+      {inBar("align") && (
+        <>
+          <Group>
+            <IconBtn title="Align left" disabled={disabled} onClick={() => onAlign("left")}>
+              <AlignLeft size={14} />
+            </IconBtn>
+            <IconBtn title="Align center" disabled={disabled} onClick={() => onAlign("center")}>
+              <AlignCenter size={14} />
+            </IconBtn>
+            <IconBtn title="Align right" disabled={disabled} onClick={() => onAlign("right")}>
+              <AlignRight size={14} />
+            </IconBtn>
+            <IconBtn title="Wrap text" disabled={disabled} onClick={() => onWrap()}>
+              <WrapText size={14} />
+            </IconBtn>
+          </Group>
+
+          <Divider />
+        </>
+      )}
+
       <Group>
-        <IconBtn title="Align top" disabled={disabled} onClick={() => onVerticalAlign("top")}>
-          <AlignVerticalJustifyStart size={14} />
-        </IconBtn>
-        <IconBtn title="Align middle" disabled={disabled} onClick={() => onVerticalAlign("middle")}>
-          <AlignVerticalJustifyCenter size={14} />
-        </IconBtn>
-        <IconBtn title="Align bottom" disabled={disabled} onClick={() => onVerticalAlign("bottom")}>
-          <AlignVerticalJustifyEnd size={14} />
-        </IconBtn>
-      </Group>
-
-      <Divider />
-
-      <Group>
-        <IconBtn title="Align left" disabled={disabled} onClick={() => onAlign("left")}>
-          <AlignLeft size={14} />
-        </IconBtn>
-        <IconBtn title="Align center" disabled={disabled} onClick={() => onAlign("center")}>
-          <AlignCenter size={14} />
-        </IconBtn>
-        <IconBtn title="Align right" disabled={disabled} onClick={() => onAlign("right")}>
-          <AlignRight size={14} />
-        </IconBtn>
-        <IconBtn title="Wrap text" disabled={disabled} onClick={() => onWrap()}>
-          <WrapText size={14} />
-        </IconBtn>
-      </Group>
-
-      <Divider />
-
-      <Group>
-        <PopoverHost>
-          <IconBtn title="Merge cells" disabled={disabled} onClick={() => toggle("merge")}>
-            <Merge size={14} />
-            <ChevronDown size={10} style={{ marginLeft: -2, opacity: 0.7 }} />
-          </IconBtn>
-          {open === "merge" && (
-            <Menu>
-              <MenuItem onClick={() => { onMerge("center"); setOpen(null); }}>Merge &amp; center</MenuItem>
-              <MenuItem onClick={() => { onMerge("merge"); setOpen(null); }}>Merge cells</MenuItem>
-              <MenuItem onClick={() => { onMerge("unmerge"); setOpen(null); }}>Unmerge</MenuItem>
-            </Menu>
-          )}
-        </PopoverHost>
+        {shown("merge") && (
+          <PopoverHost>
+            <IconBtn title="Merge cells" disabled={disabled} onClick={() => toggle("merge")}>
+              <Merge size={14} />
+              <ChevronDown size={10} style={{ marginLeft: -2, opacity: 0.7 }} />
+            </IconBtn>
+            {open === "merge" && (
+              <Menu>
+                <MenuItem onClick={() => { onMerge("center"); setOpen(null); }}>Merge &amp; center</MenuItem>
+                <MenuItem onClick={() => { onMerge("merge"); setOpen(null); }}>Merge cells</MenuItem>
+                <MenuItem onClick={() => { onMerge("unmerge"); setOpen(null); }}>Unmerge</MenuItem>
+              </Menu>
+            )}
+          </PopoverHost>
+        )}
 
         <PopoverHost>
           <TextBtn title="Insert / delete rows &amp; columns" disabled={disabled} onClick={() => toggle("insert")}>
-            <TableProperties size={13} /> Insert <ChevronDown size={11} style={{ opacity: 0.7 }} />
+            <TableProperties size={13} />{compact ? "" : " Insert"} <ChevronDown size={11} style={{ opacity: 0.7 }} />
           </TextBtn>
           {open === "insert" && (
             <Menu style={{ minWidth: 184 }}>
@@ -404,7 +472,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
 
         <PopoverHost>
           <TextBtn title="Sort selection" disabled={disabled} onClick={() => toggle("sort")}>
-            <ArrowDownAZ size={13} /> Sort <ChevronDown size={11} style={{ opacity: 0.7 }} />
+            <ArrowDownAZ size={13} />{compact ? "" : " Sort"} <ChevronDown size={11} style={{ opacity: 0.7 }} />
           </TextBtn>
           {open === "sort" && (
             <Menu style={{ minWidth: 168 }}>
@@ -426,17 +494,21 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
           <Filter size={14} />
         </IconBtn>
 
-        <IconBtn title="Conditional formatting" disabled={disabled} onClick={() => onConditionalFormatting()}>
-          <Palette size={14} />
-        </IconBtn>
+        {shown("conditionalFormatting") && (
+          <IconBtn title="Conditional formatting" disabled={disabled} onClick={() => onConditionalFormatting()}>
+            <Palette size={14} />
+          </IconBtn>
+        )}
 
-        <IconBtn title="Data validation" disabled={disabled} onClick={() => onDataValidation()}>
-          <ListChecks size={14} />
-        </IconBtn>
+        {shown("dataValidation") && (
+          <IconBtn title="Data validation" disabled={disabled} onClick={() => onDataValidation()}>
+            <ListChecks size={14} />
+          </IconBtn>
+        )}
 
         <PopoverHost>
           <TextBtn title="Freeze panes" disabled={disabled} onClick={() => toggle("freeze")}>
-            <Pin size={13} /> Freeze <ChevronDown size={11} style={{ opacity: 0.7 }} />
+            <Pin size={13} />{compact ? "" : " Freeze"} <ChevronDown size={11} style={{ opacity: 0.7 }} />
           </TextBtn>
           {open === "freeze" && (
             <Menu style={{ minWidth: 184 }}>
@@ -471,7 +543,7 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
 
         <PopoverHost>
           <TextBtn title="Number format" disabled={disabled} onClick={() => toggle("number")}>
-            <Hash size={13} /> Format <ChevronDown size={11} style={{ opacity: 0.7 }} />
+            <Hash size={13} />{compact ? "" : " Format"} <ChevronDown size={11} style={{ opacity: 0.7 }} />
           </TextBtn>
           {open === "number" && (
             <Menu>
@@ -491,29 +563,92 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
           )}
         </PopoverHost>
 
+        {shown("borders") && (
+          <PopoverHost>
+            <TextBtn title="Borders" disabled={disabled} onClick={() => toggle("borders")}>
+              <Grid2x2 size={13} />{compact ? "" : " Borders"} <ChevronDown size={11} style={{ opacity: 0.7 }} />
+            </TextBtn>
+            {open === "borders" && (
+              <Menu>
+                <MenuItem onClick={() => { onBorders("all"); setOpen(null); }}>All borders</MenuItem>
+                <MenuItem onClick={() => { onBorders("outer"); setOpen(null); }}>Outer border</MenuItem>
+                <MenuItem onClick={() => { onBorders("none"); setOpen(null); }}>No border</MenuItem>
+              </Menu>
+            )}
+          </PopoverHost>
+        )}
+      </Group>
+
+      {more && more.length > 0 && (
         <PopoverHost>
-          <TextBtn title="Borders" disabled={disabled} onClick={() => toggle("borders")}>
-            <Grid2x2 size={13} /> Borders <ChevronDown size={11} style={{ opacity: 0.7 }} />
-          </TextBtn>
-          {open === "borders" && (
-            <Menu>
-              <MenuItem onClick={() => { onBorders("all"); setOpen(null); }}>All borders</MenuItem>
-              <MenuItem onClick={() => { onBorders("outer"); setOpen(null); }}>Outer border</MenuItem>
-              <MenuItem onClick={() => { onBorders("none"); setOpen(null); }}>No border</MenuItem>
+          <IconBtn title="More formatting" disabled={disabled} onClick={() => toggle("more")}>
+            <MoreHorizontal size={15} />
+          </IconBtn>
+          {open === "more" && (
+            <Menu style={{ minWidth: 190 }}>
+              {more.includes("strike") && (
+                <MenuItem onClick={() => { onToggle("strike"); setOpen(null); }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Strikethrough size={14} /> Strikethrough</span>
+                </MenuItem>
+              )}
+              {more.includes("fontSizeStep") && (
+                <>
+                  <MenuItem onClick={() => { onAdjustFontSize(1); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AArrowUp size={14} /> Larger text</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onAdjustFontSize(-1); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AArrowDown size={14} /> Smaller text</span>
+                  </MenuItem>
+                </>
+              )}
+              {more.includes("align") && (
+                <>
+                  <MenuSep />
+                  <MenuItem onClick={() => { onAlign("left"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignLeft size={14} /> Align left</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onAlign("center"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignCenter size={14} /> Align center</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onAlign("right"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignRight size={14} /> Align right</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onWrap(); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><WrapText size={14} /> Wrap text</span>
+                  </MenuItem>
+                </>
+              )}
+              {more.includes("verticalAlign") && (
+                <>
+                  <MenuSep />
+                  <MenuItem onClick={() => { onVerticalAlign("top"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignVerticalJustifyStart size={14} /> Align top</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onVerticalAlign("middle"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignVerticalJustifyCenter size={14} /> Align middle</span>
+                  </MenuItem>
+                  <MenuItem onClick={() => { onVerticalAlign("bottom"); setOpen(null); }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><AlignVerticalJustifyEnd size={14} /> Align bottom</span>
+                  </MenuItem>
+                </>
+              )}
             </Menu>
           )}
         </PopoverHost>
-      </Group>
+      )}
 
-      <Divider />
+      {shown("findReplace") && (
+        <>
+          <Divider />
+          <Group>
+            <TextBtn title="Find & Replace (⌘F)" disabled={disabled} onClick={() => onFindReplace()}>
+              <Search size={13} /> Find
+            </TextBtn>
+          </Group>
+        </>
+      )}
 
-      <Group>
-        <TextBtn title="Find & Replace (⌘F)" disabled={disabled} onClick={() => onFindReplace()}>
-          <Search size={13} /> Find
-        </TextBtn>
-      </Group>
-
-      {outline && (outline.cols > 0 || outline.rows > 0) && (
+      {shown("outline") && outline && (outline.cols > 0 || outline.rows > 0) && (
         <>
           <Divider />
           <Group>
@@ -550,9 +685,17 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({
           </Group>
         </>
       )}
+      {trailing && <Trailing>{trailing}</Trailing>}
     </Bar>
   );
 };
+
+const Trailing = styled.div`
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
 
 /** Swatch grid + native custom color input (+ optional "No fill"). */
 const SwatchPopover: React.FC<{
@@ -627,7 +770,7 @@ const Divider = styled.div`
   background: #dcdee1;
 `;
 
-const IconBtn = styled.button<{ $active?: boolean }>`
+export const IconBtn = styled.button<{ $active?: boolean }>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -643,19 +786,53 @@ const IconBtn = styled.button<{ $active?: boolean }>`
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
-const TextBtn = styled(IconBtn)`
+export const TextBtn = styled(IconBtn)`
   gap: 5px;
   padding: 0 9px;
   font-size: 12px;
 `;
 
-const PopoverHost = styled.div`
+export const PopoverHost = styled.div`
   position: relative;
   display: inline-flex;
 `;
 
-const Menu = styled.div`
+/**
+ * A dropdown under its button that stays in the window: it scrolls when
+ * there is less room below than its height, and opens leftward at the
+ * right edge (an embedded spreadsheet may sit anywhere on the page).
+ */
+export const Menu = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function Menu(props, ref) {
+  const local = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = local.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const room = window.innerHeight - r.top - 8;
+    if (r.height > room) {
+      el.style.maxHeight = `${Math.max(120, room)}px`;
+      el.style.overflowY = "auto";
+    }
+    if (r.right > window.innerWidth - 4) {
+      el.style.left = "auto";
+      el.style.right = "0";
+    }
+  }, []);
+  return (
+    <MenuBox
+      {...props}
+      ref={(el: HTMLDivElement | null) => {
+        local.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) ref.current = el;
+      }}
+    />
+  );
+});
+
+const MenuBox = styled.div`
   position: absolute;
+  box-sizing: border-box;
   top: 30px;
   left: 0;
   z-index: 50;
@@ -669,7 +846,7 @@ const Menu = styled.div`
   flex-direction: column;
 `;
 
-const MenuItem = styled.button`
+export const MenuItem = styled.button`
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -685,12 +862,12 @@ const MenuItem = styled.button`
   &:hover { background: #eef2f7; }
 `;
 
-const MenuHint = styled.span`
+export const MenuHint = styled.span`
   color: #9aa0a6;
   font-size: 11px;
 `;
 
-const MenuSep = styled.div`
+export const MenuSep = styled.div`
   height: 1px;
   margin: 4px 2px;
   background: #e6e8eb;

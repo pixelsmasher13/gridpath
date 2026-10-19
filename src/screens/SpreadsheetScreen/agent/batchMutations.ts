@@ -12,6 +12,22 @@
 import type { UniverMutation, CellFormat } from "../types";
 import type { UniverGridHandle } from "../components/UniverGrid";
 
+/** A cell's format with nothing set (what a rejected format falls back to). */
+const FORMAT_DEFAULTS: Record<keyof CellFormat, unknown> = {
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  font_color: "#000000",
+  background_color: null,
+  font_size: 11,
+  font_family: "Calibri",
+  horizontal_align: "general",
+  vertical_align: "bottom",
+  wrap_text: false,
+  number_format: "General",
+};
+
 export type CapturedCell = {
   row: number;
   col: number;
@@ -137,11 +153,19 @@ export function reverseMutation(
     case "set_cell":
       grid.setCell(m.address.sheet, m.address.row, m.address.col, m.old_formula ?? m.old_value);
       break;
-    case "set_format":
+    case "set_format": {
+      // Put back exactly what the change set: each field it wrote returns to
+      // the cell's earlier value, or Excel's default when the cell had none.
+      // (Re-applying only the old format left a new bold or fill in place
+      // wherever the old format was missing or didn't mention that field.)
+      const keys = Object.keys(m.new_format) as Array<keyof CellFormat>;
       for (const o of m.old_format) {
-        if (o.format) grid.setCellFormat(m.sheet, o.row, o.col, o.format);
+        const restore: Record<string, unknown> = {};
+        for (const k of keys) restore[k] = o.format?.[k] !== undefined ? o.format[k] : FORMAT_DEFAULTS[k];
+        grid.setCellFormat(m.sheet, o.row, o.col, restore as CellFormat);
       }
       break;
+    }
     case "set_column_width":
       for (const o of m.old_widths) {
         if (o.width != null) grid.setColumnWidth(m.sheet, o.col, o.width);

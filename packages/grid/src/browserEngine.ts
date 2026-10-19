@@ -171,6 +171,11 @@ export class BrowserEngine implements GridEngine {
   // ---- GridEngine ----
 
   openLayout(_path: string, bytes: Uint8Array): Promise<any | null> {
+    // A new workbook (the engine outlives the documents opened in it): its
+    // deferred first evaluation hasn't run.
+    this.ready = false;
+    this.settleStarted = false;
+    if (this.settleTimer) clearTimeout(this.settleTimer);
     return new Promise((resolve) => {
       this.enqueue(async () => {
         try {
@@ -253,6 +258,7 @@ export class BrowserEngine implements GridEngine {
 
   defineName(name: string, formula: string): Promise<boolean> {
     if (this.degraded) return Promise.resolve(false);
+    this.startDeferredSettle();
     return new Promise((resolve) => {
       this.enqueue(async () => {
         try {
@@ -282,6 +288,10 @@ export class BrowserEngine implements GridEngine {
 
   writeCells(sheetName: string, _label: string, cells: Edit[]): void {
     if (cells.length === 0) return;
+    // Writes apply to an evaluated workbook: the deferred first evaluation
+    // goes ahead of them in the queue (or edits made right after opening are
+    // recalculated against the file's cached values and lost on save).
+    this.startDeferredSettle();
     const open = this.sink;
     if (open && !open.sealed && open.cells + cells.length <= MAX_EDIT_CELLS) {
       let list = open.bySheet.get(sheetName);
@@ -300,10 +310,12 @@ export class BrowserEngine implements GridEngine {
   }
 
   sheetOp(op: "add" | "rename" | "delete", name: string, newName?: string): void {
+    this.startDeferredSettle();
     this.enqueue(() => this.runSheetOp(op, name, newName));
   }
 
   structural(op: string, sheetName: string, index1: number, count: number): void {
+    this.startDeferredSettle();
     this.enqueue(async () => {
       if (this.degraded) return;
       const sheet = this.sheets.indexOf(sheetName);

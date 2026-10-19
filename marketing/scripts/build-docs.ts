@@ -154,6 +154,7 @@ function page(slug: string, title: string, description: string, body: string): s
       </a>
       <nav class="nav-links">
         <a href="/#capabilities">Capabilities</a>
+        <a href="/embed">Embed</a>
         <a href="/mcp">MCP</a>
         <a href="/docs">Docs</a>
         <a href="/fidelity">Fidelity</a>
@@ -193,6 +194,7 @@ ${body.trim()}
       <div class="footer-col">
         <h4>Product</h4>
         <a href="/#capabilities">Capabilities</a>
+        <a href="/embed">Embeddable spreadsheet</a>
         <a href="/mcp">MCP server</a>
         <a href="/fidelity">Fidelity</a>
         <a href="/#providers">Models</a>

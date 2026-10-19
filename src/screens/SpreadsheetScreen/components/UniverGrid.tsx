@@ -359,13 +359,17 @@ export interface UniverGridHandle {
   clearRange: (sheet: string, startRow: number, startCol: number, endRow: number, endCol: number) => void;
 
   /** Insert blank rows. `before` is 0-indexed. */
-  insertRows: (sheet: string, before: number, count: number) => void;
+  /** `opts.log`: a user's own op, recorded for the save with its undo/redo (viewport grid). */
+  insertRows: (sheet: string, before: number, count: number, opts?: { log?: boolean }) => void;
   /** Delete `count` rows starting at `start` (0-indexed). */
-  deleteRows: (sheet: string, start: number, count: number) => void;
+  deleteRows: (sheet: string, start: number, count: number, opts?: { log?: boolean }) => void;
   /** Insert blank columns. `before` is 0-indexed. */
-  insertColumns: (sheet: string, before: number, count: number) => void;
+  insertColumns: (sheet: string, before: number, count: number, opts?: { log?: boolean }) => void;
   /** Delete `count` columns starting at `start` (0-indexed). */
-  deleteColumns: (sheet: string, start: number, count: number) => void;
+  deleteColumns: (sheet: string, start: number, count: number, opts?: { log?: boolean }) => void;
+  /** Whether undo / redo has anything to do (viewport grid). */
+  canUndo?: () => boolean;
+  canRedo?: () => boolean;
 
   /** Freeze top `freezeRows` and left `freezeCols`. Pass 0 to disable an axis. */
   freezePanes: (sheet: string, freezeRows: number, freezeCols: number) => void;

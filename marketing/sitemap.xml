@@ -71,6 +71,16 @@
     <priority>0.9</priority>
   </url>
   <url>
+    <loc>https://gridpath.dev/embed</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://gridpath.dev/demo</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>https://gridpath.dev/docs</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
