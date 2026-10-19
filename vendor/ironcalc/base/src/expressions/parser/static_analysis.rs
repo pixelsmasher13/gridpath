@@ -475,6 +475,24 @@ fn static_analysis_offset(args: &[Node]) -> StaticResult {
 //     StaticResult::Unknown
 // }
 
+/// ROW/COLUMN of a multi-cell reference is an array (one number per row or
+/// per column), so a typed `=ROW(A1:A3)` spills as in Excel. A one-row span
+/// for ROW (one-column for COLUMN) is a scalar: every element is the same.
+/// `Range(h, w)` holds the span minus one.
+fn static_analysis_row_column(args: &[Node], rows: bool) -> StaticResult {
+    match args.first().map(run_static_analysis_on_node) {
+        None | Some(StaticResult::Scalar) => StaticResult::Scalar,
+        Some(StaticResult::Range(h, w)) => {
+            if (rows && h == 0) || (!rows && w == 0) {
+                StaticResult::Scalar
+            } else {
+                StaticResult::Array(h + 1, w + 1)
+            }
+        }
+        Some(StaticResult::Array(..)) | Some(StaticResult::Unknown) => StaticResult::Unknown,
+    }
+}
+
 fn static_analysis_indirect(_args: &[Node]) -> StaticResult {
     // We will always insert the @, but we don't need to do that in every scenario`
     StaticResult::Unknown
@@ -667,6 +685,14 @@ fn args_signature_offset(arg_count: usize) -> Vec<Signature> {
     } else {
         vec![Signature::Error; arg_count]
     }
+}
+
+// AGGREGATE(function_num, options, ref1|array, [ref2|k], …): two scalars,
+// then references or an array (no implicit intersection on those).
+fn args_signature_aggregate(arg_count: usize) -> Vec<Signature> {
+    let mut signature = vec![Signature::Scalar; arg_count.min(2)];
+    signature.extend(vec![Signature::Vector; arg_count.saturating_sub(2)]);
+    signature
 }
 
 fn args_signature_row(arg_count: usize) -> Vec<Signature> {
@@ -1259,6 +1285,7 @@ fn get_function_args_signature(kind: &Function, arg_count: usize) -> Vec<Signatu
         Function::Delta => args_signature_scalars(arg_count, 1, 1),
         Function::Gestep => args_signature_scalars(arg_count, 1, 1),
         Function::Subtotal => args_signature_npv(arg_count),
+        Function::Aggregate => args_signature_aggregate(arg_count),
         Function::Rand => args_signature_no_args(arg_count),
         Function::Randbetween => args_signature_scalars(arg_count, 2, 0),
         Function::Formulatext => args_signature_scalars(arg_count, 1, 0),
@@ -1653,7 +1680,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Atan2 => scalar_arguments(args),
         Function::Atanh => scalar_arguments(args),
         Function::Choose => scalar_arguments(args),
-        Function::Column => not_implemented(args),
+        Function::Column => static_analysis_row_column(args, false),
         Function::Columns => not_implemented(args),
         Function::Cos => scalar_arguments(args),
         Function::Cosh => scalar_arguments(args),
@@ -1706,7 +1733,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Lookup => not_implemented(args),
         Function::Match => not_implemented(args),
         Function::Offset => static_analysis_offset(args),
-        Function::Row => StaticResult::Scalar,
+        Function::Row => static_analysis_row_column(args, true),
         Function::Rows => not_implemented(args),
         Function::Vlookup => not_implemented(args),
         Function::Vstack => StaticResult::Unknown,
@@ -1930,6 +1957,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Delta => not_implemented(args),
         Function::Gestep => not_implemented(args),
         Function::Subtotal => not_implemented(args),
+        Function::Aggregate => StaticResult::Scalar,
         Function::Rand => not_implemented(args),
         Function::Randbetween => scalar_arguments(args),
         Function::Eomonth => scalar_arguments(args),

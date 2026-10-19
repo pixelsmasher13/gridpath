@@ -20,6 +20,7 @@ mod math_and_trigonometry;
 mod spill_functions;
 mod statistical;
 mod subtotal;
+mod aggregate;
 mod text;
 pub(crate) mod util;
 mod xlookup;
@@ -537,6 +538,7 @@ pub enum Function {
     Delta,
     Gestep,
     Subtotal,
+    Aggregate,
 
     // Database
     Daverage,
@@ -569,6 +571,10 @@ macro_rules! impl_function_lookup {
                         return Some(Function::$variant);
                     }
                 )*
+                // Not in the localized name tables (language.bin) yet: English in every language.
+                if key == "AGGREGATE" {
+                    return Some(Function::Aggregate);
+                }
                 None
             }
         }
@@ -1565,6 +1571,7 @@ impl Function {
             Function::Delta => functions.delta.clone(),
             Function::Gestep => functions.gestep.clone(),
             Function::Subtotal => functions.subtotal.clone(),
+            Function::Aggregate => "AGGREGATE".to_string(),
             Function::Daverage => functions.daverage.clone(),
             Function::Dcount => functions.dcount.clone(),
             Function::Dget => functions.dget.clone(),
@@ -1608,7 +1615,7 @@ impl Function {
         }
     }
 
-    pub fn into_iter() -> IntoIter<Function, 494> {
+    pub fn into_iter() -> IntoIter<Function, 495> {
         [
             Function::And,
             Function::False,
@@ -1942,6 +1949,7 @@ impl Function {
             Function::Delta,
             Function::Gestep,
             Function::Subtotal,
+            Function::Aggregate,
             Function::Roman,
             Function::Arabic,
             Function::Combin,
@@ -2116,6 +2124,7 @@ impl Function {
     pub fn to_xlsx_string(&self) -> String {
         match self {
             Function::Concat => "_xlfn.CONCAT".to_string(),
+            Function::Aggregate => "_xlfn.AGGREGATE".to_string(),
             Function::Ifna => "_xlfn.IFNA".to_string(),
             Function::Ifs => "_xlfn.IFS".to_string(),
             Function::Lambda => "_xlfn.LAMBDA".to_string(),
@@ -2600,6 +2609,7 @@ impl<'a> Model<'a> {
             Function::Delta => self.fn_delta(args, cell),
             Function::Gestep => self.fn_gestep(args, cell),
             Function::Subtotal => self.fn_subtotal(args, cell),
+            Function::Aggregate => self.fn_aggregate(args, cell),
             Function::Acot => self.fn_acot(args, cell),
             Function::Acoth => self.fn_acoth(args, cell),
             Function::Cot => self.fn_cot(args, cell),

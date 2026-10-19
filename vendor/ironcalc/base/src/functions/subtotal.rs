@@ -225,8 +225,8 @@ impl<'a> Model<'a> {
             107 => self.subtotal_stdevs(&args[1..], cell, SubTotalMode::SkipHidden),
             108 => self.subtotal_stdevp(&args[1..], cell, SubTotalMode::SkipHidden),
             109 => self.subtotal_sum(&args[1..], cell, SubTotalMode::SkipHidden),
-            110 => self.subtotal_vars(&args[1..], cell, SubTotalMode::Full),
-            111 => self.subtotal_varp(&args[1..], cell, SubTotalMode::Full),
+            110 => self.subtotal_vars(&args[1..], cell, SubTotalMode::SkipHidden),
+            111 => self.subtotal_varp(&args[1..], cell, SubTotalMode::SkipHidden),
             _ => CalcResult::new_error(
                 Error::VALUE,
                 cell,

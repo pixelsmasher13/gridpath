@@ -213,6 +213,12 @@ pub struct CellPatch {
     /// Clear contents, keep the cell's style.
     #[serde(default)]
     pub clear: bool,
+    /// Alone: the new evaluated result of the formula already in this cell
+    /// (a dependent that recalculated). Only the cached `<v>` and its type
+    /// change; the `<f>` stays byte-for-byte. Ignored for a cell that is not
+    /// a formula in the file, and never creates a cell.
+    #[serde(default)]
+    pub cache: Option<CellValue>,
 }
 
 #[derive(Debug, Deserialize)]

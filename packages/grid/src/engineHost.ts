@@ -108,6 +108,9 @@ export class EngineHost {
         return this.book().workbookIndex();
       case "queryRows":
         return this.book().queryRows(JSON.stringify(a.query));
+      case "recalculated":
+        // Formula cells this session changed, with current values (save-time cache refresh).
+        return JSON.parse(this.book().recalculatedCells());
       case "sheetCells":
         // Bytes, so the script sandbox can take them without a copy.
         return new TextEncoder().encode(this.book().sheetCells(a.sheet));

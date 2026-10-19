@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Spreadsheet, type AgentBatch, type Spreadsheet as SheetApi } from "gridpath";
+import { PendingChangesError, Spreadsheet, type AgentBatch, type Spreadsheet as SheetApi } from "gridpath";
 import { ask, type AgentEvent, type Message } from "./agentLoop";
 
 type Source = { key: number; name: string; file?: ArrayBuffer };
@@ -107,7 +107,14 @@ function App() {
   const download = useCallback(async () => {
     if (!sheet) return;
     setStatus("Saving…");
-    const blob = await sheet.saveBlob();
+    let blob: Blob;
+    try {
+      blob = await sheet.saveBlob();
+    } catch (err) {
+      // The AI's changes are reviewed first: save() refuses while any are pending.
+      if (err instanceof PendingChangesError) return setStatus(`Accept or reject the ${err.pending} pending change${err.pending === 1 ? "" : "s"} before saving.`);
+      throw err;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

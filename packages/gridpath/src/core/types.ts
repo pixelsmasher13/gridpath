@@ -325,4 +325,12 @@ export type SaveMirror = {
    * ExcelJS `worksheet.autoFilter`. Last entry per sheet wins.
    */
   autoFilters?: Array<{ sheet: string; range: string | null; columns?: AutoFilterColumn[] }>;
+  /**
+   * Current results of formulas this session recalculated (the engine's
+   * `recalculatedCells`, 0-based, live sheet names), in the patcher's
+   * cached-value shape. An edited formula without a value takes its result
+   * from here; any other formula cell gets its cached `<v>` refreshed, its
+   * `<f>` untouched, so readers that don't calculate see current numbers.
+   */
+  cacheRefresh?: Array<{ sheet: string; r: number; c: number; value: { t: "n"; n: number } | { t: "s"; s: string } | { t: "b"; b: boolean } | { t: "e"; e: string } }>;
 };

@@ -5,7 +5,8 @@
  * run each tool call through `run()`, and give the result back.
  *
  * Every write is applied at once and kept as a pending batch, highlighted
- * in the grid, until `accept` or `reject`. `save()` writes what is applied.
+ * in the grid, until `accept` or `reject`. `save()` refuses while any batch
+ * is pending, unless called with `{ includePending: true }`.
  */
 import { interpretToolCall } from "../../../gridpath/src/core/toolToMutation";
 import { expandCopy } from "../../../gridpath/src/core/copyRange";

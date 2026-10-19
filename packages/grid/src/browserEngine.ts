@@ -131,6 +131,12 @@ export class BrowserEngine implements GridEngine {
     return this.read(async () => JSON.parse(await this.rpc.call("queryRows", { query })));
   }
 
+  /** Formula cells this session's edits changed, with their current values,
+   * for the save patch's cached results (0-based, live sheet names). */
+  recalculatedCells(): Promise<Array<{ sheet: string; r: number; c: number; value: any }>> {
+    return this.read(() => this.rpc.call("recalculated"));
+  }
+
   /** One sheet's cells as engine JSON bytes (run_script's read model). */
   sheetCellsBuffer(sheet: number): Promise<ArrayBuffer> {
     return this.read(async () => {

@@ -440,6 +440,28 @@ fn test_pyopenxl_example() {
     assert_eq!(b1, "It is what it is");
 }
 
+// openpyxl writes absolute relationship targets ("/xl/comments/comment1.xml",
+// "/xl/tables/table1.xml"). Comments used to resolve as "xll/comments/…" and
+// the whole workbook failed to open.
+#[test]
+fn test_openpyxl_absolute_comment_and_table_targets() {
+    let mut model = load_from_xlsx("tests/openpyxl_comments.xlsx", "en", "UTC", "en").unwrap();
+    model.evaluate();
+
+    let data = &model.workbook.worksheets[0];
+    assert_eq!(data.comments.len(), 1);
+    assert_eq!(data.comments[0].cell_ref, "A1");
+    assert_eq!(data.comments[0].text, "check this");
+    assert_eq!(data.comments[0].author_name, "Reviewer");
+    assert_eq!(model.get_formatted_cell_value(0, 3, 1).unwrap(), "30");
+
+    let items = &model.workbook.worksheets[1];
+    assert_eq!(items.comments.len(), 1);
+    assert_eq!(items.comments[0].cell_ref, "B2");
+    assert!(model.workbook.tables.contains_key("Items"));
+    assert_eq!(model.get_formatted_cell_value(1, 1, 4).unwrap(), "1250");
+}
+
 fn assert_eq_ignoring_metadata_and_name(
     workbook1: ironcalc_base::types::Workbook,
     workbook2: ironcalc_base::types::Workbook,

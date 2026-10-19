@@ -549,6 +549,31 @@ export function buildWorkbookPatch(
     forSheet(af.sheet).autoFilter = af.range === null ? null : af.columns && af.columns.length ? { ref: af.range, columns: af.columns } : af.range; // string/object sets, null clears
   }
 
+  // --- cached results of recalculated formulas ---
+  if (mirror?.cacheRefresh?.length) {
+    const indexed = new Map<string, Map<string, any>>();
+    for (const cr of mirror.cacheRefresh) {
+      if (deletedSheets.has(cr.sheet)) continue;
+      const sp = forSheet(cr.sheet);
+      let byKey = indexed.get(cr.sheet);
+      if (!byKey) {
+        byKey = new Map((sp.cells ?? []).map((cell: any) => [`${cell.r},${cell.c}`, cell]));
+        indexed.set(cr.sheet, byKey);
+      }
+      const key = `${cr.r},${cr.c}`;
+      const written = byKey.get(key);
+      if (written) {
+        // An edited formula: its result rides along as the cached value.
+        // Literal and cleared cells are already right.
+        if (written.f !== undefined && written.v === undefined) written.v = cr.value;
+        continue;
+      }
+      const refresh = { r: cr.r, c: cr.c, cache: cr.value };
+      (sp.cells ??= []).push(refresh);
+      byKey.set(key, refresh);
+    }
+  }
+
   const sheets = [...sheetPatches.values()];
   const definedNames = (mirror?.definedNames ?? []).map((d: { name: string; ref: string }) => ({ name: d.name, ref: d.ref }));
   return {

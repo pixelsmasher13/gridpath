@@ -15,6 +15,7 @@
 pub mod diff;
 pub mod index;
 pub mod query;
+pub mod session;
 pub mod window;
 
 use ironcalc_base::cell::CellValue;

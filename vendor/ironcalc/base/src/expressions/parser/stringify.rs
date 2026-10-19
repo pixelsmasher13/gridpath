@@ -214,6 +214,24 @@ pub fn to_string_displaced(
 /// It uses A1 style if context is not None. If context is None it uses R1C1 style
 /// If full_row is true then the row details will be omitted in the A1 case
 /// If full_column is true then column details will be omitted.
+/// A span `(first, last)` after deleting `count` rows/columns from `at`,
+/// when the deletion covers one of its ends: `Some(None)` if it is deleted
+/// entirely, `Some(Some(new span))` otherwise. `None` when no end is
+/// deleted, so the ordinary per-end displacement applies.
+fn shrink_span(span: (i32, i32), at: i32, count: i32) -> Option<Option<(i32, i32)>> {
+    let (first, last) = span;
+    let deleted = |p: i32| p >= at && p < at + count;
+    if !deleted(first) && !deleted(last) {
+        return None;
+    }
+    if deleted(first) && deleted(last) {
+        return Some(None);
+    }
+    let first = if first < at { first } else if deleted(first) { at } else { first - count };
+    let last = if last < at { last } else if deleted(last) { at - 1 } else { last - count };
+    Some(Some((first, last)))
+}
+
 pub(crate) fn stringify_reference(
     context: Option<&CellReferenceRC>,
     displace_data: &DisplaceData,
@@ -571,6 +589,49 @@ fn stringify(
                 && *absolute_column2
                 && (*column1 == 1)
                 && (*column2 == LAST_COLUMN);
+            // Deleting rows/columns that cover an end of the range shrinks
+            // the range (Excel); only a range deleted entirely is #REF!.
+            // Displacing each end on its own would turn that end into #REF!.
+            if let Some(ctx) = context {
+                let abs = |r: i32, absolute: bool, base: i32| if absolute { r } else { r + base };
+                let rows = (abs(*row1, *absolute_row1, ctx.row), abs(*row2, *absolute_row2, ctx.row));
+                let columns = (abs(*column1, *absolute_column1, ctx.column), abs(*column2, *absolute_column2, ctx.column));
+                let shrunk = match displace_data {
+                    DisplaceData::Row { sheet, row, delta } if *delta < 0 && sheet_index == sheet && !full_row => {
+                        shrink_span(rows, *row, -*delta).map(|r| r.map(|r| (r, columns)))
+                    }
+                    DisplaceData::Column { sheet, column, delta } if *delta < 0 && sheet_index == sheet && !full_column => {
+                        shrink_span(columns, *column, -*delta).map(|c| c.map(|c| (rows, c)))
+                    }
+                    _ => None,
+                };
+                match shrunk {
+                    Some(None) => return "#REF!".to_string(),
+                    Some(Some(((r1, r2), (c1, c2)))) => {
+                        let rel = |v: i32, absolute: bool, base: i32| if absolute { v } else { v - base };
+                        let end = |name: &Option<String>, r: i32, c: i32, ar: bool, ac: bool| {
+                            stringify_reference(
+                                context,
+                                &DisplaceData::None,
+                                &Reference {
+                                    sheet_name: name,
+                                    sheet_index: *sheet_index,
+                                    row: rel(r, ar, ctx.row),
+                                    column: rel(c, ac, ctx.column),
+                                    absolute_row: ar,
+                                    absolute_column: ac,
+                                },
+                                full_row,
+                                full_column,
+                            )
+                        };
+                        let s1 = end(sheet_name, r1, c1, *absolute_row1, *absolute_column1);
+                        let s2 = end(&None, r2, c2, *absolute_row2, *absolute_column2);
+                        return format!("{s1}:{s2}");
+                    }
+                    None => {}
+                }
+            }
             let s1 = stringify_reference(
                 context,
                 displace_data,

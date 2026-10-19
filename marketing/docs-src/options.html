@@ -42,7 +42,7 @@ gridpath review &lt;file.xlsx&gt; [--port &lt;n&gt;]</code></pre>
 <tr><td><code>run_script</code></td><td>5 seconds of CPU, 20,000 written cells, 100 log entries of 4,000 characters.</td></tr>
 <tr><td>Write readback</td><td>The first 200 touched cells are returned.</td></tr>
 <tr><td>Formatting</td><td>Cell borders cannot be set in this version.</td></tr>
-<tr><td>Engine</td><td>AGGREGATE, GETPIVOTDATA, HYPERLINK, GROUPBY and PIVOTBY evaluate to <code>#NAME?</code> in the server. They are stored as written and Excel evaluates them on open.</td></tr>
+<tr><td>Engine</td><td>GETPIVOTDATA, HYPERLINK, GROUPBY and PIVOTBY evaluate to <code>#NAME?</code> in the server. They are stored as written and Excel evaluates them on open.</td></tr>
 </tbody>
 </table></div>
 

@@ -81,7 +81,7 @@ The workbook loads once per mount. To open another file, remount with a new
 | `setCells(sheet, [{ row, col, value }])` | Many cells in one step (0-based). |
 | `whenCalculated()` | Resolves when pending writes are recalculated. |
 | `select(sheet, "A1")`, `focus()` | Move the selection; give the grid keyboard focus. |
-| `save()`, `saveBlob()` | The workbook as `.xlsx`. |
+| `save()`, `saveBlob()` | The workbook as `.xlsx`. Throws `PendingChangesError` while agent changes await review; `{ includePending: true }` saves them anyway. |
 | `destroy()` | Unmount and stop the engine (`createSpreadsheet` only). |
 
 ### AI: your model, your key
@@ -163,18 +163,22 @@ worker), row/column/sheet structure, freeze, hide, merge, notes, sizes,
 define_name. Not included: tools that need the desktop app or the network
 (fetch_web, edgar_lookup, reference workbooks).
 
-`save()` writes every applied batch, pending or accepted; reject what you
-don't want first.
+`save()` refuses while changes are pending: it throws a
+`PendingChangesError` (with a `pending` count) until the user accepts or
+rejects them, so nothing unreviewed reaches the file by accident.
+`save({ includePending: true })` saves them anyway.
 
 ### How saving works
 
 Every save replays the session's changes (cells, formats, sizes, rows and
 columns, sheets, filters) onto the bytes the workbook was opened from. Parts
-the session did not touch are copied through unchanged. New formulas are
-written without a cached result and the file is marked for recalculation on
-open, which Excel honours; a reader that never calculates (pandas, openpyxl
-with `data_only=True`) sees those cells empty until the file has been opened
-and saved in a spreadsheet app.
+the session did not touch are copied through unchanged. Formulas carry
+their results: every new formula, and every formula the session's edits
+recalculated, is saved with its current result as the cached value (the
+formula text is left as it was), so a reader that never calculates (pandas,
+openpyxl with `data_only=True`, file previews) sees current numbers. Formulas
+the session did not affect keep the values Excel saved. The file is also
+marked for recalculation on open, which Excel honours.
 
 ### Compared with other embeddable spreadsheets
 
@@ -273,7 +277,7 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
 
 #### Claude Desktop (no terminal)
 
-Download [`gridpath-0.2.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.2.0/gridpath-0.2.0.mcpb)
+Download [`gridpath-0.2.1.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.2.1/gridpath-0.2.1.mcpb)
 and open it. Claude Desktop shows an install dialog where you pick the folders
 Claude may edit and whether saving requires review. Node is bundled; nothing else
 to install. Claude Desktop shows its standard "not verified" warning for any

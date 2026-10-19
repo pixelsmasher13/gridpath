@@ -46,6 +46,9 @@ pub struct Workbook {
     /// `openDeferred` and no `evaluatePending` yet: windows blank formulas
     /// the file cached nothing for, instead of showing the placeholder.
     pending_eval: bool,
+    /// Formula cells this session's edits changed: their cached results are
+    /// refreshed on save (`recalculatedCells`).
+    session: gridpath_engine_core::session::SessionChanges,
 }
 
 #[wasm_bindgen]
@@ -66,6 +69,7 @@ impl Workbook {
         Ok(Workbook {
             model,
             cached,
+            session: Default::default(),
             edited: Vec::new(),
             restyled: Vec::new(),
             needs_full_eval: false,
@@ -88,6 +92,7 @@ impl Workbook {
         Ok(Workbook {
             model,
             cached,
+            session: Default::default(),
             edited: Vec::new(),
             restyled: Vec::new(),
             needs_full_eval: true,
@@ -106,6 +111,7 @@ impl Workbook {
         }
         self.model.evaluate();
         self.reset_tracking();
+        self.session.discard_before();
         self.pending_eval = false;
         let m = self.model.get_model();
         let changed = gridpath_engine_core::diff::changed_vs_cached(m, &self.cached);
@@ -122,6 +128,7 @@ impl Workbook {
     /// path; this remains for callers that want the unconditional pass.
     pub fn evaluate(&mut self) {
         self.model.evaluate();
+        self.session.after_full_eval(self.model.get_model());
         self.reset_tracking();
     }
 
@@ -138,9 +145,12 @@ impl Workbook {
         let mut changed: Vec<(u32, i32, i32)> = Vec::new();
         if self.needs_full_eval {
             self.model.evaluate();
+            self.session.after_full_eval(self.model.get_model());
         } else if !edited.is_empty() {
             changed = self.model.get_model_mut().evaluate_edited(&edited);
         }
+        self.session.record(self.model.get_model(), &edited);
+        self.session.record(self.model.get_model(), &changed);
         let full = self.needs_full_snapshot;
         self.needs_full_eval = false;
         self.needs_full_snapshot = false;
@@ -172,6 +182,18 @@ impl Workbook {
         out.push_str(&serde_json::to_string(&table.styles).map_err(js_err)?);
         out.push('}');
         Ok(out)
+    }
+
+    fn sheet_id(&self, sheet: u32) -> Option<u32> {
+        self.model.get_model().workbook.worksheets.get(sheet as usize).map(|ws| ws.sheet_id)
+    }
+
+    /// The formula cells this session's edits changed, with their current
+    /// values, as cache refreshes for the save patch:
+    /// `[{"sheet","r","c","value":{"t":"n","n":…}}]` (0-based).
+    #[wasm_bindgen(js_name = recalculatedCells)]
+    pub fn recalculated_cells(&self) -> String {
+        self.session.refresh_json(self.model.get_model())
     }
 
     fn reset_tracking(&mut self) {
@@ -375,25 +397,41 @@ impl Workbook {
 
     #[wasm_bindgen(js_name = insertRows)]
     pub fn insert_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.insert_rows(sheet, row, count).map_err(js_err)?;
+        if let Some(id) = self.sheet_id(sheet) {
+            self.session.shift_rows(id, row, count);
+        }
         self.mark_structural();
         Ok(())
     }
     #[wasm_bindgen(js_name = deleteRows)]
     pub fn delete_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.delete_rows(sheet, row, count).map_err(js_err)?;
+        if let Some(id) = self.sheet_id(sheet) {
+            self.session.shift_rows(id, row, -count);
+        }
         self.mark_structural();
         Ok(())
     }
     #[wasm_bindgen(js_name = insertColumns)]
     pub fn insert_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.insert_columns(sheet, col, count).map_err(js_err)?;
+        if let Some(id) = self.sheet_id(sheet) {
+            self.session.shift_columns(id, col, count);
+        }
         self.mark_structural();
         Ok(())
     }
     #[wasm_bindgen(js_name = deleteColumns)]
     pub fn delete_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.delete_columns(sheet, col, count).map_err(js_err)?;
+        if let Some(id) = self.sheet_id(sheet) {
+            self.session.shift_columns(id, col, -count);
+        }
         self.mark_structural();
         Ok(())
     }
@@ -401,18 +439,24 @@ impl Workbook {
     /// Appends a new sheet and returns its index.
     #[wasm_bindgen(js_name = newSheet)]
     pub fn new_sheet(&mut self) -> Result<u32, JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.new_sheet().map_err(js_err)?;
         self.mark_structural();
         Ok(self.model.get_worksheets_properties().len() as u32 - 1)
     }
     #[wasm_bindgen(js_name = renameSheet)]
     pub fn rename_sheet(&mut self, sheet: u32, name: &str) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
         self.model.rename_sheet(sheet, name).map_err(js_err)?;
         self.mark_structural();
         Ok(())
     }
     #[wasm_bindgen(js_name = deleteSheet)]
     pub fn delete_sheet(&mut self, sheet: u32) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
+        if let Some(id) = self.sheet_id(sheet) {
+            self.session.remove_sheet(id);
+        }
         self.model.delete_sheet(sheet).map_err(js_err)?;
         self.mark_structural();
         Ok(())

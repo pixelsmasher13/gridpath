@@ -296,21 +296,40 @@ fn load_comments<R: Read + std::io::Seek>(
         .root()
         .first_child()
         .ok_or_else(|| XlsxError::Xml("Corrupt XML structure".to_string()))?;
+    // <authors><author>Name</author>…</authors>; comments point into it by index.
+    let authors = ws
+        .children()
+        .find(|n| n.has_tag_name("authors"))
+        .map(|a| {
+            a.children()
+                .filter(|n| n.has_tag_name("author"))
+                .map(|n| n.text().unwrap_or("").to_string())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
     let comment_list = ws
         .children()
         .filter(|n| n.has_tag_name("commentList"))
         .collect::<Vec<Node>>();
     if comment_list.len() == 1 {
-        for comment in comment_list[0].children() {
+        // Element children only: pretty-printed parts have whitespace text nodes.
+        for comment in comment_list[0]
+            .children()
+            .filter(|n| n.has_tag_name("comment"))
+        {
             let text = comment
                 .descendants()
                 .filter(|n| n.has_tag_name("t"))
-                .map(|n| n.text().unwrap().to_string())
+                .map(|n| n.text().unwrap_or("").to_string())
                 .collect::<Vec<String>>()
                 .join("");
             let cell_ref = get_attribute(&comment, "ref")?.to_string();
-            // TODO: Read author_name from the list of authors
-            let author_name = "".to_string();
+            let author_name = comment
+                .attribute("authorId")
+                .and_then(|id| id.parse::<usize>().ok())
+                .and_then(|id| authors.get(id))
+                .cloned()
+                .unwrap_or_default();
             comments.push(Comment {
                 text,
                 author_name,
@@ -607,6 +626,26 @@ fn get_cell_from_excel(
     }
 }
 
+/// Resolves a relationship target against the directory of the part that
+/// owns the relationship ("xl/worksheets/"). Absolute targets start at the
+/// package root.
+fn resolve_rel_target(base_dir: &str, target: &str) -> String {
+    if let Some(absolute) = target.strip_prefix('/') {
+        return absolute.to_string();
+    }
+    let mut segments: Vec<&str> = base_dir.split('/').filter(|s| !s.is_empty()).collect();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            s => segments.push(s),
+        }
+    }
+    segments.join("/")
+}
+
 fn load_sheet_rels<R: Read + std::io::Seek>(
     archive: &mut zip::read::ZipArchive<R>,
     path: &str,
@@ -615,12 +654,12 @@ fn load_sheet_rels<R: Read + std::io::Seek>(
 ) -> Result<Vec<Comment>, XlsxError> {
     // ...xl/worksheets/sheet6.xml -> xl/worksheets/_rels/sheet6.xml.rels
     let mut comments = Vec::new();
-    let v: Vec<&str> = path.split("/worksheets/").collect();
-    let mut path = v[0].to_string();
-    path.push_str("/worksheets/_rels/");
-    path.push_str(v[1]);
-    path.push_str(".rels");
-    let file = archive.by_name(&path);
+    let (base_dir, file_name) = match path.rfind('/') {
+        Some(i) => (&path[..=i], &path[i + 1..]),
+        None => ("", path),
+    };
+    let rels_path = format!("{base_dir}_rels/{file_name}.rels");
+    let file = archive.by_name(&rels_path);
     if file.is_err() {
         return Ok(comments);
     }
@@ -638,21 +677,12 @@ fn load_sheet_rels<R: Read + std::io::Seek>(
     for rel in rels {
         let t = get_attribute(&rel, "Type")?.to_string();
         if t.ends_with("comments") {
-            let mut target = get_attribute(&rel, "Target")?.to_string();
-            // Target="../comments1.xlsx"
-            target.replace_range(..2, v[0]);
+            // Target="../comments1.xml", or absolute ("/xl/comments/comment1.xml", openpyxl)
+            let target = resolve_rel_target(base_dir, get_attribute(&rel, "Target")?);
             comments = load_comments(archive, &target)?;
         } else if t.ends_with("table") {
-            let mut target = get_attribute(&rel, "Target")?.to_string();
-
-            let path = if let Some(p) = target.strip_prefix('/') {
-                p.to_string()
-            } else {
-                // Target="../table1.xlsx"
-                target.replace_range(..2, v[0]);
-                target
-            };
-
+            // Target="../tables/table1.xml" or "/xl/tables/table1.xml"
+            let path = resolve_rel_target(base_dir, get_attribute(&rel, "Target")?);
             let table = load_table(archive, &path, sheet_name)?;
             tables.insert(table.name.clone(), table);
         }

@@ -1281,3 +1281,54 @@ fn sheet_visibility_sets_and_clears_state_and_keeps_one_visible() {
     let p3 = patch(&format!(r#""sheetOps":[{ops}]"#));
     assert!(apply_patch_json(&base, &p3).is_err());
 }
+
+/// `cache` alone refreshes a formula's cached result (a dependent that
+/// recalculated): the `<f>` stays byte-for-byte, only `<v>` and `t` change.
+/// A literal cell is left alone, a missing cell is not created, and a
+/// shared-formula group is not materialized by a refresh.
+#[test]
+fn cache_refresh_replaces_only_the_cached_value() {
+    let base = fixture();
+    let p = patch(
+        r#""sheets":[{"name":"Alpha","cells":[
+            {"r":0,"c":1,"cache":{"t":"n","n":42}},
+            {"r":1,"c":1,"cache":{"t":"n","n":12}},
+            {"r":1,"c":2,"cache":{"t":"s","s":"x<y"}},
+            {"r":0,"c":0,"cache":{"t":"n","n":7}},
+            {"r":6,"c":0,"cache":{"t":"n","n":7}}
+        ]}]"#,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    assert_untouched_identical(
+        &base,
+        &out,
+        &["xl/worksheets/sheet1.xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml"],
+        &["xl/calcChain.xml"],
+    );
+    let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(sheet.contains(r#"<c r="B1"><f>A1*10</f><v>42</v></c>"#), "plain formula: {sheet}");
+    assert!(sheet.contains(r#"<c r="B2"><f t="shared" ref="B2:D2" si="0">A2*2</f><v>12</v></c>"#), "shared master: {sheet}");
+    assert!(sheet.contains(r#"<c r="C2" t="str"><f t="shared" si="0"/><v>x&lt;y</v></c>"#), "shared member, string: {sheet}");
+    assert!(sheet.contains(r#"<c r="D2"><f t="shared" si="0"/><v>30</v></c>"#), "untouched member: {sheet}");
+    assert!(sheet.contains(r#"<c r="A1"><v>1</v></c>"#), "literal kept: {sheet}");
+    assert!(!sheet.contains(r#"r="A7""#) && !sheet.contains(r#"<row r="7""#), "nothing created: {sheet}");
+}
+
+/// A refreshed member of a group that must materialize (another member was
+/// edited) is written whole: the translated formula with its new result.
+#[test]
+fn cache_refresh_on_a_materialized_shared_member() {
+    let base = fixture();
+    let p = patch(
+        r#""sheets":[{"name":"Alpha","cells":[
+            {"r":1,"c":2,"v":{"t":"n","n":123}},
+            {"r":1,"c":3,"cache":{"t":"b","b":true}}
+        ]}]"#,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(sheet.contains(r#"<c r="B2"><f>A2*2</f><v>10</v></c>"#), "master materialized: {sheet}");
+    assert!(sheet.contains(r#"<c r="C2"><v>123</v></c>"#), "edited member: {sheet}");
+    assert!(sheet.contains(r#"<c r="D2" t="b"><f>C2*2</f><v>1</v></c>"#), "refreshed member: {sheet}");
+    assert!(!sheet.contains("t=\"shared\""), "{sheet}");
+}

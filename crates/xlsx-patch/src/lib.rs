@@ -177,7 +177,11 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                     cm: if cp.f.is_some() { dyn_cm } else { None },
                 },
             );
-            content_cells.insert((cp.r, cp.c));
+            // A cache refresh keeps the cell's formula: it does not make a
+            // shared-formula group need materializing.
+            if !(cp.f.is_none() && cp.v.is_none() && !cp.clear && cp.cache.is_some()) {
+                content_cells.insert((cp.r, cp.c));
+            }
         }
 
         // --- shared formula materialization ---
@@ -198,14 +202,14 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
                 let dr = member.0 as i64 - group.master.0 as i64;
                 let dc = member.1 as i64 - group.master.1 as i64;
                 let translated = refs::shift_formula(&group.formula, dr, dc)?;
-                rows.entry(member.0).or_default().cells.insert(
-                    member.1,
-                    CellAction {
-                        style: None,
-                        content: CellContent::MaterializeFormula(translated),
-                        cm: None,
-                    },
-                );
+                let cells = &mut rows.entry(member.0).or_default().cells;
+                // A member whose cache is being refreshed is written whole:
+                // the plain formula with its new result.
+                let content = match cells.remove(&member.1) {
+                    Some(CellAction { content: CellContent::RefreshCache(v), .. }) => CellContent::Formula(translated, Some(v)),
+                    _ => CellContent::MaterializeFormula(translated),
+                };
+                cells.insert(member.1, CellAction { style: None, content, cm: None });
             }
         }
 
@@ -311,6 +315,16 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
     store.finish()
 }
 
+fn cached_value(v: &CellValue) -> Option<CachedValue> {
+    match v {
+        CellValue::Number { n } if n.is_finite() => Some(CachedValue::Number(*n)),
+        CellValue::Number { .. } => None,
+        CellValue::Str { s } => Some(CachedValue::Str(s.clone())),
+        CellValue::Bool { b } => Some(CachedValue::Bool(*b)),
+        CellValue::Error { e } => Some(CachedValue::Error(e.clone())),
+    }
+}
+
 fn cell_content(cp: &CellPatch) -> Result<CellContent, PatchError> {
     if let Some(f) = &cp.f {
         let trimmed = f.trim_start_matches('=');
@@ -321,13 +335,7 @@ fn cell_content(cp: &CellPatch) -> Result<CellContent, PatchError> {
         // the file so reopening in-app doesn't force a full recalculation.
         // An unencodable cached value is dropped, never an error: the cache
         // is a perf optimization, the formula is the content.
-        let cached = match &cp.v {
-            Some(CellValue::Number { n }) if n.is_finite() => Some(CachedValue::Number(*n)),
-            Some(CellValue::Str { s }) => Some(CachedValue::Str(s.clone())),
-            Some(CellValue::Bool { b }) => Some(CachedValue::Bool(*b)),
-            Some(CellValue::Error { e }) => Some(CachedValue::Error(e.clone())),
-            _ => None,
-        };
+        let cached = cp.v.as_ref().and_then(cached_value);
         return Ok(CellContent::Formula(trimmed.to_string(), cached));
     }
     if let Some(v) = &cp.v {
@@ -345,6 +353,12 @@ fn cell_content(cp: &CellPatch) -> Result<CellContent, PatchError> {
     }
     if cp.clear {
         return Ok(CellContent::Clear);
+    }
+    if let Some(v) = &cp.cache {
+        return match cached_value(v) {
+            Some(cached) => Ok(CellContent::RefreshCache(cached)),
+            None => Err(PatchError::BadValue(format!("unencodable cached value at r{} c{}", cp.r, cp.c))),
+        };
     }
     Err(PatchError::BadValue(format!(
         "cell patch at r{} c{} has no content",

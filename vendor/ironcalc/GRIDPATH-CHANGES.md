@@ -382,3 +382,42 @@ SUMIFS sheet, successive edits, changed-only reporting). Checked against a
 full evaluate on real models with `crates/engine-wasm/examples/incremental_check`
 (160 random-input trials on the analyst model, 6 on the large model: 0 wrong cells,
 0 unreported changes).
+
+## openpyxl comments, AGGREGATE, ROW/COLUMN in plain cells, deletes shrink ranges (2026-10-19)
+
+- Import: openpyxl writes absolute relationship targets
+  (`/xl/comments/comment1.xml`). Comments resolved `Target` by replacing its
+  first two characters with `xl`, giving `xll/comments/…`, and the whole
+  workbook failed to open ("specified file not found in archive"). Comment
+  and table targets now resolve like every other part (absolute from the
+  package root, relative against the sheet's directory); the sheet's rels
+  path no longer assumes `/worksheets/`. Comments also get their author
+  (it was a TODO, always ""), skip whitespace text nodes in pretty-printed
+  parts (which failed the open), and an empty `<t/>` no longer panics.
+  `xlsx/import/worksheets.rs`; test `test_openpyxl_absolute_comment_and_table_targets`
+  with `tests/openpyxl_comments.xlsx`.
+- AGGREGATE (was `#NAME?`): all 19 functions and 8 options; hidden rows
+  include filtered ones; nested SUBTOTAL/AGGREGATE cells skipped for options
+  0-3; functions 1-13 take references (an array is `#VALUE!`, as in Excel),
+  14-19 take an array and k, so `AGGREGATE(15,6,ROW(r)/(cond),k)` works.
+  Errors kept by options 0/1/4/5 are returned, except by COUNT (ignores them)
+  and COUNTA (counts them). The name is resolved in code (the localized name
+  tables in `language.bin` have no entry yet: English in every language) and
+  written as `_xlfn.AGGREGATE`. `functions/aggregate.rs`; tests
+  `test_fn_aggregate.rs` (Microsoft's documented example among them).
+- SUBTOTAL 110/111 (VAR.S/VAR.P) now skip hidden rows like the other 100s.
+- ROW/COLUMN of a multi-cell range (an array since 2026-10-06) gave `#VALUE!`
+  in a plain cell: the upstream `ROW_COLUMN` workbook test failed 21 cells.
+  A file's plain `=ROW(L3:Q8)` shows the first row (3), as in Excel; `@` of
+  any array is its top-left value (`=@ROW(INDIRECT("D5:E7"))` is 5); and a
+  typed `=ROW(A1:A3)` is recognised as spilling (static analysis), as in
+  Excel 365. Other array results in plain cells stay `#VALUE!`.
+- Deleting rows or columns that cover an end of a range shrinks the range
+  (`SUM(A1:A3)`, delete row 1 → `SUM(A1:A2)`), as in Excel and as the
+  in-place saver already did; only a range deleted entirely is `#REF!`. Each
+  end used to be displaced on its own, so the deleted end became `#REF!`
+  (`SUM(#REF!:A2)`) and every formula over that range broke.
+  `parser/stringify.rs shrink_span`; upstream's `test_delete_columns` FIXME
+  resolved (its suggested `E4:K4` was off by the deleted columns: `D4:K4`).
+
+base: 2240 tests pass; xlsx: 219 workbook tests pass, ROW_COLUMN included.

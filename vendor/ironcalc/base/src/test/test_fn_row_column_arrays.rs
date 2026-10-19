@@ -53,3 +53,32 @@ fn test_row_column_arrays() {
     assert_eq!(model._get_text("D10"), *"5,1");
     assert_eq!(model._get_text("D11"), *"-5----1");
 }
+
+/// A typed `=ROW(range)` / `=COLUMN(range)` spills like Excel 365; `@` of an
+/// array is its top-left value; a one-row ROW (one-column COLUMN) stays a
+/// plain scalar cell.
+#[test]
+fn test_row_column_spill_and_implicit_intersection() {
+    let mut model = new_empty_model();
+    model._set("A1", "=ROW(C3:C5)");
+    model._set("B1", "=COLUMN(C7:E7)");
+    model._set("A6", "=@ROW(C3:C5)");
+    model._set("A7", "=@COLUMN(C7:E7)");
+    model._set("A8", "=ROW(C9:E9)");
+    model._set("A9", "=COLUMN(F1:F4)");
+    model._set("A10", "=SUM(ROW(C3:C5))");
+    model._set("A11", "=@{7,8,9}");
+    model.evaluate();
+    assert_eq!(model._get_text("A1"), *"3");
+    assert_eq!(model._get_text("A2"), *"4");
+    assert_eq!(model._get_text("A3"), *"5");
+    assert_eq!(model._get_text("B1"), *"3");
+    assert_eq!(model._get_text("C1"), *"4");
+    assert_eq!(model._get_text("D1"), *"5");
+    assert_eq!(model._get_text("A6"), *"3");
+    assert_eq!(model._get_text("A7"), *"3");
+    assert_eq!(model._get_text("A8"), *"9");
+    assert_eq!(model._get_text("A9"), *"6");
+    assert_eq!(model._get_text("A10"), *"12");
+    assert_eq!(model._get_text("A11"), *"7");
+}

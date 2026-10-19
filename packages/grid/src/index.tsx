@@ -45,6 +45,23 @@ export interface CellValue {
   formula: string | null;
 }
 
+export interface SaveOptions {
+  /** Save agent changes the user has not accepted yet. Default false:
+   * `save()` throws a `PendingChangesError` while any are pending. */
+  includePending?: boolean;
+}
+
+/** `save()` was called while agent changes were pending review. */
+export class PendingChangesError extends Error {
+  /** How many batches are pending. */
+  readonly pending: number;
+  constructor(pending: number) {
+    super(`${pending} agent change${pending === 1 ? " is" : "s are"} pending review: accept or reject ${pending === 1 ? "it" : "them"} before saving, or save with { includePending: true }`);
+    this.name = "PendingChangesError";
+    this.pending = pending;
+  }
+}
+
 export interface Spreadsheet {
   /** Sheet names in workbook order. */
   getSheetNames(): string[];
@@ -61,10 +78,13 @@ export interface Spreadsheet {
   /** Give the grid keyboard focus (typing then edits the selected cell). */
   focus(): void;
   /** The workbook as .xlsx bytes: the original file with this session's
-   * changes patched in (for a blank workbook, a new file). */
-  save(): Promise<Uint8Array>;
+   * changes patched in (for a blank workbook, a new file). While agent
+   * changes are pending review it throws a `PendingChangesError`: accept or
+   * reject them first (`ai.accept()`, `ai.reject()`), or pass
+   * `{ includePending: true }` to save them unreviewed. */
+  save(options?: SaveOptions): Promise<Uint8Array>;
   /** `save()` as a Blob with the .xlsx media type, ready to download or upload. */
-  saveBlob(): Promise<Blob>;
+  saveBlob(options?: SaveOptions): Promise<Blob>;
   /** Unmount the grid and stop the engine. */
   destroy(): void;
   /** GridPath's agent tools over this workbook: give `ai.tools()` to your
@@ -162,7 +182,10 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
           grid.jumpToCell(sheet, row, col);
         },
         focus: () => hostRef.current?.querySelector<HTMLElement>("[tabindex='0']")?.focus(),
-        save: async () => {
+        save: async (options) => {
+          // Review comes first: unaccepted agent edits are not saved by accident.
+          const pending = ai.list().filter((b) => b.status === "pending").length;
+          if (pending && !options?.includePending) throw new PendingChangesError(pending);
           // Formula results are cached into the file: let recalculation
           // finish first, or the file would reopen with stale numbers.
           await grid.whenCalculated(30_000);
@@ -171,12 +194,15 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
           // ops (as on the desktop); the user's own sheet-tab ops follow.
           const mirror = buildSaveMirror(ai.appliedBatches());
           if (sheetOps.current.length) mirror.sheetOps = [...(mirror.sheetOps ?? []), ...sheetOps.current];
+          // Current results of every formula this session recalculated (new
+          // ones included), cached into the file for readers that don't calculate.
+          mirror.cacheRefresh = await engine.recalculatedCells();
           const built = grid.exportPatch(mirror as any);
           if (!built.ok) throw new Error(`cannot save: ${built.reason}${(built as any).detail ? ` (${(built as any).detail})` : ""}`);
           // Every save replays the whole session onto the ORIGINAL bytes.
           return engine.patch(base, JSON.stringify(built.patch));
         },
-        saveBlob: async () => new Blob([(await api.save()) as BlobPart], { type: XLSX_TYPE }),
+        saveBlob: async (options) => new Blob([(await api.save(options)) as BlobPart], { type: XLSX_TYPE }),
         destroy: () => {
           throw new Error("destroy() is only available from createSpreadsheet(); unmount the component instead");
         },

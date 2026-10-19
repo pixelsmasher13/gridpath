@@ -97,6 +97,10 @@ pub enum CellContent {
     /// with this plain formula text but keep the cell's other children
     /// (notably the cached `<v>`).
     MaterializeFormula(String),
+    /// A formula's new evaluated result: replace the cell's `<v>` (and its
+    /// `t`), keep the `<f>` and everything else. A cell without `<f>` in
+    /// the file is left alone; a missing cell is not created.
+    RefreshCache(CachedValue),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -609,6 +613,13 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                                         buf.clear();
                                         continue;
                                     }
+                                    CellContent::RefreshCache(value) => {
+                                        let start = e.to_owned();
+                                        let children = read_cell_children(&mut r)?;
+                                        write_refreshed_cell(&mut w, start, children, value)?;
+                                        buf.clear();
+                                        continue;
+                                    }
                                     CellContent::Keep => {
                                         // Style-only: retag, keep contents.
                                         let start = match action.style {
@@ -764,6 +775,12 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                             }
                             if let Some(action) = work.cells.get(&rc.1) {
                                 rs.emitted.insert(rc.1);
+                                if matches!(action.content, CellContent::RefreshCache(_)) {
+                                    // No <f> in an empty cell: nothing to refresh.
+                                    w.write_event(Event::Empty(e)).map_err(xml_err)?;
+                                    buf.clear();
+                                    continue;
+                                }
                                 if matches!(action.content, CellContent::Keep) {
                                     // Style-only on an empty cell: retag it.
                                     let start = match action.style {
@@ -892,7 +909,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
 /// cell (that's how a style lands on a blank cell), so only Materialize is
 /// existing-only.
 fn action_targets_existing_only(action: &CellAction) -> bool {
-    matches!(action.content, CellContent::MaterializeFormula(_))
+    matches!(action.content, CellContent::MaterializeFormula(_) | CellContent::RefreshCache(_))
 }
 
 fn flush_inserts_before(
@@ -952,6 +969,11 @@ fn write_full_row(
     work: &RowWork,
     scan: &ScanResult,
 ) -> Result<(), PatchError> {
+    // Only existing-only actions (cache refreshes, materializations) and no
+    // row properties: the row isn't in the file, and nothing creates it.
+    if work.height.is_none() && work.hidden.is_none() && work.cells.values().all(action_targets_existing_only) {
+        return Ok(());
+    }
     let mut start = BytesStart::new("row");
     start.push_attribute(("r", (row + 1).to_string().as_str()));
     if let Some(h) = work.height {
@@ -1075,6 +1097,117 @@ fn write_cell(
             w.write_event(Event::Start(c)).map_err(xml_err)?;
             write_simple(w, "f", f)?;
             w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+        }
+        CellContent::RefreshCache(_) => {
+            // Existing-only (`action_targets_existing_only`), handled where
+            // the original cell is read.
+            return Err(PatchError::Xml(format!("cache refresh for a new cell {}", format_cell_ref(row, col))));
+        }
+    }
+    Ok(())
+}
+
+/// The events inside a `<c>` whose start tag was just read, up to and
+/// including its end tag (cells are small; this is the only buffering).
+fn read_cell_children(r: &mut quick_xml::Reader<&[u8]>) -> Result<Vec<Event<'static>>, PatchError> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    let mut depth = 0usize;
+    loop {
+        let ev = r
+            .read_event_into(&mut buf)
+            .map_err(|e| PatchError::Xml(format!("rewrite: {e}")))?
+            .into_owned();
+        match &ev {
+            Event::Start(_) => depth += 1,
+            Event::End(_) if depth == 0 => {
+                out.push(ev);
+                return Ok(out);
+            }
+            Event::End(_) => depth -= 1,
+            Event::Eof => return Err(PatchError::Xml("unterminated <c>".into())),
+            _ => {}
+        }
+        out.push(ev);
+        buf.clear();
+    }
+}
+
+/// A formula cell with its cached result replaced: `t` follows the value
+/// (str / b / e, none for numbers), the old `<v>` goes, the new one is
+/// written right after `<f>`, every other child is kept. A cell without
+/// `<f>` is written back exactly as read.
+fn write_refreshed_cell(
+    w: &mut Writer<Vec<u8>>,
+    start: BytesStart<'static>,
+    children: Vec<Event<'static>>,
+    value: &CachedValue,
+) -> Result<(), PatchError> {
+    let has_formula = children.iter().any(|ev| match ev {
+        Event::Start(e) | Event::Empty(e) => local_name(e.name().as_ref()) == b"f",
+        _ => false,
+    });
+    if !has_formula {
+        w.write_event(Event::Start(start)).map_err(xml_err)?;
+        for ev in children {
+            w.write_event(ev).map_err(xml_err)?;
+        }
+        return Ok(());
+    }
+    let name = String::from_utf8_lossy(start.name().as_ref()).into_owned();
+    let mut c = BytesStart::new(name);
+    for attr in start.attributes().with_checks(false).flatten() {
+        if attr.key.as_ref() != b"t" {
+            c.push_attribute(attr);
+        }
+    }
+    match value {
+        CachedValue::Str(_) => c.push_attribute(("t", "str")),
+        CachedValue::Bool(_) => c.push_attribute(("t", "b")),
+        CachedValue::Error(_) => c.push_attribute(("t", "e")),
+        CachedValue::Number(_) => {}
+    }
+    w.write_event(Event::Start(c)).map_err(xml_err)?;
+    let mut depth = 0usize;
+    let mut skip_v = false;
+    let mut in_f = false;
+    for ev in children {
+        match &ev {
+            Event::Start(e) if depth == 0 && local_name(e.name().as_ref()) == b"v" => {
+                skip_v = true;
+                depth += 1;
+                continue;
+            }
+            Event::Empty(e) if depth == 0 && local_name(e.name().as_ref()) == b"v" => continue,
+            Event::End(_) if skip_v && depth == 1 => {
+                skip_v = false;
+                depth -= 1;
+                continue;
+            }
+            _ if skip_v => continue,
+            _ => {}
+        }
+        let closes_f = matches!(&ev, Event::End(e) if depth == 1 && in_f && local_name(e.name().as_ref()) == b"f");
+        let empty_f = matches!(&ev, Event::Empty(e) if depth == 0 && local_name(e.name().as_ref()) == b"f");
+        match &ev {
+            Event::Start(e) => {
+                if depth == 0 && local_name(e.name().as_ref()) == b"f" {
+                    in_f = true;
+                }
+                depth += 1;
+            }
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        w.write_event(ev).map_err(xml_err)?;
+        if closes_f || empty_f {
+            in_f = false;
+            match value {
+                CachedValue::Number(n) => write_simple(w, "v", &trim_float(*n))?,
+                CachedValue::Str(s) => write_simple(w, "v", &sanitize_xlsx_text(s))?,
+                CachedValue::Bool(b) => write_simple(w, "v", if *b { "1" } else { "0" })?,
+                CachedValue::Error(e) => write_simple(w, "v", e)?,
+            }
         }
     }
     Ok(())

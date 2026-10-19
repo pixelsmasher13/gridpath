@@ -1215,6 +1215,23 @@ impl<'a> Model<'a> {
                         ),
                     }
                 }
+                // `@` of an array is its top-left value (Excel: `=@{1,2,3}` is 1;
+                // `=@ROW(INDIRECT("D5:E7"))` is 5).
+                CalcResult::Array(array) => match array.first().and_then(|row| row.first()) {
+                    Some(ArrayNode::Number(n)) => CalcResult::Number(*n),
+                    Some(ArrayNode::Boolean(b)) => CalcResult::Boolean(*b),
+                    Some(ArrayNode::String(s)) => CalcResult::String(s.clone()),
+                    Some(ArrayNode::Error(error)) => {
+                        let message = error.to_localized_error_string(self.language);
+                        CalcResult::new_error(error.clone(), cell, message)
+                    }
+                    Some(ArrayNode::Empty) => CalcResult::EmptyCell,
+                    None => CalcResult::new_error(
+                        Error::CALC,
+                        cell,
+                        "Implicit intersection of an empty array".to_string(),
+                    ),
+                },
                 _ => self.evaluate_node_in_context(child, cell),
             },
             LambdaDefKind { parameters, body } => {
@@ -1440,7 +1457,23 @@ impl<'a> Model<'a> {
                     // do not have that array/dynamic context, so neither behavior is
                     // available here; picking [0][0] could silently produce wrong results.
                     // Emit #VALUE! instead so the divergence is visible.
-                    let coerced = if array_width == 1 && array_height == 1 {
+                    // Exception: ROW/COLUMN as the whole formula. In a plain
+                    // (non-array) cell Excel shows the first row / column of
+                    // the reference (`=ROW(L3:Q8)` is 3); files written by
+                    // Excel store those cells without an array flag.
+                    let first_of_row_column = matches!(
+                        self.parsed_formulas
+                            .get(sheet as usize)
+                            .and_then(|f| f.get(formula as usize)),
+                        Some((
+                            Node::FunctionKind {
+                                kind: crate::functions::Function::Row | crate::functions::Function::Column,
+                                ..
+                            },
+                            _
+                        ))
+                    );
+                    let coerced = if (array_width == 1 && array_height == 1) || first_of_row_column {
                         match self.get_value_from_array(array, 1, 1) {
                             Some(node) => array_node_to_formula_value(node),
                             None => FormulaValue::Error {

@@ -94,7 +94,7 @@
     <li><a href="/docs/tools">All tools</a></li>
     <li><a href="/docs/options">CLI options and limits</a></li>
   </ul>
-  <p class="docs-nav-version">gridpath 0.2.0</p>
+  <p class="docs-nav-version">gridpath 0.2.1</p>
 </nav>
       </aside>
       <article class="docs-body legal post">
@@ -176,7 +176,7 @@
 <p>For anything larger than 500 cells, use <code>query_rows</code>, or read inside a <a href="/docs/run-script"><code>run_script</code></a>, where reads are unbudgeted.</p>
 
 <h2 id="engine">What the engine evaluates</h2>
-<p>Dynamic arrays and spills (FILTER, UNIQUE, SORT, SORTBY, SEQUENCE, VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS, CHOOSEROWS, TOCOL, WRAPROWS), LET and LAMBDA with MAP, BYROW and SCAN, XLOOKUP, the IFS family, SUMPRODUCT, TEXTJOIN over arrays, OFFSET and INDIRECT, date and finance functions, RANK, PERCENTILE, QUARTILE, MEDIAN and STDEV. Not implemented and returning <code>#NAME?</code>: AGGREGATE, GETPIVOTDATA, HYPERLINK, GROUPBY, PIVOTBY. Formulas are stored as written, so Excel recalculates them on open regardless.</p>
+<p>Dynamic arrays and spills (FILTER, UNIQUE, SORT, SORTBY, SEQUENCE, VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS, CHOOSEROWS, TOCOL, WRAPROWS), LET and LAMBDA with MAP, BYROW and SCAN, XLOOKUP, the IFS family, SUMPRODUCT, TEXTJOIN over arrays, OFFSET and INDIRECT, date and finance functions, RANK, PERCENTILE, QUARTILE, MEDIAN, STDEV, SUBTOTAL and AGGREGATE. Not implemented and returning <code>#NAME?</code>: GETPIVOTDATA, HYPERLINK, GROUPBY, PIVOTBY. Formulas are stored as written, so Excel recalculates them on open regardless.</p>
         <p class="docs-foot">Found a mistake? <a href="https://github.com/pixelsmasher13/gridpath/issues" rel="noopener" target="_blank">Open an issue</a> or email <a href="mailto:support@gridpath.dev">support@gridpath.dev</a>.</p>
       </article>
     </div>
