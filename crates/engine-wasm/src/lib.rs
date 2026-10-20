@@ -184,6 +184,92 @@ impl Workbook {
         Ok(out)
     }
 
+    /// Formula cells showing the value the file saved instead of a calculated
+    /// one, in (sheet, row, column) order, at most `limit`: the ones the
+    /// engine keeps as constants (unknown functions, links to other
+    /// workbooks, unparsed syntax) and the ones whose calculated result is an
+    /// error or empty where the file had a value. JSON
+    /// `[{"sheet","row","col" (0-based),"formula","shown","live","why","name"?}]`
+    /// with `why` one of "function" (`name` is the function), "link",
+    /// "syntax", "error".
+    #[wasm_bindgen(js_name = fileSavedCells)]
+    pub fn file_saved_cells(&self, limit: usize) -> String {
+        let m = self.model.get_model();
+        let mut found: Vec<((u32, i32, i32), serde_json::Value)> = Vec::new();
+        for (sheet, row, col, reason) in m.imported_value_cells(limit) {
+            found.push(((sheet, row, col), self.issue_json(sheet, row, col, Some(reason))));
+        }
+        let mut keys: Vec<&(u32, i32, i32)> = self.cached.keys().collect();
+        keys.sort_unstable();
+        let mut extra = 0;
+        for &key in keys {
+            if extra >= limit {
+                break;
+            }
+            let (sheet, row, col) = key;
+            let live = m.get_cell_value_by_index(sheet, row, col).unwrap_or(ironcalc_base::cell::CellValue::None);
+            if !gridpath_engine_core::value_missing(&live) || m.get_cell_formula(sheet, row, col).ok().flatten().is_none() {
+                continue;
+            }
+            found.push((key, self.issue_json(sheet, row, col, None)));
+            extra += 1;
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found.dedup_by(|a, b| a.0 == b.0);
+        found.truncate(limit);
+        let out: Vec<serde_json::Value> = found.into_iter().map(|(_, v)| v).collect();
+        serde_json::to_string(&out).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// One cell's entry of `fileSavedCells` (1-based), or `null` when the cell
+    /// shows a calculated value.
+    #[wasm_bindgen(js_name = fileSavedAt)]
+    pub fn file_saved_at(&self, sheet: u32, row: i32, col: i32) -> String {
+        let m = self.model.get_model();
+        if m.get_cell_formula(sheet, row, col).ok().flatten().is_none() {
+            return "null".to_string();
+        }
+        if let Some(reason) = m.imported_value_reason(sheet, row, col) {
+            return self.issue_json(sheet, row, col, Some(reason)).to_string();
+        }
+        let live = m.get_cell_value_by_index(sheet, row, col).unwrap_or(ironcalc_base::cell::CellValue::None);
+        if gridpath_engine_core::value_missing(&live) && self.cached.contains_key(&(sheet, row, col)) {
+            return self.issue_json(sheet, row, col, None).to_string();
+        }
+        "null".to_string()
+    }
+
+    fn issue_json(&self, sheet: u32, row: i32, col: i32, reason: Option<ironcalc_base::ImportedValueReason>) -> serde_json::Value {
+        use ironcalc_base::ImportedValueReason as R;
+        let m = self.model.get_model();
+        let name = m.workbook.worksheets.get(sheet as usize).map(|ws| ws.name.clone()).unwrap_or_default();
+        let formula = m.get_cell_formula(sheet, row, col).ok().flatten();
+        let value = cell_value_json(m.get_cell_value_by_index(sheet, row, col).unwrap_or(ironcalc_base::cell::CellValue::None));
+        let mut out = json!({"sheet": name, "row": row - 1, "col": col - 1, "formula": formula});
+        match reason {
+            // Kept as a constant: what's shown is the file's value; nothing was calculated.
+            Some(r) => {
+                out["shown"] = value;
+                out["live"] = serde_json::Value::Null;
+                match r {
+                    R::UnknownFunction(f) => {
+                        out["why"] = json!("function");
+                        out["name"] = json!(f);
+                    }
+                    R::ExternalReference => out["why"] = json!("link"),
+                    R::Unparsed => out["why"] = json!("syntax"),
+                }
+            }
+            // Calculated to an error or nothing: the file's value is shown instead.
+            None => {
+                out["shown"] = self.cached.get(&(sheet, row, col)).cloned().unwrap_or(serde_json::Value::Null);
+                out["live"] = value;
+                out["why"] = json!("error");
+            }
+        }
+        out
+    }
+
     fn sheet_id(&self, sheet: u32) -> Option<u32> {
         self.model.get_model().workbook.worksheets.get(sheet as usize).map(|ws| ws.sheet_id)
     }

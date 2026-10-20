@@ -21,6 +21,11 @@ export interface WorkbookVersion {
 }
 
 export interface WorkbookStore {
+  /** Where saves go, for the status line: "in this browser" ("Saved in this
+   * browser"), "to your account"… Omit for a plain "Saved". */
+  label?: string;
+  /** True for a store in this browser: no local drafts are kept besides it. */
+  local?: boolean;
   /** Save a workbook's current bytes; the store also keeps a version.
    * `source` fingerprints the file it was opened from (see `load`);
    * `checkpoint` asks for a version of its own (before and after a restore),
@@ -93,6 +98,8 @@ export function browserStore(options: BrowserStoreOptions = {}): WorkbookStore {
   };
 
   return {
+    label: "in this browser",
+    local: true,
     async save({ id, name, bytes, source, checkpoint }) {
       const now = new Date().toISOString();
       const rows = await versionRows(id);
@@ -161,3 +168,44 @@ export function fingerprint(bytes: Uint8Array): string {
   }
   return `${bytes.length.toString(36)}-${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
 }
+
+/** Unsaved edits kept in this browser while a remote store can't be
+ * reached: written when a save to the store fails (or the page is left with
+ * changes), removed once the store has them, offered back on the next open.
+ * Its own database, so the store's schema is untouched. */
+export interface Draft {
+  id: string;
+  name: string;
+  bytes: Uint8Array;
+  source?: string;
+  savedAt: string;
+}
+
+export function localDrafts() {
+  let opening: Promise<IDBDatabase> | null = null;
+  const db = () =>
+    (opening ??= new Promise<IDBDatabase>((resolve, reject) => {
+      if (typeof indexedDB === "undefined") return reject(new Error("this browser has no IndexedDB"));
+      const r = indexedDB.open("gridpath-drafts", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("drafts", { keyPath: "id" });
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }));
+  return {
+    async put(draft: Draft): Promise<void> {
+      const tx = (await db()).transaction("drafts", "readwrite");
+      tx.objectStore("drafts").put({ ...draft, bytes: draft.bytes.slice() });
+      await done(tx);
+    },
+    async get(id: string): Promise<Draft | null> {
+      const tx = (await db()).transaction("drafts", "readonly");
+      return ((await request(tx.objectStore("drafts").get(id))) as Draft | undefined) ?? null;
+    },
+    async remove(id: string): Promise<void> {
+      const tx = (await db()).transaction("drafts", "readwrite");
+      tx.objectStore("drafts").delete(id);
+      await done(tx);
+    },
+  };
+}
+

@@ -20,124 +20,350 @@ charts, pivots, VBA macros, add-in data and custom XML come back byte-identical.
 
 ## In your web app
 
-### Install
+- [Quick start](#quick-start) · [Next.js](#nextjs) · [What users get](#what-users-get-without-any-code)
+- [Workbooks and documents](#workbooks-and-documents) · [Saving](#saving) · [Saving to your backend](#saving-to-your-backend)
+- [Errors](#errors) · [Excel's saved values](#formulas-gridpath-cant-calculate) · [AI](#ai-your-model-your-key)
+- [Options](#options) · [Methods](#methods) · [Bundlers](#bundlers) · [How saving works](#how-saving-works)
+
+### Quick start
 
 ```sh
 npm install gridpath react react-dom
 ```
 
-React and React DOM are peer dependencies. Your app does not have to use
-React: `createSpreadsheet` mounts the grid into any element.
-
-### Use
-
-```ts
-import { createSpreadsheet } from "gridpath";
-
-const el = document.getElementById("sheet")!; // give it a height
-const sheet = await createSpreadsheet(el, {
-  file: await file.arrayBuffer(), // omit for a blank workbook
-  onEdit: () => console.log("edited"),
-});
-
-sheet.setCell("Sheet1", "B2", "=SUM(A1:A10)");
-console.log(await sheet.getCell("Sheet1", "B2")); // { value: 55, formula: "=SUM(A1:A10)" }
-
-const xlsx = await sheet.save(); // Uint8Array; or saveBlob() for a download
-```
-
-React:
+React and React DOM are peer dependencies. Your app doesn't have to use
+React: `createSpreadsheet` mounts the spreadsheet into any element.
 
 ```tsx
 import { Spreadsheet } from "gridpath";
 
 <div style={{ height: 600 }}>
-  <Spreadsheet file={bytes} onReady={(sheet) => (sheetRef.current = sheet)} />
+  <Spreadsheet
+    file={bytes} // an .xlsx as ArrayBuffer or Uint8Array; omit for a blank workbook
+    onReady={(sheet) => (sheetRef.current = sheet)}
+    onError={(err) => console.error(err.code, err.message, err.hint)}
+  />
 </div>;
 ```
 
-### What users get without any code
-
-- **A toolbar**: undo and redo, font and size, bold / italic / underline,
-  font and fill colour, alignment and wrap, currency / percent / comma and
-  more or fewer decimals, number formats, insert and delete rows and
-  columns, sort, filter, freeze panes, clear. Keyboard shortcuts (⌘B, ⌘Z,
-  ⌘S…) work in the grid. `toolbar={false}` hides it.
-- **Saving as they work**: the status reads "Saving…", "Saved" or "Unsaved
-  changes"; edits are saved two seconds after they pause (`autosave`), and
-  ⌘S or the Save button saves at once. While agent changes await review it
-  reads "Review 2 AI changes to save" and saves after they are accepted or
-  rejected.
-- **Reopen where they left off**: the workbook, and the cell they were on,
-  come back after a reload.
-- **Recent workbooks** and **Open… / New** in the File menu (`fileMenu={false}`
-  removes those entries).
-- **Version history**: a snapshot every five minutes of editing, the newest 20
-  kept as they are and one per day for 30 days before that. Restore one (the
-  state it replaces is kept as a version too) or download it.
-- **Download** as `.xlsx`, a separate button from Save.
-- **An "AI changes" panel** when an agent works through `sheet.ai`: each
-  change with what it did ("D2: empty → =C2/B2-1", "A1:C1: bold"), where,
-  and Accept / Reject (rejecting also undoes the changes made after it, as
-  the button says); clicking one shows its cells. It opens when changes
-  arrive and from the status line; `reviewPanel={false}` if your app has its
-  own review UI.
-
-By default all of this is kept in the user's browser (IndexedDB). Point it at
-your backend with `onSave` (you receive the bytes on every save) or a `store`
-of your own (also serves the recent list and versions):
+Without React:
 
 ```ts
-const store: WorkbookStore = {
-  save: ({ id, name, bytes }) => fetch(`/api/books/${id}`, { method: "PUT", body: bytes }).then(() => {}),
-  load: (id) => /* the latest saved state, or null */,
-  list: () => /* recent workbooks */,
-  versions: (id) => /* newest first */,
-  loadVersion: (id, versionId) => /* the bytes */,
-};
-<Spreadsheet store={store} documentId={book.id} fileName={book.name} />;
+import { createSpreadsheet } from "gridpath";
+
+const sheet = await createSpreadsheet(document.getElementById("sheet")!, { file: await file.arrayBuffer() });
+sheet.setCell("Sheet1", "B2", "=SUM(A1:A10)");
+console.log(await sheet.getCell("Sheet1", "B2")); // { value: 55, formula: "=SUM(A1:A10)" }
+const xlsx = await sheet.save(); // Uint8Array
 ```
 
-`store={false}` turns saving off: then there is Download and `save()`.
+`createSpreadsheet` resolves once the workbook is open. If it can't open it
+rejects with a [`GridPathError`](#errors) and leaves the element empty.
 
-#### Options
+### Next.js
+
+No configuration is needed. This was tested on Next.js 16 with React 19,
+with Turbopack and with webpack, in `next dev` and in production builds.
+
+- Render the spreadsheet from a client component (`"use client"`). The page
+  around it can stay a server component.
+- `gridpath/agent` works in a route handler.
+
+[`examples/nextjs-demo`](https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo)
+is a complete app. Each user has a list of workbooks saved to the app's
+own API: `app/api/books/[[...path]]/route.ts` holds the REST routes
+`httpStore` calls, with auth. Each workbook has its own URL. The example
+shows:
+
+- uploading and starting new workbooks;
+- a loading indicator;
+- what to do for each error code;
+- switching workbooks, which saves the one being left.
+
+### What users get without any code
+
+- **A toolbar** for formatting:
+  - undo and redo;
+  - font and size;
+  - bold, italic and underline;
+  - font and fill colour;
+  - alignment and wrap;
+  - currency, percent, comma, and more or fewer decimals;
+  - number formats;
+  - inserting and deleting rows and columns;
+  - sort, filter, freeze panes and clear.
+
+  Keyboard shortcuts (⌘B, ⌘Z, ⌘S…) work in the grid. `toolbar={false}`
+  hides the toolbar.
+- **A save status that says where things are saved**: "Saved in this
+  browser", "Saved to your account", "Saving…", "Unsaved changes", or
+  "Couldn't save · Retry".
+  - Edits are saved two seconds after they pause. ⌘S or the Save button
+    saves at once.
+- **Reopening where they left off**: after a reload, the workbook comes
+  back and so does the cell the user was on.
+- **A File menu** with Open…, New and Recent workbooks. `fileMenu={false}`
+  removes those entries when your app has its own list.
+- **Version history**: restore an earlier version, or download it.
+  Restoring keeps the state it replaces as a version too.
+- **Download** as `.xlsx`, a separate button from Save.
+- **An "AI changes" panel** when an agent works through `sheet.ai`. Each
+  change shows what it did ("D2: empty → =C2/B2-1") and where, with Accept
+  and Reject buttons. Clicking a change shows its cells.
+  - `reviewPanel={false}` turns the panel off if your app has its own
+    review UI.
+- **Plain explanations** in place of the grid when a file can't be opened,
+  for example "a text file (CSV or similar), not an .xlsx workbook".
+- **A count of formulas showing Excel's saved value** in the toolbar, with
+  a list of them.
+- **Its own question before anything is lost**: opening another workbook
+  over changes that can't be saved asks "Discard unsaved changes?".
+
+### Workbooks and documents
+
+A spreadsheet shows one workbook at a time. You identify a workbook by its
+`documentId`, which defaults to `fileName`. Together with a
+[store](#saving-to-your-backend), the ID is how a workbook is loaded:
+
+```tsx
+<Spreadsheet store={store} documentId={book.id} fileName={book.name} />
+```
+
+The spreadsheet opens the stored state for that ID. If you also pass a
+`file`, the stored state wins only when it was saved from that same file;
+otherwise `file` opens. With nothing stored and no `file`, the workbook
+starts blank.
+
+**Switching workbooks** can be done in two ways:
+
+1. **Remount per document.** Give the component `key={book.id}`, as the
+   Next.js example does with a page per workbook.
+2. **Call `open()` or `openStored()`** on the same spreadsheet. Both
+   follow the same rules:
+
+| When you open another workbook… | |
+|---|---|
+| AI changes are waiting for review | It rejects with `PendingChangesError`. Accept or reject them first. |
+| There are unsaved edits and a store or `onSave` | They are saved first. |
+| The save fails or nothing is set up to save to | It rejects with `UnsavedChangesError`. Pass `{ discardUnsaved: true }` to drop the edits. A remote store's failed save is not counted as a failure here: those edits are kept in this browser. |
+| The new file can't be opened | It rejects with `unsupported-file` or `malformed-file`, and the previous workbook stays open. Plainly wrong files (empty, CSV, old `.xls`) are refused before anything changes. |
+
+The File menu follows the same rules and asks the user before it discards
+anything.
+
+**Cleaning up.**
+
+- **Unmount the component, or call `destroy()`** (`createSpreadsheet`
+  only). If there are edits that aren't saved yet, they are saved first.
+  This covers a client-side navigation, which fires no `beforeunload`.
+  Then the engine's worker stops. From then on, every call on the old
+  `sheet` object fails with `not-ready`.
+- **Closing the page** while edits are unsaved prompts the browser's
+  "Leave site?" warning.
+
+### Saving
+
+Saving happens in three ways:
+
+- **Autosave**: two seconds after edits pause. Change the delay with
+  `autosave` (milliseconds), or turn it off with `false`.
+- **⌘S and the Save button.**
+- **`sheet.saveNow()`** from your code.
+
+Each save writes the workbook to the `store` and calls `onSave`. Watch it
+with `onStatusChange` or `getStatus()`:
+
+| `state` | The toolbar says | |
+|---|---|---|
+| `"saved"` | "Saved in this browser" / "Saved to your account" | `savedAt`, and `where`: the store's `label`. |
+| `"unsaved"` | "Unsaved changes" | An autosave is coming. |
+| `"saving"` | "Saving…" | |
+| `"review"` | "Review 2 AI changes to save" | `pending`. Saving waits for the user to accept or reject the AI's changes. |
+| `"error"` | "Couldn't save · Retry", or "Saved in this browser only · Retry" | `code`, `message` and `hint`. `keptLocally` is set when the edits are safe in this browser, and `retryAt` when autosave will try again. |
+| `"idle"` | (nothing) | A fresh workbook, or no saving set up. |
+
+`save()` and `saveBlob()` return the bytes without touching the store,
+for an upload of your own.
+
+### Saving to your backend
+
+By default, everything is kept in the user's browser (IndexedDB) by
+`browserStore()`. Saves within five minutes of each other share one
+version. The newest 20 versions are kept as they are, then one per day for
+30 days. Tune this with `browserStore({ checkpointMinutes, keepRecent,
+keepDays })`.
+
+To save to the signed-in user's account, point `httpStore` at your API:
+
+```ts
+import { httpStore } from "gridpath";
+
+const store = httpStore({
+  url: "/api/books",
+  // Called before every request, so a refreshed token is picked up. Leave it
+  // out with cookie sessions.
+  headers: async () => ({ Authorization: `Bearer ${await getToken()}` }),
+});
+
+<Spreadsheet store={store} documentId={book.id} />;
+```
+
+The routes it calls, all relative to `url`. Ids are URL-encoded:
+
+| Request | Response |
+|---|---|
+| `PUT /{id}?name=…&source=…[&checkpoint=1]`, with the `.xlsx` as the body | Any 2xx. `source` fingerprints the file the workbook was opened from. `checkpoint` asks for a version of its own (before and after a restore). |
+| `GET /{id}` | The `.xlsx`, with headers: `X-Workbook-Name` (percent-encoded), `X-Workbook-Saved-At` (an ISO time), `X-Workbook-Source`. A 404 when there's none. |
+| `GET /` | `[{ id, name, savedAt, size }]`, newest first (the Recent list). |
+| `GET /{id}/versions` | `[{ id, savedAt, size }]`, newest first. A 404 when you keep no history. |
+| `GET /{id}/versions/{versionId}` | That version's `.xlsx`. |
+| `DELETE /{id}` | Any 2xx. |
+
+When the backend can't be reached or answers with an error, the user's
+edits are not lost:
+
+1. The status reads "Saved in this browser only · Retry", with
+   `keptLocally: true`.
+2. Autosave retries after 2, 5, 15 and 30 seconds, then every minute.
+3. A copy of the edits waits in this browser.
+4. If the page is closed first, the copy is reopened next time, newer than
+   the backend's, and saved there. The status line says "Restored changes
+   that weren't saved to your account".
+
+If the backend can't be reached when a workbook *opens*, the spreadsheet
+shows the error with Try again. It does not open a blank workbook that
+autosave would then write over the user's saved one.
+
+Anything else can be a store. `httpStore` is one implementation of this
+interface:
+
+```ts
+interface WorkbookStore {
+  label?: string;   // the status line's "Saved …" wording: "to your account"
+  local?: boolean;  // true when it is in this browser (no extra drafts kept)
+  save(w: { id: string; name: string; bytes: Uint8Array; source?: string; checkpoint?: boolean }): Promise<void>;
+  load(id: string): Promise<{ id; name; bytes; savedAt: string; source?: string } | null>;
+  list(): Promise<Array<{ id; name; savedAt: string; size: number }>>;
+  versions(id: string): Promise<Array<{ id: string; savedAt: string; size: number }>>;
+  loadVersion(id: string, versionId: string): Promise<Uint8Array | null>;
+  remove?(id: string): Promise<void>;
+}
+```
+
+There are two simpler options:
+
+- **`onSave`**: receive the bytes on every save and upload them yourself.
+  A rejected promise counts as a failed save and is retried.
+- **`store={false}`**: no saving at all; users keep Download, and your code
+  keeps `save()`.
+
+### Errors
+
+Everything the spreadsheet reports is a `GridPathError`. Each one has:
+
+- `code`, for your code to act on;
+- `message`, which says what happened;
+- `hint`, a sentence you can show that says what to do.
+
+Errors reach you in four ways:
+
+- **Methods reject with them.** For example, `open()`, `openStored()`,
+  `save()` and `getCell()`.
+- **`onError`** receives engine failures and workbooks that couldn't be
+  opened: the first one, or one opened from the File menu.
+- **`onStatusChange`** reports a failed save as `{ state: "error", code,
+  message, hint }`. Failed saves don't go to `onError`, because autosave
+  retries them.
+- **The spreadsheet itself** shows the problem in place of the grid, so
+  users are never left with an empty box.
+
+```ts
+try {
+  await sheet.open(bytes, { name: file.name });
+} catch (e) {
+  if (!(e instanceof GridPathError)) throw e;
+  if (e.code === "unsaved-changes" && confirm(`${e.message}. Discard them?`)) await sheet.open(bytes, { name: file.name, discardUnsaved: true });
+  else showToast(`${e.message}. ${e.hint}`);
+}
+```
+
+| `code` | When | What to do |
+|---|---|---|
+| `unsupported-file` | Not an `.xlsx`: an empty file, a CSV, an old-format `.xls`, a password-protected workbook. | Ask for an `.xlsx` (the hint says how to get one). |
+| `malformed-file` | An `.xlsx` the engine couldn't read: damaged or truncated. | Open and re-save it in Excel. |
+| `engine-failed` | The engine's worker or `.wasm` didn't load, or the engine stopped later. If it stopped, a banner says calculation stopped and offers Download. | Serve the package's `engine.worker.js` and `.wasm` (see [Bundlers](#bundlers)); reload the page. |
+| `storage-failed` | The store failed. With `httpStore`, the error's `cause` is an `HttpStoreError` with the response `status`. A URL that returns a web page instead of data says so. | On 401/403, sign the user in again. Otherwise autosave retries. |
+| `save-failed` | The session's changes couldn't be written into the file. | The edits are still on screen; undo the last change and save again. |
+| `calculation-timeout` | `getCell()` (after 30 s), `whenCalculated(ms)` or `save()` (after 60 s) waited for a recalculation that was still running. | Try again once it finishes. |
+| `pending-changes` | `save()` or `open()` while AI changes await review (`PendingChangesError`, with `pending`). | Accept or reject them (`sheet.ai.accept()` / `reject()`), or `save({ includePending: true })`. |
+| `unsaved-changes` | `open()` would drop edits that couldn't be saved (`UnsavedChangesError`). | Ask the user, then retry with `{ discardUnsaved: true }`. |
+| `not-found` | `openStored(id)` found nothing. | |
+| `not-ready` | A method was called before `onReady`, while another workbook is opening, or after unmount. | Wait for `onReady` (or the promise from `open()`). |
+
+### Formulas GridPath can't calculate
+
+Some formulas don't calculate in GridPath:
+
+- an Excel add-in function (`_xll.…`);
+- a function GridPath doesn't support yet;
+- a link to another workbook.
+
+These cells keep the value Excel saved in the file, and the formulas that
+read them calculate from that value. The user sees a count in the toolbar
+and a list that explains each cell. Your code can read the same thing:
+
+```ts
+await sheet.getCell("Model", "C7");
+// { value: 1250, formula: "=_xll.FDS(…)", fromFile: true,
+//   note: "Showing Excel's saved value because GridPath couldn't calculate this formula: it calls FDS, an Excel add-in function." }
+
+await sheet.getCalcIssues(); // [{ sheet, ref, row, col, formula, value, calculated, note }]
+```
+
+### Options
 
 | Option | |
 |---|---|
-| `file` | `.xlsx` bytes (`ArrayBuffer` or `Uint8Array`). Without it the workbook starts blank, or reopens the stored one. Read when the component mounts; open others with `open()`. |
+| `file` | The `.xlsx` bytes (`ArrayBuffer` or `Uint8Array`). Without it, the workbook starts blank or reopens the stored one. Read when the component mounts; to open others, use `open()`. |
 | `sheets` | Sheet names for a blank workbook (default `["Sheet1"]`). |
-| `fileName` | The workbook's file name (downloads, the recent list). |
-| `documentId` | Which stored workbook this is (default: `fileName`). The stored state is opened instead of `file` when it was saved from the same file. |
+| `fileName` | The workbook's file name, for downloads and the Recent list (default `"Untitled.xlsx"`). |
+| `documentId` | Which stored workbook this is (default: `fileName`). See [Workbooks and documents](#workbooks-and-documents). |
+| `store` | Where saves, recent workbooks and versions go. The default is `browserStore()`. You can pass `httpStore({ url, headers })`, your own `WorkbookStore`, or `false`. |
+| `autosave` | `true` (the default: two seconds after edits pause), a delay in milliseconds, or `false`. |
+| `onSave` | `({ id, name, bytes }) => …`, called on every save. A rejected promise counts as a failed save. |
+| `onStatusChange` | Called when the [save status](#saving) changes. |
+| `onReady` | `(sheet) => …`, called once the first workbook is open (React; `createSpreadsheet` resolves instead). |
+| `onError` | `(error: GridPathError) => …`, for engine failures and workbooks that couldn't be opened. |
+| `onDocumentChange` | `({ id, name }) => …`, called when another workbook was opened: from the File menu, Recent, a restore, `open()` or `openStored()`. |
+| `onEdit` | Called after each user edit in the grid. |
+| `onProgress` | Loading stages ("Loading workbook…", "Building grid…"), for your loading indicator. |
 | `toolbar` | `false` hides the toolbar. |
 | `fileMenu` | `false` removes Open, New and Recent from the File menu. |
-| `reviewPanel` | `false` turns off the "AI changes" panel (build your own from `sheet.ai.list()`, `accept()`, `reject()`). |
-| `store` | Where saves, recent workbooks and versions go: default `browserStore()` (this browser; `browserStore({ checkpointMinutes, keepRecent, keepDays })` to tune), your own `WorkbookStore`, or `false`. |
-| `autosave` | `true` (default, 2 s after edits pause), a delay in ms, or `false`. |
-| `onSave` | `({ id, name, bytes }) => …` on every save. |
-| `onStatusChange` | The save status changed: `{ state: "saved" \| "unsaved" \| "saving" \| "error" \| "review" \| "idle", … }`. |
-| `onDocumentChange` | Another workbook was opened (File menu, recent, restore, `open()`). |
-| `onEdit` | Called after each user edit. |
-| `onProgress` | Loading stages. |
-| `engine.worker` | `false` runs the engine on the page instead of a worker. |
-| `engine.workerUrl`, `engine.wasmUrl` | Where to load the worker script and `.wasm` from, when your bundler does not serve them next to the package. |
+| `reviewPanel` | `false` turns off the "AI changes" panel. Build your own from `sheet.ai.list()`, `accept()` and `reject()`. |
+| `engine.worker` | `false` runs the engine on the page instead of in a Web Worker. |
+| `engine.workerUrl`, `engine.wasmUrl` | Where to load the worker script and the `.wasm` from, when your bundler doesn't serve them next to the package. |
 
-#### Methods
+### Methods
 
-| Method | |
+| Method | Contract |
 |---|---|
 | `getSheetNames()` | Sheet names in order. |
-| `getCell(sheet, "A1")` | `{ value, display?, formula }` or `null`; waits for pending recalculation. |
-| `setCell(sheet, "A1", value)` | Strings starting with `=` are formulas. |
+| `getCell(sheet, "A1")` | `{ value, display?, formula, fromFile?, note? }`, or `null` for an empty cell. Waits for pending writes to recalculate (up to 30 s, then it rejects with `calculation-timeout`). |
+| `getCalcIssues(limit?)` | The formulas showing Excel's saved value (see above). |
+| `setCell(sheet, "A1", value)` | Returns at once. Writes are queued and recalculated in order, so a `getCell` after it sees the result. Strings starting with `=` are formulas. |
 | `setCells(sheet, [{ row, col, value }])` | Many cells in one step (0-based). |
-| `whenCalculated()` | Resolves when pending writes are recalculated. |
+| `whenCalculated(ms = 30000)` | Resolves once pending writes are recalculated; rejects with `calculation-timeout` after `ms`. |
 | `select(sheet, "A1")`, `focus()` | Move the selection; give the grid keyboard focus. |
-| `undo()`, `redo()` | The last change, the user's or an agent's. |
-| `save()`, `saveBlob()` | The workbook as `.xlsx`. Throws `PendingChangesError` while agent changes await review; `{ includePending: true }` saves them anyway. |
-| `saveNow()` | Save to the store and `onSave` now (what autosave and ⌘S do). |
+| `undo()`, `redo()` | Undo or redo the last change, the user's or an agent's. |
+| `save(options?)`, `saveBlob(options?)` | The workbook as `.xlsx` bytes (or a Blob), with the store untouched. Waits for recalculation (up to 60 s). Rejects with `PendingChangesError` while AI changes await review, unless you pass `{ includePending: true }`. |
+| `saveNow()` | Save to the store and `onSave` now, as autosave and ⌘S do. Resolves with the new [status](#saving) and never rejects: a failure becomes `{ state: "error", … }`. |
+| `hasUnsavedChanges()` | `true` while there are edits the store doesn't have yet, AI changes awaiting review included. Useful for a route-leave prompt. |
 | `download(fileName?)` | Download the `.xlsx`. |
 | `getStatus()`, `getDocument()` | The save status; the open workbook's `{ id, name }`. |
-| `open(bytes, { name? })` | Open another workbook here (the current one is saved first). |
-| `destroy()` | Unmount and stop the engine (`createSpreadsheet` only). |
+| `open(bytes, { name?, id?, discardUnsaved? })` | Open another workbook here, following [these rules](#workbooks-and-documents). Resolves once it is open. |
+| `openStored(id, { discardUnsaved? })` | Open a workbook from the store by ID; rejects with `not-found` if there is none. The same rules apply. |
+| `destroy()` | Save what's unsaved, unmount, and stop the engine (`createSpreadsheet` only; in React, unmount the component). |
+| `ai` | The agent tools; see below. |
 
 ### AI: your model, your key
 
@@ -255,27 +481,7 @@ The package loads its worker and engine with
 `new URL("…", import.meta.url)`, which Next.js, Vite, webpack 5 and Rollup
 bundle on their own.
 
-- **Next.js** (tested on 16 with React 19, Turbopack and webpack, `next dev`
-  and production builds): no configuration. Render the spreadsheet from a
-  client component; the page around it can stay a server component, and
-  `gridpath/agent` works in a route handler:
-
-  ```tsx
-  // app/Sheet.tsx
-  "use client";
-  import { Spreadsheet } from "gridpath";
-
-  export function Sheet() {
-    return <Spreadsheet onReady={(sheet) => { /* keep `sheet` */ }} />;
-  }
-  ```
-
-  ```ts
-  // app/api/agent/route.ts
-  import { AGENT_INSTRUCTIONS, agentTools } from "gridpath/agent";
-  ```
-
-  A complete app is in [`examples/nextjs-demo`](https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo).
+- **Next.js**: no configuration (see [Next.js](#nextjs)).
 - **Vite**: production builds work as is. For the dev server, exclude the
   package from dependency pre-bundling:
 
@@ -290,8 +496,8 @@ bundle on their own.
   `gridpath_engine_bg.wasm` from `dist/` to your static files and pass
   `engine: { workerUrl, wasmUrl }`.
 
-Size in the browser: about 84 KB of JavaScript and a 1.2 MB engine, gzipped
-(0.87 MB with brotli). The engine downloads once and is cached by the browser.
+Size in the browser: about 120 KB of JavaScript and a 1.3 MB engine, gzipped
+(0.9 MB with brotli). The engine downloads once and is cached by the browser.
 
 ### Build from source
 
@@ -333,7 +539,7 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
 
 #### Claude Desktop (no terminal)
 
-Download [`gridpath-0.3.1.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.3.1/gridpath-0.3.1.mcpb)
+Download [`gridpath-0.4.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.4.0/gridpath-0.4.0.mcpb)
 and open it. Claude Desktop shows an install dialog where you pick the folders
 Claude may edit and whether saving requires review. Node is bundled; nothing else
 to install. Claude Desktop shows its standard "not verified" warning for any
@@ -467,11 +673,12 @@ import { WorkbookSession } from "gridpath/headless";
 
 ## Status
 
-v0.2. The browser spreadsheet is new in this release (previously the package
-was the MCP server only; its Node API moved from `gridpath` to
-`gridpath/headless`). Not yet: charts drawn in the grid (they are preserved,
-not rendered), data-validation dropdowns, real-time collaboration; for agents,
-`fetch_web` / `edgar_lookup` sourcing tools and charts or pivots as edits.
+v0.4. Not yet supported:
+
+- **In the grid:** drawing charts (they are kept in the file, but not
+  shown), data-validation dropdowns, real-time collaboration.
+- **For agents:** the `fetch_web` and `edgar_lookup` sourcing tools, and
+  edits to charts or pivots.
 
 GridPath is also a [desktop app](https://gridpath.dev) with the same engine
 and review and its own agent built in.

@@ -20,8 +20,25 @@ export interface EngineOptions {
 
 type Call = (cmd: string, args?: any, transfer?: Transferable[]) => Promise<any>;
 
+/** A formula showing the file's saved value. `why`: "function" calls an
+ * unknown function (`name`), "link" refers to another workbook, "syntax"
+ * couldn't be parsed (these three keep the value as a constant), or
+ * "error": it calculated to an error or nothing (`live`) where the file
+ * had a value. 0-based. */
+export type FileSavedCell = {
+  sheet: string;
+  row: number;
+  col: number;
+  formula: string;
+  shown: unknown;
+  live: unknown;
+  why: "function" | "link" | "syntax" | "error";
+  name?: string;
+};
+type Channel = { call: Call; close: () => void; onFatal: (fn: (err: Error) => void) => void };
+
 /** A request/response channel to the engine, in a worker or in-page. */
-async function connect(opts: EngineOptions): Promise<{ call: Call; close: () => void }> {
+async function connect(opts: EngineOptions): Promise<Channel> {
   const wasmUrl = opts.wasmUrl ? String(opts.wasmUrl) : undefined;
   if (opts.worker === false) {
     const { EngineHost } = await import("./engineHost");
@@ -34,12 +51,15 @@ async function connect(opts: EngineOptions): Promise<{ call: Call; close: () => 
       return run;
     };
     await call("init", { wasmUrl });
-    return { call, close: () => void call("unload").catch(() => {}) };
+    return { call, close: () => void call("unload").catch(() => {}), onFatal: () => {} };
   }
   const worker = opts.workerUrl
     ? new Worker(opts.workerUrl, { type: "module" })
     : new Worker(new URL("./engine.worker.js", import.meta.url), { type: "module" });
   let next = 1;
+  // Once the worker dies every call fails at once instead of waiting forever.
+  let dead: Error | null = null;
+  let fatal: (err: Error) => void = () => {};
   const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   worker.onmessage = (ev: MessageEvent<HostResponse>) => {
     const w = waiting.get(ev.data.id);
@@ -54,18 +74,21 @@ async function connect(opts: EngineOptions): Promise<{ call: Call; close: () => 
         `With Vite's dev server, add optimizeDeps: { exclude: ["gridpath"] } to vite.config; ` +
         `elsewhere, serve the package's engine.worker.js and pass engine: { workerUrl }.`,
     );
+    dead = err;
     for (const w of waiting.values()) w.reject(err);
     waiting.clear();
+    fatal(err);
   };
   const call: Call = (cmd, args, transfer) =>
     new Promise((resolve, reject) => {
+      if (dead) return reject(dead);
       const id = next++;
       waiting.set(id, { resolve, reject });
       const msg: HostRequest = { id, cmd, args };
       worker.postMessage(msg, transfer ?? []);
     });
   await call("init", { wasmUrl });
-  return { call, close: () => worker.terminate() };
+  return { call, close: () => worker.terminate(), onFatal: (fn) => (fatal = fn) };
 }
 
 type Edit = { row: number; column: number; value: string };
@@ -91,11 +114,36 @@ export class BrowserEngine implements GridEngine {
   private pending: CellDelta[] = [];
   private settleStarted = false;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private openFailure: string | null = null;
+  private dead = false;
+  private failureListeners = new Set<(reason: string) => void>();
 
-  private constructor(private readonly rpc: { call: Call; close: () => void }) {}
+  private constructor(private readonly rpc: Channel) {
+    rpc.onFatal((err) => {
+      this.dead = true;
+      this.degrade(err.message);
+    });
+  }
 
   static async create(opts: EngineOptions = {}): Promise<BrowserEngine> {
     return new BrowserEngine(await connect(opts));
+  }
+
+  /** Called when the engine stops mirroring edits (values on screen freeze).
+   * Not called for a file that fails to open: see `openFailureReason`. */
+  onFailure(fn: (reason: string) => void): () => void {
+    this.failureListeners.add(fn);
+    return () => this.failureListeners.delete(fn);
+  }
+
+  /** False once the worker has died: every call fails from then on. */
+  alive(): boolean {
+    return !this.dead;
+  }
+
+  /** Why the last `openLayout` failed (the engine's words), or null. */
+  openFailureReason(): string | null {
+    return this.openFailure;
   }
 
   /** An empty .xlsx with these sheets: the base a new workbook opens from. */
@@ -129,6 +177,28 @@ export class BrowserEngine implements GridEngine {
   /** query_rows against a sheet index. */
   queryRows(query: Record<string, unknown>): Promise<any> {
     return this.read(async () => JSON.parse(await this.rpc.call("queryRows", { query })));
+  }
+
+  /** Formulas showing the value Excel saved instead of a calculated one,
+   * and why (see `FileSavedCell`), 0-based. */
+  fileSavedCells(limit = 1000): Promise<FileSavedCell[]> {
+    return this.read(() => this.rpc.call("fileSaved", { limit }));
+  }
+
+  /** One cell's `fileSavedCells` entry (1-based), or null when it calculates. */
+  fileSavedAt(sheet: number, row: number, col: number): Promise<FileSavedCell | null> {
+    return this.read(() => this.rpc.call("fileSavedAt", { sheet, row, col }));
+  }
+
+  /** True when every queued write and recalculation finished within `ms`. */
+  async settledWithin(ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), ms)));
+    try {
+      return await Promise.race([this.queue.then(() => true as const), timedOut]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /** Formula cells this session's edits changed, with their current values,
@@ -175,6 +245,9 @@ export class BrowserEngine implements GridEngine {
     // deferred first evaluation hasn't run.
     this.ready = false;
     this.settleStarted = false;
+    this.openFailure = null;
+    // A failure belonged to the previous document, unless the worker died.
+    if (!this.dead) this.degraded = null;
     if (this.settleTimer) clearTimeout(this.settleTimer);
     return new Promise((resolve) => {
       this.enqueue(async () => {
@@ -189,7 +262,8 @@ export class BrowserEngine implements GridEngine {
           // on screen; this is the backstop.
           this.settleTimer = setTimeout(() => this.startDeferredSettle(), 10_000);
         } catch (e) {
-          this.degrade(`open failed: ${e}`);
+          this.openFailure = e instanceof Error ? e.message : String(e);
+          this.degraded = `open failed: ${this.openFailure}`;
           resolve(null);
         }
       });
@@ -415,5 +489,6 @@ export class BrowserEngine implements GridEngine {
     if (this.degraded) return;
     this.degraded = reason;
     console.error(`[gridpath] engine stopped: ${reason}`);
+    for (const fn of this.failureListeners) fn(reason);
   }
 }

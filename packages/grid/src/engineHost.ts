@@ -41,7 +41,10 @@ export class EngineHost {
       case "blank":
         return blankXlsx(a.sheets?.length ? a.sheets : ["Sheet1"]);
       case "load": {
+        // Freed first (one workbook in memory at a time); a file that fails
+        // to open leaves no workbook rather than a freed one.
         this.wb?.free();
+        this.wb = null;
         this.wb = Workbook.openDeferred(a.bytes);
         return { sheets: this.wb.sheetNames() };
       }
@@ -108,6 +111,11 @@ export class EngineHost {
         return this.book().workbookIndex();
       case "queryRows":
         return this.book().queryRows(JSON.stringify(a.query));
+      case "fileSaved":
+        // Formulas showing Excel's saved value (the engine couldn't calculate them).
+        return JSON.parse(this.book().fileSavedCells(a.limit ?? 1000));
+      case "fileSavedAt":
+        return JSON.parse(this.book().fileSavedAt(a.sheet, a.row, a.col));
       case "recalculated":
         // Formula cells this session changed, with current values (save-time cache refresh).
         return JSON.parse(this.book().recalculatedCells());

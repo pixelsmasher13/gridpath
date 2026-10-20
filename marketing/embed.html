@@ -108,7 +108,7 @@
               <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 26h22"/><path d="M8 22V13M14 22V8M20 22v-6M26 22V11"/></svg>
             </div>
             <h3>Toolbar and saving built in</h3>
-            <p>Formatting, number formats, insert and delete, sort, filter, freeze. Autosave with "Saving… / Saved", reopen where you left off, recent workbooks, version history with restore, and Download as .xlsx. In the browser by default, or to your backend through <code>onSave</code> or a store of your own.</p>
+            <p>Formatting, number formats, insert and delete, sort, filter and freeze. Autosave with a status that says where things are saved ("Saved in this browser", "Saved to your account"), version history with restore, recent workbooks, and Download as .xlsx. If your backend is down, the edits wait in the browser and the save is retried.</p>
           </div>
           <div class="cap-card">
             <div class="cap-icon cap-icon-indigo">
@@ -128,8 +128,8 @@
             <div class="cap-icon cap-icon-teal">
               <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10l-6 6 6 6"/><path d="M20 10l6 6-6 6"/><path d="M18 7l-4 18"/></svg>
             </div>
-            <h3>No configuration</h3>
-            <p>Next.js (Turbopack and webpack), Vite and webpack bundle the worker and engine on their own. React component or <code>createSpreadsheet(el)</code> for any page.</p>
+            <h3>Drops into your app</h3>
+            <p>Next.js (Turbopack and webpack), Vite and webpack bundle the worker and engine on their own. Every method has a stated contract, and every error has a code and a hint you can show; the <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank">Next.js example</a> handles each one.</p>
           </div>
         </div>
 
@@ -139,16 +139,18 @@
             <h3>The spreadsheet</h3>
             <pre><span class="c">// app/Sheet.tsx</span>
 "use client";
-import { Spreadsheet } from "gridpath";
+import { Spreadsheet, httpStore } from "gridpath";
 
-export function Sheet({ file }: { file?: ArrayBuffer }) {
+const store = httpStore({ url: "/api/books" });
+
+export function Sheet({ id }: { id: string }) {
   return (
     &lt;div style={{ height: 600 }}&gt;
-      &lt;Spreadsheet file={file} fileName="Budget.xlsx" /&gt;
+      &lt;Spreadsheet store={store} documentId={id} /&gt;
     &lt;/div&gt;
   );
 }</pre>
-            <p>That's a working spreadsheet with a toolbar, autosave and version history. Pass <code>onSave</code> to keep the bytes on your side.</p>
+            <p>That's a working spreadsheet with a toolbar, autosave to your API and version history. <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#saving-to-your-backend" rel="noopener" target="_blank">The routes it calls</a> are in the guide. Leave out <code>store</code> to keep everything in the browser.</p>
           </div>
           <div>
             <h3>AI, with your key (optional)</h3>

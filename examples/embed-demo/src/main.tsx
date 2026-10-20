@@ -1,15 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { browserStore, Spreadsheet, type Spreadsheet as SheetApi } from "gridpath";
+import { browserStore, httpStore, Spreadsheet, type Spreadsheet as SheetApi } from "gridpath";
 import { ask, type AgentEvent, type Message } from "./agentLoop";
 
 type LogLine = { who: "you" | "agent" | "tool" | "error"; text: string };
 
-// ?worker=0 runs the engine on the page instead of a Web Worker.
+// ?worker=0 runs the engine on the page instead of a Web Worker;
+// ?engine=broken points it at a worker script that doesn't exist.
 const params = new URLSearchParams(location.search);
-const engineOptions = params.get("worker") === "0" ? { worker: false } : undefined;
-// ?versions=all keeps a version for every save (default: one per 5 minutes).
-const store = params.get("versions") === "all" ? browserStore({ checkpointMinutes: 0 }) : undefined;
+const engineOptions =
+  params.get("engine") === "broken" ? { workerUrl: "/missing-engine.worker.js" } : params.get("worker") === "0" ? { worker: false } : undefined;
+// ?versions=all keeps a version for every save (default: one per 5 minutes);
+// ?store=none saves nowhere (Download only); ?store=http saves to /api/books.
+const store =
+  params.get("store") === "none"
+    ? false
+    : params.get("store") === "http"
+      ? httpStore({ url: "/api/books" })
+      : params.get("versions") === "all"
+        ? browserStore({ checkpointMinutes: 0 })
+        : undefined;
 // Site mode (VITE_SITE=1, the build at gridpath.dev/demo): a static page with
 // no server, so no Ask panel; a sample workbook, and a scripted AI edit that
 // shows the review flow without calling a model.
@@ -148,7 +158,7 @@ function App() {
             }}
             onError={(err) => {
               setStatus(`Error: ${err.message}`);
-              (window as any).__demo = { error: err.message, ready: true };
+              (window as any).__demo = { ...(window as any).__demo, error: err.message, code: err.code, ready: true };
             }}
           />
           )}

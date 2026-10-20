@@ -1,63 +1,123 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="GridPath: the SpaceX income statement model open in the desktop app with the agent conversation, beside four points: review every cell before save, byte-identical .xlsx saves, Rust engine with incremental recalc, MCP server for Claude Code, Claude Desktop, Cursor and Codex." width="100%"/>
+  <img src="docs/images/embed.png" alt="The GridPath spreadsheet embedded in a web page: a sales workbook with the AI changes panel open, listing changes to accept or reject." width="100%"/>
 </p>
 
 # GridPath
 
-**Let AI edit the Excel files you already have: faster, for fewer tokens, and you get them back intact.**
+**Real Excel files, in your web app and in your agent.**
 
-GridPath is an engine for editing real `.xlsx` files. Give it to your coding
-agent and the same edit takes a fraction of the time and tokens, because the
-agent calls spreadsheet tools instead of writing and debugging scripts:
+GridPath opens the `.xlsx` files people already have and calculates every
+formula with a Rust engine. AI can edit the files, with a review step. The
+saved file is the same one that was opened: charts, pivots, VBA and add-in
+data come back byte-identical.
 
-- **Faster and cheaper.** An in-process calculation engine and purpose-built
-  tools (workbook map, row search, structural edits) replace the write-a-script,
-  run-it, recalculate-somewhere-else loop.
-- **Intact.** A surgical saver rewrites only the parts an edit touched; charts,
-  pivots, VBA, add-in data and everything else come back byte-identical.
-- **Reviewed.** You see every changed cell, before and after, and nothing is
-  written until you accept.
+| | **In your web app**: `npm install gridpath` | **In your coding agent**: `npx gridpath mcp` | **Desktop app** |
+|---|---|---|---|
+| What it is | A spreadsheet component for your product. It opens your users' `.xlsx` files and saves them back intact, to their browser or to your backend. | An MCP server: spreadsheet tools for the coding agent you already use. | A desktop editor with its own agent. |
+| The agent | Yours: your model and key, on your server. | Yours: Claude Code, Cursor, Codex, or any MCP host. | GridPath's own, in the app. |
+| You review | Highlighted in the grid; accept or reject. | In a local browser tab the agent links you to. | In the app's diff panel. |
+| Start | [The guide](packages/gridpath#in-your-web-app) · [live demo](https://gridpath.dev/demo) · [Next.js example](examples/nextjs-demo) | [Setup](packages/gridpath#in-your-coding-agent-mcp) · [gridpath.dev/mcp](https://gridpath.dev/mcp) | [Download](https://gridpath.dev/#download) |
 
-Claude Code (Sonnet 5.5) on a real 1.4 MB, 55,000-formula analyst model, same
-prompt with and without GridPath:
+The engine, the in-place saver and the `gridpath` package (the web spreadsheet and the MCP server) are open source under [Apache-2.0](LICENSE). The desktop app is source-available under the FSL-1.1-Apache-2.0 ([details](#license)).
+
+## In your web app
+
+```sh
+npm install gridpath react react-dom
+```
+
+```tsx
+import { Spreadsheet, httpStore } from "gridpath";
+
+const store = httpStore({ url: "/api/books" }); // or leave `store` out to save in the browser
+
+<div style={{ height: 600 }}>
+  <Spreadsheet
+    store={store}
+    documentId={book.id}
+    onReady={(sheet) => (sheetRef.current = sheet)}
+    onError={(err) => console.error(err.code, err.message, err.hint)}
+  />
+</div>;
+```
+
+Without any further code, users get:
+
+- a formatting toolbar;
+- saving as they work, with a status that says where: "Saved in this
+  browser" or "Saved to your account";
+- version history and a Recent list;
+- Download as `.xlsx`;
+- an "AI changes" panel for reviewing an agent's edits.
+
+Your code gets:
+
+- a small API: `getCell`, `setCell`, `save`, `open`, `openStored`…, with
+  stated contracts;
+- typed errors, each with a code and a hint you can show;
+- the agent tools for your own model (`sheet.ai`).
+
+When saving to your backend fails, nothing is lost. The edits wait in the
+browser and the save is retried.
+
+- [The guide and API reference](packages/gridpath#in-your-web-app)
+- [A complete Next.js app](examples/nextjs-demo), with auth and REST routes
+- [The live demo](https://gridpath.dev/demo)
+
+Against the spreadsheet components a web app would otherwise embed (on real
+models in Chromium, [method and results](eval/embed-bench#results-2026-10-19)):
+
+- **Opening.** GridPath opens a 1.4 MB analyst model and recalculates it
+  in 0.8 s. SpreadJS takes 3.6 s; Handsontable with HyperFormula and
+  ExcelJS takes 1.9 s.
+- **Saving.** GridPath keeps 75 of the file's 76 parts byte-identical.
+  The others drop custom XML, printer settings and more.
+- **Scale.** On a model with 2.3M cells, SpreadJS crashes the tab.
+  GridPath opens it and updates the dependents of an edit in 2.7 s.
+
+## In your coding agent (MCP)
+
+```sh
+claude mcp add gridpath -- npx -y gridpath mcp --review-required
+```
+
+Your agent edits the real `.xlsx` through GridPath's tools:
+
+- describe, find, read and write;
+- `run_script`;
+- structural operations (rows, columns, sheets).
+
+Every change returns a readback and a **review link**, which shows each
+changed cell before and after; accept or reject per batch, then save.
+
+- Nothing is written until you save.
+- With `--review-required`, only the review page can save.
+- No Python, no LibreOffice, no Excel needed.
+
+Details, host config snippets and the tool list:
+[packages/gridpath/README.md](packages/gridpath#in-your-coding-agent-mcp).
+
+The same edit takes a fraction of the time and tokens, because the agent
+calls spreadsheet tools instead of writing and debugging scripts. Claude
+Code (Sonnet 5.5) on a real 1.4 MB, 55,000-formula analyst model, with the
+same prompt with and without GridPath:
 
 | Task | With GridPath | Without |
 |---|---|---|
 | Insert a row (median of 5 runs) | **17 s** · 1.0k output tokens · $0.35 | 52 s · 6.1k · $0.86 |
 | Change 12 inputs and report the recalculated result (1 run) | **29 s** · 2.2k output tokens · $0.49 | 161 s · 17.1k · $1.62 |
 
-Both lanes got every edit right. The difference is time, tokens, and seeing the
-diff before it's saved. Full runs, including the ones we lose, are in the
-[evals repo](https://github.com/pixelsmasher13/gridpath-evals).
-
-It comes as three front doors on the same engine:
-
-| | **In your web app** — `npm install gridpath` | **MCP server** — `npx gridpath mcp` | **Desktop app** |
-|---|---|---|---|
-| What it is | An embeddable spreadsheet for your product: opens your users' `.xlsx`, saves it back intact | Tools for the coding agent you already use | A desktop editor with its own agent |
-| The agent | Yours: your model and key, on your server | Yours: Claude Code, Cursor, Codex, any MCP host | GridPath's own, in the app |
-| You review | Highlighted in the grid; accept or reject | In a local browser tab the agent links you to | In the app's diff panel |
-| Install | `npm install gridpath` (React peer) | One line, Node only | Download for Mac / Windows |
-| Where | [`packages/gridpath`](packages/gridpath#in-your-web-app) · [live demo](https://gridpath.dev/demo) · [gridpath.dev/embed](https://gridpath.dev/embed) | [`packages/gridpath`](packages/gridpath#in-your-coding-agent-mcp) · [gridpath.dev/mcp](https://gridpath.dev/mcp) | [Download](https://gridpath.dev/#download) · [gridpath.dev](https://gridpath.dev) |
-
-The engine, the in-place saver and the `gridpath` package (web spreadsheet and MCP server) are open source under [Apache-2.0](LICENSE). The desktop app is source-available under the FSL-1.1-Apache-2.0 ([details](#license)).
-
-## MCP server
-
-```sh
-claude mcp add gridpath -- npx -y gridpath mcp --review-required
-```
-
-Your agent edits the real `.xlsx` through GridPath's tools (describe, find,
-read, write, `run_script`, structure ops). Every change returns a readback and a
-**review link**: changed cells before/after, accept or reject per batch, save.
-Nothing is written until you save; with `--review-required` only the review page
-can save. No Python, no LibreOffice, no Excel needed. Details, host config
-snippets and the tool list: [packages/gridpath/README.md](packages/gridpath/README.md).
+Both lanes got every edit right. The difference is time, tokens, and seeing
+the diff before anything is saved. The full runs, including the ones we
+lose, are in the [evals repo](https://github.com/pixelsmasher13/gridpath-evals).
 
 [![The GridPath review page: the workbook with changed cells highlighted and a panel of pending changes to accept or reject](marketing/mcp-review.png)](https://gridpath.dev/mcp)
 
 ## Desktop app
+
+<p align="center">
+  <img src="docs/images/hero.png" alt="GridPath: the SpaceX income statement model open in the desktop app with the agent conversation, beside four points: review every cell before save, byte-identical .xlsx saves, Rust engine with incremental recalc, MCP server for Claude Code, Claude Desktop, Cursor and Codex." width="100%"/>
+</p>
 
 Open a `.xlsx`, type what you want, review the diff, accept it. Multiple
 workbooks side by side, each with its own agent; other files attachable as
@@ -75,7 +135,7 @@ the Claude or ChatGPT subscription you already pay for.
 - **Formula-first** — Writes formulas, not pasted numbers, so models stay live.
 - **Local-first** — Your `.xlsx` stays on disk. Only your prompt and the cells the agent needs go to Claude or OpenAI.
 
-## How it compares
+### How the desktop app compares
 
 | | GridPath | Excel Copilot | Claude for Excel | ChatGPT upload | CLI coding agent |
 |---|---|---|---|---|---|
@@ -92,7 +152,16 @@ the Claude or ChatGPT subscription you already pay for.
 
 ## Project status
 
-Under active development. Editing existing workbooks — the case above — is the strongest path and the one under continuous benchmark. Building large multi-sheet models from scratch works but is improving; the [benchmark repo](https://github.com/pixelsmasher13/gridpath-evals) publishes those results too, including the ones we lose.
+Under active development.
+
+- **The web package** is at 0.4. Not yet supported: drawing charts in the
+  grid (they are kept in the file, but not shown), data-validation
+  dropdowns, real-time collaboration.
+- **For agents**, editing existing workbooks is the strongest path, and the
+  one benchmarked continuously. Building large multi-sheet models from
+  scratch works but is still improving. The
+  [benchmark repo](https://github.com/pixelsmasher13/gridpath-evals)
+  publishes those results too, including the ones we lose.
 
 ## License
 

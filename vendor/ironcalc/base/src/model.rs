@@ -556,6 +556,38 @@ fn node_has_wrong_ref(node: &Node) -> bool {
     }
 }
 
+/// The first unknown function a formula calls (`_xll.FDS`, `BDP`…), if any.
+fn first_unknown_function(node: &Node) -> Option<String> {
+    use Node::*;
+    match node {
+        NamedFunctionKind { name, .. } => Some(name.clone()),
+        OpRangeKind { left, right }
+        | OpConcatenateKind { left, right }
+        | OpSumKind { left, right, .. }
+        | OpProductKind { left, right, .. }
+        | OpPowerKind { left, right }
+        | CompareKind { left, right, .. } => first_unknown_function(left).or_else(|| first_unknown_function(right)),
+        UnaryKind { right, .. } => first_unknown_function(right),
+        FunctionKind { args, .. } => args.iter().find_map(first_unknown_function),
+        LambdaDefKind { body, .. } => first_unknown_function(body),
+        LambdaCallKind { lambda, args } => first_unknown_function(lambda).or_else(|| args.iter().find_map(first_unknown_function)),
+        ImplicitIntersection { child, .. } | SpillRangeOperator { child } => first_unknown_function(child),
+        _ => None,
+    }
+}
+
+/// GRIDPATH: why a formula cell shows its imported (file-saved) value
+/// instead of a calculated one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportedValueReason {
+    /// It calls a function the engine doesn't know (add-in calls…).
+    UnknownFunction(String),
+    /// The file's formula has an unresolvable reference (another workbook).
+    ExternalReference,
+    /// The engine could not parse the formula.
+    Unparsed,
+}
+
 // FIXME: Maybe this should be the same as CellReference
 /// A struct pointing to a cell
 pub struct CellIndex {
@@ -3803,6 +3835,89 @@ impl<'a> Model<'a> {
             .unwrap_or(false);
         self.unevaluable_cache.insert(key, v);
         v
+    }
+
+    /// GRIDPATH: the reason a formula cell keeps its imported cached value
+    /// (it behaves as a constant, see `evaluate_cell`), or None when it is
+    /// calculated. A cell without a usable cached value evaluates to its
+    /// error and is not reported here.
+    pub fn imported_value_reason(&self, sheet: u32, row: i32, column: i32) -> Option<ImportedValueReason> {
+        let cell = self.workbook.worksheets.get(sheet as usize)?.sheet_data.get(&row)?.get(&column)?;
+        let (f, v) = match cell {
+            Cell::CellFormula { f, v, .. } | Cell::ArrayFormula { f, v, .. } => (*f, v),
+            _ => return None,
+        };
+        self.reason_for(sheet, row, column, f, v, &HashMap::new())
+    }
+
+    fn reason_for(
+        &self,
+        sheet: u32,
+        row: i32,
+        column: i32,
+        f: i32,
+        v: &FormulaValue,
+        known: &HashMap<i32, Option<ImportedValueReason>>,
+    ) -> Option<ImportedValueReason> {
+        if matches!(v, FormulaValue::Error { .. } | FormulaValue::Unevaluated) {
+            return None;
+        }
+        if self.import_wrongref_frozen.contains(&(sheet, row, column)) {
+            return Some(ImportedValueReason::ExternalReference);
+        }
+        if let Some(r) = known.get(&f) {
+            return r.clone();
+        }
+        let (node, _) = self.parsed_formulas.get(sheet as usize)?.get(f as usize)?;
+        if !node_is_unevaluable(node) {
+            return None;
+        }
+        Some(match first_unknown_function(node) {
+            Some(name) => ImportedValueReason::UnknownFunction(name),
+            None => ImportedValueReason::Unparsed,
+        })
+    }
+
+    /// GRIDPATH: every formula cell keeping its imported cached value, in
+    /// (sheet, row, column) order, at most `limit`.
+    pub fn imported_value_cells(&self, limit: usize) -> Vec<(u32, i32, i32, ImportedValueReason)> {
+        let mut out = Vec::new();
+        for (index, ws) in self.workbook.worksheets.iter().enumerate() {
+            let sheet = index as u32;
+            // Per distinct formula, once (shared formulas repeat an index).
+            let mut known: HashMap<i32, Option<ImportedValueReason>> = HashMap::new();
+            if let Some(formulas) = self.parsed_formulas.get(index) {
+                for (i, (node, _)) in formulas.iter().enumerate() {
+                    let r = if node_is_unevaluable(node) {
+                        Some(match first_unknown_function(node) {
+                            Some(name) => ImportedValueReason::UnknownFunction(name),
+                            None => ImportedValueReason::Unparsed,
+                        })
+                    } else {
+                        None
+                    };
+                    known.insert(i as i32, r);
+                }
+            }
+            let any_frozen = self.import_wrongref_frozen.iter().any(|k| k.0 == sheet);
+            if !any_frozen && known.values().all(|r| r.is_none()) {
+                continue;
+            }
+            for (row, columns) in &ws.sheet_data {
+                for (column, cell) in columns {
+                    let (f, v) = match cell {
+                        Cell::CellFormula { f, v, .. } | Cell::ArrayFormula { f, v, .. } => (*f, v),
+                        _ => continue,
+                    };
+                    if let Some(r) = self.reason_for(sheet, *row, *column, f, v, &known) {
+                        out.push((sheet, *row, *column, r));
+                    }
+                }
+            }
+        }
+        out.sort_unstable_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+        out.truncate(limit);
+        out
     }
 
     /// Records that `reader` read `target` during evaluation. Used by INDIRECT,
