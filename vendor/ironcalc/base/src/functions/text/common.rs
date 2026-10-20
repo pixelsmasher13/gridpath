@@ -531,7 +531,10 @@ impl<'a> Model<'a> {
                     }
                 }
             };
-            return CalcResult::String(s.trim().to_owned());
+            // Excel: drop leading and trailing spaces and collapse each run
+            // of spaces inside to one. Only the space character (32) counts;
+            // tabs, line breaks and non-breaking spaces are kept.
+            return CalcResult::String(s.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "));
         }
         CalcResult::new_args_number_error(cell)
     }

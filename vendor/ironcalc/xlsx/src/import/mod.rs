@@ -166,6 +166,7 @@ fn load_xlsx_from_reader<R: Read + std::io::Seek>(
         styles,
         name,
         settings: WorkbookSettings {
+            iteration: workbook.iteration.clone(),
             tz: tz.to_string(),
             locale: locale.to_string(),
         },

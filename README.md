@@ -103,8 +103,8 @@ spreadsheet, the agent tools, the MCP server), the examples and the evals.
 Use them in anything, commercial or not, including closed-source products.
 
 **Source-available (FSL-1.1-Apache-2.0):** the desktop app (`src/`,
-`src-tauri/`) and the hosted services (`proxy-server/`, `billing-portal/`,
-`cloudflare-proxy/`, `marketing/`), each with its own LICENSE file. You can
+`src-tauri/`) and the hosted services (`proxy-server/`, the desktop app's
+sign-in, and `marketing/`, the site), each with its own LICENSE file. You can
 read, modify and run them for any use except a competing product; each
 release becomes Apache-2.0 two years after it ships.
 

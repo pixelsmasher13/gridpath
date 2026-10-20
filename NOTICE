@@ -5,7 +5,7 @@ This product is licensed under the Apache License, Version 2.0 (LICENSE),
 except the directories listed below, which carry their own LICENSE file
 (the Functional Source License, Version 1.1, with Apache 2.0 Future
 License): the desktop app (src/, src-tauri/) and the hosted services
-(proxy-server/, billing-portal/, cloudflare-proxy/, marketing/). Files in
+(proxy-server/, the desktop app's sign-in service, and marketing/). Files in
 those directories marked "SPDX-License-Identifier: Apache-2.0" are under
 the Apache License.
 

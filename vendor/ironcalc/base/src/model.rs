@@ -403,6 +403,10 @@ pub struct Model<'a> {
     pub(crate) parser: Parser<'a>,
     /// The list of cells with formulas that are evaluated or being evaluated
     pub(crate) cells: HashMap<(u32, i32, i32), CellState>,
+    /// With iterative calculation on: the cells a circular reference reached
+    /// during this pass (each read its previous round's value), the starting
+    /// points of the next round.
+    pub(crate) circular_hits: std::collections::HashSet<(u32, i32, i32)>,
     /// The locale of the model
     pub(crate) locale: &'a Locale,
     /// The language used
@@ -1863,6 +1867,17 @@ impl<'a> Model<'a> {
                 );
                 if let Some(state) = self.cells.get(&key) {
                     match state {
+                        CellState::Evaluating if self.workbook.settings.iteration.is_some() => {
+                            // Iterative calculation (Excel): the circle reads
+                            // this cell's previous round (0 before the first),
+                            // and the cell starts the next round.
+                            self.circular_hits.insert(key);
+                            return match original_cell {
+                                Cell::CellFormula { v: FormulaValue::Unevaluated, .. }
+                                | Cell::ArrayFormula { v: FormulaValue::Unevaluated, .. } => CalcResult::Number(0.0),
+                                _ => self.get_cell_value(&original_cell, cell_reference),
+                            };
+                        }
                         CellState::Evaluating => {
                             return CalcResult::new_error(
                                 Error::CIRC,
@@ -2181,6 +2196,7 @@ impl<'a> Model<'a> {
             parsed_defined_names: HashMap::new(),
             parser,
             cells,
+            circular_hits: std::collections::HashSet::new(),
             language,
             locale,
             tz,
@@ -3723,6 +3739,7 @@ impl<'a> Model<'a> {
         self.match_cache.clear();
         self.ifs_cache.clear();
         self.dimension_cache.clear();
+        self.circular_hits.clear();
         let all_cells = self.get_all_cells();
         for cell in all_cells {
             self.evaluate_cell(CellReferenceIndex {
@@ -3731,7 +3748,44 @@ impl<'a> Model<'a> {
                 column: cell.column,
             });
         }
+        self.iterate_circular();
         self.evaluate_conditional_formatting();
+    }
+
+    /// Turns iterative calculation on (`Some`) or off. The next evaluation
+    /// uses it.
+    pub fn set_iteration(&mut self, iteration: Option<crate::types::IterationSettings>) {
+        self.workbook.settings.iteration = iteration;
+    }
+
+    /// Iterative calculation: after a pass in which circular references
+    /// read previous values, recalculate the circles (the cells they reached
+    /// and everything that reads them) until no value moves by more than
+    /// `max_change` or `max_iterations` rounds have run, counting the pass
+    /// that found them. Returns the cells the extra rounds changed.
+    fn iterate_circular(&mut self) -> Vec<(u32, i32, i32)> {
+        let Some(settings) = self.workbook.settings.iteration.clone() else {
+            self.circular_hits.clear();
+            return Vec::new();
+        };
+        let mut changed = std::collections::HashSet::new();
+        let mut rounds = 1;
+        while !self.circular_hits.is_empty() && rounds < settings.max_iterations {
+            let mut hits: Vec<(u32, i32, i32)> = self.circular_hits.drain().collect();
+            hits.sort_unstable();
+            let (moved, max_change) = self.evaluate_edited_pass(&hits);
+            changed.extend(moved);
+            rounds += 1;
+            if max_change < settings.max_change {
+                break;
+            }
+        }
+        // Out of rounds or settled: the circle keeps its last values (Excel
+        // shows them, no error).
+        self.circular_hits.clear();
+        let mut out: Vec<(u32, i32, i32)> = changed.into_iter().collect();
+        out.sort_unstable();
+        out
     }
 
     /// True when the parsed formula for `(sheet, formula_index)` contains a
@@ -3818,6 +3872,21 @@ impl<'a> Model<'a> {
     /// * a spill whose area grows or shrinks may need the full two-phase
     ///   reordering.
     pub fn evaluate_edited(&mut self, edited: &[(u32, i32, i32)]) -> Vec<(u32, i32, i32)> {
+        self.circular_hits.clear();
+        let (mut changed, _) = self.evaluate_edited_pass(edited);
+        let more = self.iterate_circular();
+        if !more.is_empty() {
+            changed.extend(more);
+            changed.sort_unstable();
+            changed.dedup();
+        }
+        changed
+    }
+
+    /// One incremental pass (see `evaluate_edited`): the changed cells, and
+    /// the largest change of a number among them (infinite when a value
+    /// changed type), which iterative calculation compares to `max_change`.
+    fn evaluate_edited_pass(&mut self, edited: &[(u32, i32, i32)]) -> (Vec<(u32, i32, i32)>, f64) {
         let debug = std::env::var("IC_DEBUG").is_ok();
         let t0 = crate::debug_timer::DebugTimer::start();
         // Inverted dependency map (dependency -> readers), cached on the
@@ -3889,7 +3958,7 @@ impl<'a> Model<'a> {
         }
         if dirty.is_empty() {
             self.reader_index = Some(index);
-            return Vec::new();
+            return (Vec::new(), 0.0);
         }
         let t2 = crate::debug_timer::DebugTimer::start();
 
@@ -3982,18 +4051,29 @@ impl<'a> Model<'a> {
         // Include the spill areas of dirty anchors: their positions were
         // rewritten even though they hold no formula of their own.
         let mut changed: Vec<(u32, i32, i32)> = Vec::new();
+        let mut max_change = 0.0f64;
+        let number = |c: Option<&Cell>| match c {
+            Some(Cell::CellFormula { v: FormulaValue::Number(n), .. }) | Some(Cell::ArrayFormula { v: FormulaValue::Number(n), .. }) => Some(*n),
+            _ => None,
+        };
         for key in dirty {
             if let Some(area) = self.spill_area_of(key) {
                 changed.extend(area);
                 changed.push(key);
+                max_change = f64::INFINITY;
                 continue;
             }
             let now = self.workbook.worksheet(key.0).ok().and_then(|ws| ws.cell(key.1, key.2));
-            if before.get(&key).map(|b| b.as_ref()) != Some(now) {
+            let was = before.get(&key).and_then(|b| b.as_ref());
+            if was != now {
                 changed.push(key);
+                max_change = max_change.max(match (number(was), number(now)) {
+                    (Some(a), Some(b)) => (a - b).abs(),
+                    _ => f64::INFINITY,
+                });
             }
         }
-        changed
+        (changed, max_change)
     }
 
     /// Removes the content of every cell in the range but leaves the style.

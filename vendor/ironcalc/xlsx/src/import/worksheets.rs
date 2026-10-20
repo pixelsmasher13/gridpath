@@ -41,6 +41,8 @@ pub(crate) struct Sheet {
 pub(crate) struct WorkbookXML {
     pub(crate) worksheets: Vec<Sheet>,
     pub(crate) defined_names: Vec<DefinedName>,
+    /// `<calcPr iterate="1" iterateCount=… iterateDelta=…>`
+    pub(crate) iteration: Option<ironcalc_base::types::IterationSettings>,
 }
 
 pub(crate) struct Relationship {

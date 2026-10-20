@@ -671,6 +671,7 @@ impl<'a> Model<'a> {
             styles: Default::default(),
             name: name.to_string(),
             settings: WorkbookSettings {
+                iteration: None,
                 tz: timezone.to_string(),
                 locale: locale_id.to_string(),
             },
@@ -699,6 +700,7 @@ impl<'a> Model<'a> {
             parsed_defined_names: HashMap::new(),
             parser,
             cells,
+            circular_hits: std::collections::HashSet::new(),
             locale,
             language,
             tz,

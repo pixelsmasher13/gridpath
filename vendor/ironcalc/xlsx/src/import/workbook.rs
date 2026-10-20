@@ -71,9 +71,27 @@ pub(super) fn load_workbook<R: Read + std::io::Seek>(
             sheet_id,
         })
     }
+    // Iterative calculation: <calcPr iterate="1" iterateCount="100" iterateDelta="0.001"/>
+    let iteration = doc
+        .descendants()
+        .find(|n| n.has_tag_name("calcPr"))
+        .filter(|n| matches!(n.attribute("iterate"), Some("1") | Some("true")))
+        .map(|n| ironcalc_base::types::IterationSettings {
+            max_iterations: n
+                .attribute("iterateCount")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(100)
+                .clamp(1, 32767),
+            max_change: n
+                .attribute("iterateDelta")
+                .and_then(|v| v.parse::<f64>().ok())
+                .filter(|d| d.is_finite() && *d >= 0.0)
+                .unwrap_or(0.001),
+        });
     // read the relationships file
     Ok(WorkbookXML {
         worksheets: sheets,
         defined_names,
+        iteration,
     })
 }

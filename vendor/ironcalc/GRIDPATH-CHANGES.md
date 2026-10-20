@@ -421,3 +421,30 @@ full evaluate on real models with `crates/engine-wasm/examples/incremental_check
   resolved (its suggested `E4:K4` was off by the deleted columns: `D4:K4`).
 
 base: 2240 tests pass; xlsx: 219 workbook tests pass, ROW_COLUMN included.
+
+## TRIM collapses inner spaces; iterative calculation (2026-10-19)
+
+- TRIM removed spaces only at the ends (`str::trim`, which also stripped
+  tabs and line breaks): `TRIM("  a   b  ")` was "a   b". Now as Excel:
+  spaces (character 32) dropped at both ends and each inner run collapsed
+  to one; tabs, line breaks and non-breaking spaces kept.
+  `functions/text/common.rs`.
+- Iterative calculation (was always #CIRC!). `<calcPr iterate="1"
+  iterateCount="…" iterateDelta="…">` is imported into
+  `WorkbookSettings.iteration` (`IterationSettings { max_iterations,
+  max_change }`, Excel's defaults 100 and 0.001; `Model::set_iteration`
+  sets it). With it on, a circular reference reads the cell's previous
+  round (0 before the first) instead of #CIRC!, and the cells it reached
+  start the next round: `iterate_circular` re-runs incremental passes over
+  them and everything that reads them (the reader index), until no number
+  moves by more than `max_change` or the rounds run out (the circle keeps
+  its last values, as in Excel). Runs after a full `evaluate()` and after
+  every `evaluate_edited`, which now also reports the cells the extra
+  rounds changed. `WorkbookSettings` lost `Eq` (it holds an f64); the
+  in-place saver keeps the file's calcPr attributes.
+
+Tests: `test_iterative_calculation.rs` (off → #CIRC!, converging single and
+two-cell circles with a reader outside, a diverging circle stops at 100,
+an edit re-converges, TRIM); xlsx `test_iterative_calculation_from_calc_pr`
+with `tests/openpyxl_iterative.xlsx`. base 2245, xlsx 219 workbook tests.
+

@@ -3,6 +3,7 @@ mod test_actions;
 mod test_fn_row_column_arrays;
 mod test_fn_aggregate;
 mod test_delete_shrinks_ranges;
+mod test_iterative_calculation;
 mod test_arabic_roman;
 mod test_binary_search;
 mod test_ceiling_floor;

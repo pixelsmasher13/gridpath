@@ -102,10 +102,23 @@ pub struct Metadata {
     pub last_modified: String, //"2020-11-20T16:24:35"
 }
 
-#[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct WorkbookSettings {
     pub tz: String,
     pub locale: String,
+    /// Excel's iterative calculation (`<calcPr iterate="1">`); None: off,
+    /// and a circular reference is #CIRC!.
+    pub iteration: Option<IterationSettings>,
+}
+
+/// Iterative calculation: a circular reference reads the previous round's
+/// value, and the circle is recalculated until no value moves by more than
+/// `max_change` or `max_iterations` rounds have run (Excel's defaults: 100
+/// and 0.001).
+#[derive(Encode, Decode, Debug, PartialEq, Clone)]
+pub struct IterationSettings {
+    pub max_iterations: u32,
+    pub max_change: f64,
 }
 
 /// A Workbook View tracks of the selected sheet for each view

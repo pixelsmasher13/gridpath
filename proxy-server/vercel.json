@@ -2,9 +2,6 @@
   "version": 2,
   "buildCommand": "",
   "functions": {
-    "api/llm/chat.ts": {
-      "maxDuration": 60
-    },
     "api/**/*.ts": {
       "maxDuration": 30
     }
@@ -19,7 +16,7 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
+          "value": "POST, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",

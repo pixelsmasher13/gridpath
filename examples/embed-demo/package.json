@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "gridpath": "file:../../packages/gridpath/gridpath-0.3.0.tgz",
+    "gridpath": "file:../../packages/gridpath/gridpath-0.3.1.tgz",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

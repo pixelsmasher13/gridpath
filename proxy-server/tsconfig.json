@@ -2,7 +2,9 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["ES2020"],
+    "lib": [
+      "ES2020"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -12,7 +14,9 @@
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "./",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "api/**/*",
@@ -20,10 +24,6 @@
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "**/*.disabled/**/*",
-    "api/cloud/events.disabled/**/*",
-    "api/cloud/recording.disabled/**/*",
-    "api/cloud/sessions.disabled/**/*"
+    "dist"
   ]
-} 
+}

@@ -512,3 +512,21 @@ fn test_workbook_theme_colors() {
         "#C9211E".to_string()
     );
 }
+
+// <calcPr iterate="1"> turns on iterative calculation: circular formulas
+// converge instead of #CIRC! (Excel's default 100 rounds, 0.001).
+#[test]
+fn test_iterative_calculation_from_calc_pr() {
+    let mut model = load_from_xlsx("tests/openpyxl_iterative.xlsx", "en", "UTC", "en").unwrap();
+    let it = model.workbook.settings.iteration.clone().unwrap();
+    assert_eq!(it.max_iterations, 100);
+    assert!((it.max_change - 0.001).abs() < 1e-12);
+    model.evaluate();
+    let v = |m: &ironcalc_base::Model, r: i32, c: i32| match m.get_cell_value_by_index(0, r, c).unwrap() {
+        ironcalc_base::cell::CellValue::Number(n) => n,
+        other => panic!("{other:?}"),
+    };
+    assert!((v(&model, 1, 1) - 2.0).abs() < 0.002, "{}", v(&model, 1, 1));
+    assert!((v(&model, 2, 2) - 20.0).abs() < 0.01, "{}", v(&model, 2, 2));
+    assert_eq!(model.get_formatted_cell_value(0, 1, 3).unwrap(), "a b");
+}
