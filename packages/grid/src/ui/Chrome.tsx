@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
-import { AlertTriangle, Check, ChevronDown, Download, FilePlus, FolderOpen, History, RotateCcw, Save, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Download, FilePlus, FolderOpen, History, RotateCcw, Save, X } from "lucide-react";
 import {
   FormatToolbar,
   IconBtn,
@@ -22,7 +22,7 @@ import {
 import type { StoredWorkbook, WorkbookVersion } from "./store";
 import type { AgentBatch } from "../ai/toolkit";
 import type { GridPathError, GridPathErrorCode } from "../errors";
-import { cellSpan, describeBatch } from "./review";
+import { cellSpan, describeChange, groupChanges } from "./review";
 
 /** Where the workbook stands relative to its last save. */
 export type SaveStatus =
@@ -106,8 +106,9 @@ function StatusText({ status, onRetry, onReview, short }: { status: SaveStatus; 
     case "unsaved":
       return <Status $warn title="Unsaved changes">{short ? "Unsaved" : "Unsaved changes"}</Status>;
     case "review": {
-      const full = `Review ${status.pending} AI change${status.pending === 1 ? "" : "s"} to save`;
-      const text = short ? `Review ${status.pending} change${status.pending === 1 ? "" : "s"}` : full;
+      // No count: the panel groups tool calls into changes, so the API's batch count would disagree with it.
+      const full = "Review AI changes to save";
+      const text = short ? "Review changes" : full;
       return onReview ? (
         <Status $warn>
           <LinkBtn title={short ? `${full}: accept or reject the AI's changes` : "Accept or reject the AI's changes"} onClick={onReview}>{text}</LinkBtn>
@@ -307,11 +308,8 @@ export function HistoryPanel(props: {
   );
 }
 
-function when2(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-/** The agent's pending changes: what each did, where, accept or reject. */
+/** The agent's pending changes, grouped (a write and the formatting of
+ * what it wrote are one change): where, what, accept or reject. */
 export function ReviewPanel(props: {
   batches: AgentBatch[];
   onAccept: (id?: string) => void;
@@ -319,69 +317,79 @@ export function ReviewPanel(props: {
   onJump: (cell: { sheet: string; row: number; col: number }) => void;
   onClose: () => void;
 }) {
-  const pending = props.batches.filter((b) => b.status === "pending");
-  const accepted = props.batches.length - pending.length;
+  const groups = groupChanges(props.batches);
   return (
     <Panel role="dialog" aria-label="AI changes">
       <PanelHead>
-        <strong style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Sparkles size={14} /> AI changes{pending.length ? ` (${pending.length})` : ""}
+        <strong style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          Review changes{groups.length > 0 && <CountPill>{groups.length}</CountPill>}
         </strong>
         <IconBtn title="Close" onClick={props.onClose}>
           <X size={14} />
         </IconBtn>
       </PanelHead>
-      {pending.length > 0 ? (
+      {groups.length > 0 ? (
         <>
-          <PanelHint>Highlighted in the sheet. Nothing is saved until you accept.</PanelHint>
-          <BarRow>
-            <TextBtn title="Keep every pending change" onClick={() => props.onAccept()}>
-              <Check size={12} /> Accept all
-            </TextBtn>
-            <TextBtn title="Undo every pending change" onClick={() => props.onReject()}>
-              <X size={12} /> Reject all
-            </TextBtn>
-          </BarRow>
+          <PanelHint>
+            Highlighted in the sheet. Nothing is saved until you accept.
+            {groups.length > 1 && " Rejecting one also undoes those below it."}
+          </PanelHint>
+          <ReviewActions>
+            <PrimaryBtn title="Keep every change" onClick={() => props.onAccept()}>Accept all</PrimaryBtn>
+            <QuietBtn title="Undo every change" onClick={() => props.onReject()}>Reject all</QuietBtn>
+          </ReviewActions>
         </>
       ) : (
-        <PanelHint>Nothing waiting for review.{accepted ? ` ${accepted} change${accepted === 1 ? "" : "s"} accepted.` : ""}</PanelHint>
+        <PanelHint>{props.batches.length ? "All changes reviewed." : "Nothing to review."}</PanelHint>
       )}
-      {pending.map((b) => {
-        const d = describeBatch(b);
-        const first = cellSpan(b.cells).first;
-        // Rejecting undoes this change and every one made after it.
-        const later = props.batches.length - 1 - props.batches.indexOf(b);
+      {groups.map((g, gi) => {
+        const d = describeChange(g);
+        const where = cellSpan(g.cells);
+        const later = groups.length - 1 - gi;
         return (
-          <Change key={b.id}>
-            <ChangeBody
+          <ChangeCard key={g.batches[0].id}>
+            <CardBody
               role="button"
               tabIndex={0}
-              title={first ? "Show in the sheet" : undefined}
-              onClick={() => first && props.onJump(first)}
-              onKeyDown={(e) => e.key === "Enter" && first && props.onJump(first)}
+              title={where.first ? "Show in the sheet" : undefined}
+              onClick={() => where.first && props.onJump(where.first)}
+              onKeyDown={(e) => e.key === "Enter" && where.first && props.onJump(where.first)}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <strong>{d.title}</strong>
-                <MenuHint>{when2(b.created_at)}</MenuHint>
-              </div>
-              {d.where && <MenuHint>{d.where}</MenuHint>}
-              {d.lines.map((l, i) => (
-                <Detail key={i}>{l}</Detail>
+              {where.range && (
+                <CardWhere>
+                  <strong>{where.range}</strong>
+                  <span>{where.sheet}{where.others ? ` + ${where.others} more sheet${where.others === 1 ? "" : "s"}` : ""}</span>
+                </CardWhere>
+              )}
+              {d.summary && <CardSummary>{d.summary}</CardSummary>}
+              {d.other.map((l, i) => (
+                <CardSummary key={i}>{l.replace(/^./, (c) => c.toUpperCase())}</CardSummary>
               ))}
-              {d.more > 0 && <MenuHint>and {d.more} more</MenuHint>}
-            </ChangeBody>
-            <BarRow>
-              <TextBtn title="Keep this change" onClick={() => props.onAccept(b.id)}>
-                <Check size={12} /> Accept
-              </TextBtn>
-              <TextBtn
-                title={later ? `Undo this change and the ${later} made after it` : "Undo this change"}
-                onClick={() => props.onReject(b.id)}
+              {d.cells.length > 0 && (
+                <CellList>
+                  {d.cells.map((c) => (
+                    <React.Fragment key={c.ref}>
+                      <CellRef>{c.ref}</CellRef>
+                      <CellValue $formula={c.formula} title={c.old ? `${c.old} → ${c.value}` : c.value}>
+                        {c.old ? <><s>{c.old}</s> {c.value || "empty"}</> : c.value}
+                      </CellValue>
+                    </React.Fragment>
+                  ))}
+                </CellList>
+              )}
+              {d.more > 0 && <MenuHint>+ {d.more} more cell{d.more === 1 ? "" : "s"}</MenuHint>}
+            </CardBody>
+            <CardActions>
+              <SmallBtn title="Keep this change" onClick={() => g.batches.forEach((b) => props.onAccept(b.id))}>Accept</SmallBtn>
+              <SmallBtn
+                $quiet
+                title={later ? `Undo this change and the ${later} below it` : "Undo this change"}
+                onClick={() => props.onReject(g.batches[0].id)}
               >
-                <X size={12} /> Reject{later ? ` (+${later} after)` : ""}
-              </TextBtn>
-            </BarRow>
-          </Change>
+                Reject
+              </SmallBtn>
+            </CardActions>
+          </ChangeCard>
         );
       })}
     </Panel>
@@ -541,6 +549,131 @@ const ChangeBody = styled.div`
   flex-direction: column;
   gap: 2px;
   &:hover { background: #f7f8fa; }
+`;
+
+const CountPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #e8eef7;
+  color: #2563b0;
+  font-size: 11px;
+  font-weight: 600;
+`;
+
+const ReviewActions = styled.div`
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+`;
+
+const PrimaryBtn = styled.button`
+  flex: 1;
+  height: 30px;
+  border: 1px solid #2563b0;
+  border-radius: 6px;
+  background: #2563b0;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  &:hover { background: #1d4f8f; border-color: #1d4f8f; }
+`;
+
+const QuietBtn = styled.button`
+  flex: 1;
+  height: 30px;
+  border: 1px solid #d2d6db;
+  border-radius: 6px;
+  background: #fff;
+  color: #3a3d40;
+  font-size: 12px;
+  cursor: pointer;
+  &:hover { background: #f3f5f7; }
+`;
+
+const ChangeCard = styled.div`
+  margin: 0 10px 10px;
+  border: 1px solid #e3e6ea;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+`;
+
+const CardBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 8px;
+  cursor: pointer;
+  &:hover { background: #f8f9fb; }
+  &:focus-visible { outline: 2px solid #2563b0; outline-offset: -2px; }
+`;
+
+const CardWhere = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  strong { font-size: 13px; color: #202124; }
+  span { color: #80868b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+`;
+
+const CardSummary = styled.div`
+  color: #3c4043;
+  line-height: 1.35;
+`;
+
+const CellList = styled.div`
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 3px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #f6f7f9;
+`;
+
+const CellRef = styled.span`
+  color: #80868b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+`;
+
+const CellValue = styled.span<{ $formula?: boolean }>`
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #202124;
+  font-size: ${(p) => (p.$formula ? "11px" : "12px")};
+  font-family: ${(p) => (p.$formula ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit")};
+  s { color: #a0a4a8; margin-right: 2px; }
+`;
+
+const CardActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid #f0f1f3;
+`;
+
+const SmallBtn = styled.button<{ $quiet?: boolean }>`
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 5px;
+  border: 1px solid ${(p) => (p.$quiet ? "transparent" : "#2563b0")};
+  background: ${(p) => (p.$quiet ? "transparent" : "#fff")};
+  color: ${(p) => (p.$quiet ? "#5f6368" : "#2563b0")};
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  &:hover { background: ${(p) => (p.$quiet ? "#f1f3f4" : "#eef3fa")}; }
 `;
 
 const Detail = styled.div`

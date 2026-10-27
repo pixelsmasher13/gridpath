@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "gridpath",
   "display_name": "GridPath \u2014 Excel editing with review",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Let Claude edit your real .xlsx files. Every change opens a local review page: see changed cells before/after, accept or reject, then save. Untouched parts of the workbook stay byte-identical.",
   "long_description": "GridPath gives Claude a safe way to edit the Excel files you already have.\n\n- **Edits the real file.** Saves rewrite only the parts an edit touched; charts, pivots, macros, add-in data and custom XML come back byte-identical.\n- **Real formulas.** A calculation engine runs inside the extension, so Claude reads evaluated values and writes formulas that work when the file opens in Excel.\n- **Review before save.** Each change returns a local review link with changed cells highlighted and before/after values. With *Require review* on, only that page can write the file.\n\nBy default Claude can open workbooks anywhere in your home directory; you can limit it to specific folders below.",
   "author": {

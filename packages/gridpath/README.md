@@ -585,7 +585,7 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
 
 #### Claude Desktop (no terminal)
 
-Download [`gridpath-0.5.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.5.0/gridpath-0.5.0.mcpb)
+Download [`gridpath-0.5.1.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.5.1/gridpath-0.5.1.mcpb)
 and open it. Claude Desktop shows an install dialog where you pick the folders
 Claude may edit and whether saving requires review. Node is bundled; nothing else
 to install. Claude Desktop shows its standard "not verified" warning for any

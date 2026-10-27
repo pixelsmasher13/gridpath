@@ -46,6 +46,8 @@ async function sampleEdit(sheet: SheetApi): Promise<string | null> {
   await sheet.ai.run("set_range", { sheet: IS, top_left: "C44", values: [["Diluted EPS growth", "n.a.", ...growth]] });
   await sheet.ai.run("set_format", { sheet: IS, range: "C44:J44", format: { italic: true, font_color: "#61748A" } });
   await sheet.ai.run("set_format", { sheet: IS, range: "D44:J44", format: { number_format: '0.0%;(0.0%);"–"', horizontal_align: "right" } });
+  // Bring the new row into view, highlighted for review.
+  sheet.select(IS, "C44");
   return null;
 }
 

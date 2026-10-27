@@ -157,7 +157,7 @@ export function RecordingDemo() {
     populatedCells: fixture!.cells, forecastYears: fixture!.years, annualPeriods: fixture!.periods, sheets: fixture!.sheets, startedAt: openedAt.current, openTrigger: openTrigger.current,
     scenario: { launchesBefore: 120, launchesAfter: 180, baseline: fixture!.base, edited: fixture!.edited },
     userAgent: navigator.userAgent, logicalProcessors: navigator.hardwareConcurrency,
-    gridpathVersion: "0.5.0", ...times, editBreakdown, summaryVerified: verified, chartPointsVerified: verified ? fixture!.chartPoints : 0, cachedFallbackFormulas: issues, saveComparison: comparison,
+    gridpathVersion: "0.5.1", ...times, editBreakdown, summaryVerified: verified, chartPointsVerified: verified ? fixture!.chartPoints : 0, cachedFallbackFormulas: issues, saveComparison: comparison,
     methodology: {
       openMs: "Automatic workbook mount (or Reset workbook) to component onReady; fresh component and engine worker, including worker/WASM startup and workbook import. File fetch, formula counting and hash verification finish before timing begins. This is not page-navigation time. HTTP cache not cleared.",
       calculateMs: "Same start as openMs through whenCalculated; total, not additional time.",

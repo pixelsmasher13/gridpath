@@ -353,6 +353,18 @@ const MenuItem = styled.button`
   &:hover { background: #eef3fb; }
   &:disabled { color: #aaa; cursor: default; }
 `;
+const ConfirmBtn = styled.button<{ $danger?: boolean }>`
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid ${(p) => (p.$danger ? "#c5221f" : "#d2d6db")};
+  background: ${(p) => (p.$danger ? "#c5221f" : "#fff")};
+  color: ${(p) => (p.$danger ? "#fff" : "#3a3d40")};
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  &:hover { background: ${(p) => (p.$danger ? "#a8201b" : "#f3f5f7")}; }
+`;
 const MenuSep = styled.div`
   height: 1px;
   margin: 4px 0;
@@ -552,18 +564,20 @@ export const ViewportGrid = React.memo(
     const [tabMenu, setTabMenu] = useState<{ x: number; y: number; index: number } | null>(null);
     const [renaming, setRenaming] = useState<{ index: number; text: string } | null>(null);
     const [colorPick, setColorPick] = useState<number | null>(null);
+    // Deleting a sheet can't be undone, so it asks first (as Excel does).
+    const [confirmDelete, setConfirmDelete] = useState<{ x: number; y: number; name: string } | null>(null);
     // Any click outside an open menu, or Escape, closes it (Excel's behaviour).
     useEffect(() => {
-      if (!menu && !tabMenu && colorPick === null && !filterMenu) return;
+      if (!menu && !tabMenu && colorPick === null && !filterMenu && !confirmDelete) return;
       const onDown = (ev: MouseEvent) => {
         if ((ev.target as HTMLElement | null)?.closest?.("[data-vp-menu]")) return;
-        setMenu(null); setTabMenu(null); setColorPick(null); setFilterMenu(null);
+        setMenu(null); setTabMenu(null); setColorPick(null); setFilterMenu(null); setConfirmDelete(null);
       };
-      const onKey = (ev: KeyboardEvent) => { if (ev.key === "Escape") { setMenu(null); setTabMenu(null); setColorPick(null); setFilterMenu(null); } };
+      const onKey = (ev: KeyboardEvent) => { if (ev.key === "Escape") { setMenu(null); setTabMenu(null); setColorPick(null); setFilterMenu(null); setConfirmDelete(null); } };
       document.addEventListener("mousedown", onDown, true);
       document.addEventListener("keydown", onKey, true);
       return () => { document.removeEventListener("mousedown", onDown, true); document.removeEventListener("keydown", onKey, true); };
-    }, [menu, tabMenu, colorPick, filterMenu]);
+    }, [menu, tabMenu, colorPick, filterMenu, confirmDelete]);
     const setTabColor = (index: number, color: string | null) => {
       const l = layoutRef.current?.sheets[index];
       if (!l) return;
@@ -3823,13 +3837,32 @@ export const ViewportGrid = React.memo(
             ) : (
               <MenuItem disabled={sheetNames.filter((x) => !x.hidden).length <= 1} onClick={() => { setTabMenu(null); setSheetVisibility(tabMenu.index, true); }}>Hide</MenuItem>
             )}
-            <MenuItem disabled={sheetNames.length <= 1} onClick={() => { setTabMenu(null); const name = sheetNames[tabMenu.index]?.name; if (name && sheetNames.length > 1) { handle.deleteSheet(name); onManualSheetOp?.({ kind: "delete", name }); } }}>Delete</MenuItem>
+            <MenuItem disabled={sheetNames.length <= 1} onClick={() => { setTabMenu(null); const name = sheetNames[tabMenu.index]?.name; if (name && sheetNames.length > 1) setConfirmDelete({ x: tabMenu.x, y: tabMenu.y, name }); }}>Delete…</MenuItem>
             {sheetNames.some((x) => x.hidden) && <MenuSep />}
             {sheetNames.some((x) => x.hidden) && (
               <MenuItem onClick={() => { setTabMenu(null); setShowHidden((v) => !v); }}>
                 {showHidden ? "Hide hidden sheets" : `Show hidden sheets (${sheetNames.filter((x) => x.hidden).length})`}
               </MenuItem>
             )}
+          </Menu>
+        )}
+        {confirmDelete && (
+          <Menu data-vp-menu="1" role="alertdialog" aria-label={`Delete ${confirmDelete.name}`} style={{ left: confirmDelete.x, top: confirmDelete.y, padding: "12px 14px", width: 260 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, marginBottom: 4, overflowWrap: "anywhere" }}>Delete “{confirmDelete.name}”?</div>
+            <div style={{ color: "#5f6368", fontSize: 12, marginBottom: 12 }}>The sheet and everything on it will be removed. This can’t be undone.</div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <ConfirmBtn autoFocus onClick={() => setConfirmDelete(null)}>Cancel</ConfirmBtn>
+              <ConfirmBtn
+                $danger
+                onClick={() => {
+                  const { name } = confirmDelete;
+                  setConfirmDelete(null);
+                  if (sheetNames.length > 1 && sheetNames.some((x) => x.name === name)) { handle.deleteSheet(name); onManualSheetOp?.({ kind: "delete", name }); }
+                }}
+              >
+                Delete
+              </ConfirmBtn>
+            </div>
           </Menu>
         )}
         {filterMenu && (() => {

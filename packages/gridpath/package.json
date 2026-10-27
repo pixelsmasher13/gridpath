@@ -1,6 +1,6 @@
 {
   "name": "gridpath",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Real Excel files in your web app and in your agent: an embeddable spreadsheet with a Rust/WebAssembly engine, in-place .xlsx saves and AI tools, plus an MCP server for coding agents.",
   "mcpName": "io.github.pixelsmasher13/gridpath",
   "keywords": [
