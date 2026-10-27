@@ -115,5 +115,10 @@ opt-level = 3
 [profile.dev.package.miniz_oxide]
 opt-level = 3
 
+# No debuginfo for dependencies: it was most of target/debug's size (objc2
+# bindings alone ran 130-160 MB per copy). Our own crate keeps full debuginfo.
+[profile.dev.package."*"]
+debug = false
+
 [dev-dependencies]
 xlsx_patch = { path = "../crates/xlsx-patch", features = ["fixtures"] }

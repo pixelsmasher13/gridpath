@@ -44,6 +44,7 @@
     "@univerjs/sheets-ui": "^0.25.1",
     "class-variance-authority": "^0.7.0",
     "dayjs": "^1.11.10",
+    "echarts": "^6.1.0",
     "exceljs": "^4.4.0",
     "firebase": "^11.9.1",
     "framer-motion": "^10.16.4",

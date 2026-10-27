@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::binary_search::binary_search_on_array;
-use super::util::{compare_values, from_wildcard_to_regex, result_matches_regex, values_are_equal};
+use super::util::{compare_values, text_lookup_matcher, values_are_equal};
 
 mod address_areas;
 mod choosecols_chooserows;
@@ -121,11 +121,7 @@ fn lookup_index(
     } else {
         let result_matches: Box<dyn Fn(&CalcResult) -> bool> =
             if let CalcResult::String(s) = lookup_value {
-                if let Ok(reg) = from_wildcard_to_regex(&s.to_lowercase(), true) {
-                    Box::new(move |x| result_matches_regex(x, &reg))
-                } else {
-                    Box::new(move |_| false)
-                }
+                text_lookup_matcher(s)
             } else {
                 let lookup_value = lookup_value.clone();
                 Box::new(move |x| compare_values(x, &lookup_value) == 0)
@@ -1158,11 +1154,7 @@ fn match_position(target: &CalcResult, values: &[CalcResult], match_type: i32) -
             // Linear search
             let result_matches: Box<dyn Fn(&CalcResult) -> bool> =
                 if let CalcResult::String(s) = target {
-                    if let Ok(reg) = from_wildcard_to_regex(&s.to_lowercase(), true) {
-                        Box::new(move |x| result_matches_regex(x, &reg))
-                    } else {
-                        Box::new(move |_| false)
-                    }
+                    text_lookup_matcher(s)
                 } else {
                     let t = target.clone();
                     Box::new(move |x| values_are_equal(x, &t))

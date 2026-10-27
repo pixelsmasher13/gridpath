@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "gridpath": ["../../packages/gridpath/dist/web/index.d.ts"]
+    }
+  }
+}

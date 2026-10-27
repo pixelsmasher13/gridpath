@@ -4,7 +4,7 @@
  * One host holds one workbook. Commands mirror the desktop's
  * calc_engine_* Tauri commands; rows and columns are 1-based.
  */
-import init, { Workbook, blankXlsx, patch } from "../engine/gridpath_engine.js";
+import init, { Workbook, blankXlsx, csvToXlsx, patch } from "../engine/gridpath_engine.js";
 
 export type CellDelta = { sheet: number; row: number; column: number; value: unknown };
 
@@ -40,24 +40,35 @@ export class EngineHost {
     switch (cmd) {
       case "blank":
         return blankXlsx(a.sheets?.length ? a.sheets : ["Sheet1"]);
+      case "csv":
+        return csvToXlsx(a.bytes, a.name, a.delimiter ?? undefined);
       case "load": {
         // Freed first (one workbook in memory at a time); a file that fails
         // to open leaves no workbook rather than a freed one.
         this.wb?.free();
         this.wb = null;
         this.wb = Workbook.openDeferred(a.bytes);
-        return { sheets: this.wb.sheetNames() };
+        return { sheets: this.wb.sheetNames(), charts: JSON.parse(this.wb.charts()) };
       }
       case "layout":
         return this.book().workbookLayout();
       case "window":
         return this.book().sheetWindow(a.sheet, a.r0, a.r1, a.c0, a.c1);
       case "evaluatePending":
-        return JSON.parse(this.book().evaluatePending()) as { ms: number; cells: CellDelta[] };
+        return { ...JSON.parse(this.book().evaluatePending()), charts: JSON.parse(this.book().charts()) };
       case "editBatch": {
+        const start = performance.now();
         const wb = this.book();
         for (const e of a.edits as Array<{ sheet: number; row: number; column: number; value: string }>) wb.setInput(e.sheet, e.row, e.column, e.value);
-        return deltas(wb.evaluateEdited());
+        const written = performance.now();
+        const json = wb.evaluateEdited();
+        const evaluated = performance.now();
+        const res = JSON.parse(json);
+        const cells = res.full ? [] : (res.cells ?? []).map((c: any) => ({ sheet: c.sheet, row: c.r, column: c.c, value: c.v ?? null }));
+        const decoded = performance.now();
+        const charts = JSON.parse(wb.charts());
+        const end = performance.now();
+        return { cells, charts, timing: { ...res.timing, writeMs: written-start, decodeMs: decoded-evaluated, chartsMs: end-decoded, workerMs: end-start, changedCells: cells.length } };
       }
       case "sheetOp": {
         const wb = this.book();
@@ -68,7 +79,7 @@ export class EngineHost {
         } else if (a.op === "rename") wb.renameSheet(names.indexOf(a.name), a.newName);
         else if (a.op === "delete") wb.deleteSheet(names.indexOf(a.name));
         const cells = deltas(wb.evaluateEdited());
-        return { sheets: wb.sheetNames(), cells };
+        return { sheets: wb.sheetNames(), cells, charts: JSON.parse(wb.charts()) };
       }
       case "structural": {
         const wb = this.book();
@@ -77,7 +88,7 @@ export class EngineHost {
         else if (a.op === "insert_columns") wb.insertColumns(a.sheet, a.index, a.count);
         else if (a.op === "delete_columns") wb.deleteColumns(a.sheet, a.index, a.count);
         else throw new Error(`unknown structural op ${a.op}`);
-        return deltas(wb.evaluateEdited());
+        return { cells: deltas(wb.evaluateEdited()), charts: JSON.parse(wb.charts()) };
       }
       case "setStyle": {
         const wb = this.book();
@@ -100,7 +111,7 @@ export class EngineHost {
       case "defineName": {
         const wb = this.book();
         wb.newDefinedName(a.name, String(a.formula).replace(/^=/, ""));
-        return deltas(wb.evaluateEdited());
+        return { cells: deltas(wb.evaluateEdited()), charts: JSON.parse(wb.charts()) };
       }
       case "find":
         return JSON.parse(this.book().find(a.query, a.sheet ?? undefined, a.limit ?? undefined));

@@ -72,45 +72,48 @@ they are installed as dependencies and carry their own licenses.
 
 | Package | Version | License | Text |
 |---|---|---|---|
-| lucide-react | 0.427.0 | ISC | [45](#license-text-45) |
+| echarts | 6.1.0 | Apache-2.0 | [45](#license-text-45), [46](#license-text-46) |
+| lucide-react | 0.427.0 | ISC | [47](#license-text-47) |
+| tslib | 2.3.0 | 0BSD | [48](#license-text-48) |
+| zrender | 6.1.0 | BSD-3-Clause | [49](#license-text-49) |
 
 ## Bundled into the review page (`ui/`)
 
 | Package | Version | License | Text |
 |---|---|---|---|
-| @babel/runtime | 7.25.6 | MIT | [46](#license-text-46) |
-| @flatten-js/interval-tree | 1.1.3 | MIT | [47](#license-text-47) |
-| @floating-ui/core | 1.8.0 | MIT | [48](#license-text-48) |
-| @floating-ui/dom | 1.8.0 | MIT | [48](#license-text-48) |
-| @floating-ui/react-dom | 2.1.9 | MIT | [48](#license-text-48) |
-| @floating-ui/utils | 0.2.12 | MIT | [48](#license-text-48) |
-| @radix-ui/primitive | 1.1.7 | MIT | [49](#license-text-49) |
-| @radix-ui/react-collection | 1.1.13 | MIT | [49](#license-text-49) |
-| @radix-ui/react-compose-refs | 1.1.4 | MIT | [49](#license-text-49) |
-| @radix-ui/react-context | 1.2.1 | MIT | [49](#license-text-49) |
-| @radix-ui/react-dialog | 1.1.21 | MIT | [49](#license-text-49) |
-| @radix-ui/react-direction | 1.1.3 | MIT | [49](#license-text-49) |
-| @radix-ui/react-dismissable-layer | 1.1.17 | MIT | [49](#license-text-49) |
-| @radix-ui/react-dropdown-menu | 2.1.22 | MIT | [49](#license-text-49) |
-| @radix-ui/react-focus-guards | 1.1.5 | MIT | [49](#license-text-49) |
-| @radix-ui/react-focus-scope | 1.1.14 | MIT | [49](#license-text-49) |
-| @radix-ui/react-hover-card | 1.1.21 | MIT | [49](#license-text-49) |
-| @radix-ui/react-id | 1.1.3 | MIT | [49](#license-text-49) |
-| @radix-ui/react-menu | 2.1.22 | MIT | [49](#license-text-49) |
-| @radix-ui/react-popover | 1.1.21 | MIT | [49](#license-text-49) |
-| @radix-ui/react-popper | 1.3.5 | MIT | [49](#license-text-49) |
-| @radix-ui/react-portal | 1.1.15 | MIT | [49](#license-text-49) |
-| @radix-ui/react-presence | 1.1.9 | MIT | [49](#license-text-49) |
-| @radix-ui/react-primitive | 2.1.8 | MIT | [49](#license-text-49) |
-| @radix-ui/react-roving-focus | 1.1.17 | MIT | [49](#license-text-49) |
-| @radix-ui/react-separator | 1.1.13 | MIT | [49](#license-text-49) |
-| @radix-ui/react-slot | 1.3.1 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-callback-ref | 1.1.3 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-controllable-state | 1.2.5 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-effect-event | 0.0.4 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-is-hydrated | 0.1.2 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-layout-effect | 1.1.3 | MIT | [49](#license-text-49) |
-| @radix-ui/react-use-size | 1.1.3 | MIT | [49](#license-text-49) |
+| @babel/runtime | 7.25.6 | MIT | [50](#license-text-50) |
+| @flatten-js/interval-tree | 1.1.3 | MIT | [51](#license-text-51) |
+| @floating-ui/core | 1.8.0 | MIT | [52](#license-text-52) |
+| @floating-ui/dom | 1.8.0 | MIT | [52](#license-text-52) |
+| @floating-ui/react-dom | 2.1.9 | MIT | [52](#license-text-52) |
+| @floating-ui/utils | 0.2.12 | MIT | [52](#license-text-52) |
+| @radix-ui/primitive | 1.1.7 | MIT | [53](#license-text-53) |
+| @radix-ui/react-collection | 1.1.13 | MIT | [53](#license-text-53) |
+| @radix-ui/react-compose-refs | 1.1.4 | MIT | [53](#license-text-53) |
+| @radix-ui/react-context | 1.2.1 | MIT | [53](#license-text-53) |
+| @radix-ui/react-dialog | 1.1.21 | MIT | [53](#license-text-53) |
+| @radix-ui/react-direction | 1.1.3 | MIT | [53](#license-text-53) |
+| @radix-ui/react-dismissable-layer | 1.1.17 | MIT | [53](#license-text-53) |
+| @radix-ui/react-dropdown-menu | 2.1.22 | MIT | [53](#license-text-53) |
+| @radix-ui/react-focus-guards | 1.1.5 | MIT | [53](#license-text-53) |
+| @radix-ui/react-focus-scope | 1.1.14 | MIT | [53](#license-text-53) |
+| @radix-ui/react-hover-card | 1.1.21 | MIT | [53](#license-text-53) |
+| @radix-ui/react-id | 1.1.3 | MIT | [53](#license-text-53) |
+| @radix-ui/react-menu | 2.1.22 | MIT | [53](#license-text-53) |
+| @radix-ui/react-popover | 1.1.21 | MIT | [53](#license-text-53) |
+| @radix-ui/react-popper | 1.3.5 | MIT | [53](#license-text-53) |
+| @radix-ui/react-portal | 1.1.15 | MIT | [53](#license-text-53) |
+| @radix-ui/react-presence | 1.1.9 | MIT | [53](#license-text-53) |
+| @radix-ui/react-primitive | 2.1.8 | MIT | [53](#license-text-53) |
+| @radix-ui/react-roving-focus | 1.1.17 | MIT | [53](#license-text-53) |
+| @radix-ui/react-separator | 1.1.13 | MIT | [53](#license-text-53) |
+| @radix-ui/react-slot | 1.3.1 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-callback-ref | 1.1.3 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-controllable-state | 1.2.5 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-effect-event | 0.0.4 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-is-hydrated | 0.1.2 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-layout-effect | 1.1.3 | MIT | [53](#license-text-53) |
+| @radix-ui/react-use-size | 1.1.3 | MIT | [53](#license-text-53) |
 | @univerjs/core | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/design | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/docs | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
@@ -118,11 +121,11 @@ they are installed as dependencies and carry their own licenses.
 | @univerjs/drawing | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/engine-formula | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/engine-render | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @univerjs/icons | 1.4.0 | MIT | [50](#license-text-50) |
+| @univerjs/icons | 1.4.0 | MIT | [54](#license-text-54) |
 | @univerjs/network | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/preset-sheets-core | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/presets | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @univerjs/protocol | 0.25.1 | Apache-2.0 | [51](#license-text-51) |
+| @univerjs/protocol | 0.25.1 | Apache-2.0 | [55](#license-text-55) |
 | @univerjs/rpc | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/sheets | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/sheets-formula | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
@@ -133,46 +136,46 @@ they are installed as dependencies and carry their own licenses.
 | @univerjs/telemetry | 0.25.1 | see text | [32](#license-text-32) |
 | @univerjs/themes | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
 | @univerjs/ui | 0.25.1 | Apache-2.0 | [32](#license-text-32) |
-| @wendellhu/redi | 1.1.1 | MIT | [52](#license-text-52) |
-| aria-hidden | 1.2.4 | MIT | [53](#license-text-53) |
-| async-lock | 1.4.1 | MIT | [54](#license-text-54) |
-| cjk-regex | 3.4.0 | MIT | [55](#license-text-55) |
-| class-variance-authority | 0.7.1 | Apache-2.0 | [56](#license-text-56) |
-| clsx | 2.1.1 | MIT | [57](#license-text-57) |
-| collapse-white-space | 2.1.0 | MIT | [58](#license-text-58) |
-| decimal.js | 10.6.0 | MIT | [59](#license-text-59) |
-| dom-helpers | 5.2.1 | MIT | [60](#license-text-60) |
-| fast-diff | 1.1.2 | Apache-2.0 | [61](#license-text-61) |
-| franc-min | 6.2.0 | MIT | [62](#license-text-62) |
-| get-nonce | 1.0.1 | MIT | [63](#license-text-63) |
-| kdbush | 4.1.0 | ISC | [64](#license-text-64) |
-| localforage | 1.10.0 | Apache-2.0 | [65](#license-text-65) |
-| lodash-es | 4.18.1 | MIT | [66](#license-text-66) |
-| n-gram | 2.0.2 | MIT | [67](#license-text-67) |
-| nanoid | 3.3.16 | MIT | [68](#license-text-68) |
-| numfmt | 3.2.6 | MIT | [69](#license-text-69) |
-| opentype.js | 2.0.0 | MIT | [70](#license-text-70) |
-| ot-json1 | 1.0.2 | ISC | [71](#license-text-71) |
-| ot-text-unicode | 4.0.0 | ISC | [71](#license-text-71) |
-| quickselect | 3.0.0 | ISC | [72](#license-text-72) |
-| rbush | 4.0.1 | MIT | [73](#license-text-73) |
-| react | 18.3.1 | MIT | [74](#license-text-74) |
-| react-dom | 18.3.1 | MIT | [74](#license-text-74) |
-| react-remove-scroll | 2.7.2 | MIT | [53](#license-text-53) |
-| react-remove-scroll-bar | 2.3.8 | MIT | [75](#license-text-75) |
-| react-style-singleton | 2.2.3 | MIT | [53](#license-text-53) |
-| react-transition-group | 4.4.5 | BSD-3-Clause | [76](#license-text-76) |
-| regexp-util | 2.0.3 | MIT | [55](#license-text-55) |
-| rxjs | 7.8.2 | Apache-2.0 | [77](#license-text-77) |
-| scheduler | 0.23.2 | MIT | [74](#license-text-74) |
-| sonner | 2.0.7 | MIT | [78](#license-text-78) |
-| tailwind-merge | 2.6.0 | MIT | [79](#license-text-79) |
-| trigram-utils | 2.0.1 | MIT | [67](#license-text-67) |
-| tslib | 2.8.1 | 0BSD | [80](#license-text-80) |
-| unicode-regex | 4.2.0 | MIT | [55](#license-text-55) |
-| unicount | 1.1.0 | ISC | [71](#license-text-71) |
-| use-callback-ref | 1.3.3 | MIT | [53](#license-text-53) |
-| use-sidecar | 1.1.3 | MIT | [53](#license-text-53) |
+| @wendellhu/redi | 1.1.1 | MIT | [56](#license-text-56) |
+| aria-hidden | 1.2.4 | MIT | [57](#license-text-57) |
+| async-lock | 1.4.1 | MIT | [58](#license-text-58) |
+| cjk-regex | 3.4.0 | MIT | [59](#license-text-59) |
+| class-variance-authority | 0.7.1 | Apache-2.0 | [60](#license-text-60) |
+| clsx | 2.1.1 | MIT | [61](#license-text-61) |
+| collapse-white-space | 2.1.0 | MIT | [62](#license-text-62) |
+| decimal.js | 10.6.0 | MIT | [63](#license-text-63) |
+| dom-helpers | 5.2.1 | MIT | [64](#license-text-64) |
+| fast-diff | 1.1.2 | Apache-2.0 | [65](#license-text-65) |
+| franc-min | 6.2.0 | MIT | [66](#license-text-66) |
+| get-nonce | 1.0.1 | MIT | [67](#license-text-67) |
+| kdbush | 4.1.0 | ISC | [68](#license-text-68) |
+| localforage | 1.10.0 | Apache-2.0 | [69](#license-text-69) |
+| lodash-es | 4.18.1 | MIT | [70](#license-text-70) |
+| n-gram | 2.0.2 | MIT | [71](#license-text-71) |
+| nanoid | 3.3.16 | MIT | [72](#license-text-72) |
+| numfmt | 3.2.6 | MIT | [73](#license-text-73) |
+| opentype.js | 2.0.0 | MIT | [74](#license-text-74) |
+| ot-json1 | 1.0.2 | ISC | [75](#license-text-75) |
+| ot-text-unicode | 4.0.0 | ISC | [75](#license-text-75) |
+| quickselect | 3.0.0 | ISC | [76](#license-text-76) |
+| rbush | 4.0.1 | MIT | [77](#license-text-77) |
+| react | 19.3.1 | MIT | [78](#license-text-78) |
+| react-dom | 19.3.1 | MIT | [78](#license-text-78) |
+| react-remove-scroll | 2.7.2 | MIT | [57](#license-text-57) |
+| react-remove-scroll-bar | 2.3.8 | MIT | [79](#license-text-79) |
+| react-style-singleton | 2.2.3 | MIT | [57](#license-text-57) |
+| react-transition-group | 4.4.5 | BSD-3-Clause | [80](#license-text-80) |
+| regexp-util | 2.0.3 | MIT | [59](#license-text-59) |
+| rxjs | 7.8.2 | Apache-2.0 | [81](#license-text-81) |
+| scheduler | 0.28.0 | MIT | [78](#license-text-78) |
+| sonner | 2.0.7 | MIT | [82](#license-text-82) |
+| tailwind-merge | 2.6.0 | MIT | [83](#license-text-83) |
+| trigram-utils | 2.0.1 | MIT | [71](#license-text-71) |
+| tslib | 2.3.0 | 0BSD | [48](#license-text-48) |
+| unicode-regex | 4.2.0 | MIT | [59](#license-text-59) |
+| unicount | 1.1.0 | ISC | [75](#license-text-75) |
+| use-callback-ref | 1.3.3 | MIT | [57](#license-text-57) |
+| use-sidecar | 1.1.3 | MIT | [57](#license-text-57) |
 
 ## License texts
 
@@ -3323,6 +3326,242 @@ Apache License
 ### License text 45
 
 ```
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+
+
+
+========================================================================
+Apache ECharts Subcomponents:
+
+The Apache ECharts project contains subcomponents with separate copyright
+notices and license terms. Your use of the source code for these
+subcomponents is also subject to the terms and conditions of the following
+licenses.
+
+BSD 3-Clause (d3.js):
+The following files embed [d3.js](https://github.com/d3/d3) BSD 3-Clause:
+    `/src/chart/treemap/treemapLayout.ts`,
+    `/src/chart/tree/layoutHelper.ts`,
+    `/src/chart/graph/forceHelper.ts`,
+    `/src/util/number.ts`
+See `/licenses/LICENSE-d3` for details of the license.
+```
+
+### License text 46
+
+```
+Apache ECharts
+Copyright 2017-2026 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (https://www.apache.org/).
+```
+
+### License text 47
+
+```
 ISC License
 
 Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
@@ -3340,7 +3579,58 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 46
+### License text 48
+
+```
+Copyright (c) Microsoft Corporation.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+```
+
+### License text 49
+
+```
+BSD 3-Clause License
+
+Copyright (c) 2017, Baidu Inc.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License text 50
 
 ```
 MIT License
@@ -3367,7 +3657,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 47
+### License text 51
 
 ```
 MIT License
@@ -3393,7 +3683,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 48
+### License text 52
 
 ```
 MIT License
@@ -3418,7 +3708,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 49
+### License text 53
 
 ```
 MIT License
@@ -3444,7 +3734,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 50
+### License text 54
 
 ```
 MIT License
@@ -3470,7 +3760,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 51
+### License text 55
 
 ```
 Apache License
@@ -3667,7 +3957,7 @@ Apache License
 Copyright DreamNum Co., Ltd. <developer@univer.ai>
 ```
 
-### License text 52
+### License text 56
 
 ```
 Copyright 2021 Wendell Hu
@@ -3679,7 +3969,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 53
+### License text 57
 
 ```
 MIT License
@@ -3705,7 +3995,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 54
+### License text 58
 
 ```
 The MIT License (MIT)
@@ -3731,7 +4021,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 55
+### License text 59
 
 ```
 MIT License
@@ -3757,7 +4047,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 56
+### License text 60
 
 ```
 Apache License
@@ -3952,7 +4242,7 @@ Apache License
    limitations under the License.
 ```
 
-### License text 57
+### License text 61
 
 ```
 MIT License
@@ -3966,7 +4256,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 58
+### License text 62
 
 ```
 (The MIT License)
@@ -3993,7 +4283,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 59
+### License text 63
 
 ```
 The MIT Licence.
@@ -4020,7 +4310,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 60
+### License text 64
 
 ```
 The MIT License (MIT)
@@ -4046,7 +4336,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 61
+### License text 65
 
 ```
 Apache License
@@ -4243,7 +4533,7 @@ Apache License
 Copyright Jason Chen <jhchen7@gmail.com>
 ```
 
-### License text 62
+### License text 66
 
 ```
 MIT License
@@ -4257,7 +4547,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 63
+### License text 67
 
 ```
 MIT License
@@ -4283,7 +4573,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 64
+### License text 68
 
 ```
 ISC License
@@ -4303,7 +4593,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### License text 65
+### License text 69
 
 ```
 Apache License
@@ -4509,7 +4799,7 @@ Apache License
    limitations under the License.
 ```
 
-### License text 66
+### License text 70
 
 ```
 Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
@@ -4561,7 +4851,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ```
 
-### License text 67
+### License text 71
 
 ```
 (The MIT License)
@@ -4588,7 +4878,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 68
+### License text 72
 
 ```
 The MIT License (MIT)
@@ -4613,7 +4903,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 69
+### License text 73
 
 ```
 Copyright (c) 2020, Borgar Þorsteinsson <borgar@borgar.net>
@@ -4637,7 +4927,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License text 70
+### License text 74
 
 ```
 The MIT License (MIT)
@@ -4662,7 +4952,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 71
+### License text 75
 
 ```
 ISC License
@@ -4674,7 +4964,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 72
+### License text 76
 
 ```
 ISC License
@@ -4694,7 +4984,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### License text 73
+### License text 77
 
 ```
 MIT License
@@ -4720,12 +5010,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### License text 74
+### License text 78
 
 ```
 MIT License
 
-Copyright (c) Facebook, Inc. and its affiliates.
+Copyright (c) Meta Platforms, Inc. and affiliates.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -4746,7 +5036,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 75
+### License text 79
 
 ```
 MIT License
@@ -4760,7 +5050,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 76
+### License text 80
 
 ```
 BSD 3-Clause License
@@ -4795,7 +5085,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### License text 77
+### License text 81
 
 ```
 Apache License
@@ -5001,7 +5291,7 @@ Apache License
  limitations under the License.
 ```
 
-### License text 78
+### License text 82
 
 ```
 MIT License
@@ -5027,7 +5317,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 79
+### License text 83
 
 ```
 MIT License
@@ -5051,21 +5341,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text 80
-
-```
-Copyright (c) Microsoft Corporation.
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
-AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
 ```

@@ -23,7 +23,7 @@ function licenseTexts(dir) {
     .readdirSync(dir)
     .filter((f) => LICENSE_FILE.test(f) && fs.statSync(path.join(dir, f)).isFile())
     .sort()
-    .map((f) => fs.readFileSync(path.join(dir, f), "utf8").trim());
+    .map((f) => fs.readFileSync(path.join(dir, f), "utf8").replace(/\r\n/g, "\n").trim());
 }
 
 // Rust: normal (non-dev, non-build) dependencies of the engine for wasm32.
@@ -76,8 +76,10 @@ function bundledPackages(dir) {
   // A package's own source map can point into its source repository
   // (lucide-react's "shared/src/…"): only installed packages are listed;
   // that code is part of the package that ships it.
-  return [...names].filter((name) => fs.existsSync(path.join(ROOT, "node_modules", name, "package.json"))).sort().map((name) => {
-    const dir = path.join(ROOT, "node_modules", name);
+  const installed = name => [path.join(ROOT, "packages/grid/node_modules", name), path.join(ROOT, "node_modules", name)]
+    .find(dir => fs.existsSync(path.join(dir, "package.json")));
+  return [...names].filter(installed).sort().map((name) => {
+    const dir = installed(name);
     const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
     const license = typeof pj.license === "string" ? pj.license : "see text";
     const author = typeof pj.author === "string" ? pj.author : pj.author?.name;

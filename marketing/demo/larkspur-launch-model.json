@@ -1,0 +1,103 @@
+{
+  "years": 5,
+  "base": {
+    "revenue": 8400,
+    "profit": 2200,
+    "margin": 0.2619047619047619,
+    "breakEven": 58,
+    "forecast": [
+      {
+        "year": 2027,
+        "launches": 120,
+        "revenue": 8400,
+        "variable": 4200,
+        "fixed": 2000,
+        "profit": 2200
+      },
+      {
+        "year": 2028,
+        "launches": 138,
+        "revenue": 9660,
+        "variable": 4830,
+        "fixed": 2000,
+        "profit": 2830
+      },
+      {
+        "year": 2029,
+        "launches": 159,
+        "revenue": 11130,
+        "variable": 5565,
+        "fixed": 2000,
+        "profit": 3565
+      },
+      {
+        "year": 2030,
+        "launches": 183,
+        "revenue": 12810,
+        "variable": 6405,
+        "fixed": 2000,
+        "profit": 4405
+      },
+      {
+        "year": 2031,
+        "launches": 210,
+        "revenue": 14700,
+        "variable": 7350,
+        "fixed": 2000,
+        "profit": 5350
+      }
+    ]
+  },
+  "edited": {
+    "revenue": 12600,
+    "profit": 4300,
+    "margin": 0.3412698412698413,
+    "breakEven": 58,
+    "forecast": [
+      {
+        "year": 2027,
+        "launches": 180,
+        "revenue": 12600,
+        "variable": 6300,
+        "fixed": 2000,
+        "profit": 4300
+      },
+      {
+        "year": 2028,
+        "launches": 207,
+        "revenue": 14490,
+        "variable": 7245,
+        "fixed": 2000,
+        "profit": 5245
+      },
+      {
+        "year": 2029,
+        "launches": 238,
+        "revenue": 16660,
+        "variable": 8330,
+        "fixed": 2000,
+        "profit": 6330
+      },
+      {
+        "year": 2030,
+        "launches": 274,
+        "revenue": 19180,
+        "variable": 9590,
+        "fixed": 2000,
+        "profit": 7590
+      },
+      {
+        "year": 2031,
+        "launches": 315,
+        "revenue": 22050,
+        "variable": 11025,
+        "fixed": 2000,
+        "profit": 9025
+      }
+    ]
+  },
+  "formulas": 29,
+  "cells": 62,
+  "sha256": "2ba0840bcc4bbf203bd12eabc300aa9a137ace8dcd19dbe8c3f9dde02db8a97c",
+  "bytes": 7966
+}

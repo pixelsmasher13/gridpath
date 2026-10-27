@@ -7,6 +7,7 @@
  */
 import type { DeltaApplier, FindHit, GridEngine } from "./engine";
 import type { CellDelta, HostRequest, HostResponse } from "./engineHost";
+import type { NativeChart, EditTimings } from "./charts/types";
 
 export interface EngineOptions {
   /** Run the engine in a Web Worker (default true). */
@@ -105,6 +106,22 @@ interface EditSink {
 const MAX_EDIT_CELLS = 50_000;
 
 export class BrowserEngine implements GridEngine {
+  private chartData: NativeChart[] = [];
+  private chartListeners = new Set<() => void>();
+  private editTiming: EditTimings | null = null;
+  charts = (): NativeChart[] => this.chartData;
+  lastEditTimings = (): EditTimings | null => this.editTiming && { ...this.editTiming };
+  subscribeCharts = (listener: () => void): (() => void) => {
+    this.chartListeners.add(listener);
+    return () => { this.chartListeners.delete(listener); };
+  };
+  private acceptResult(res: { cells?: CellDelta[]; charts?: NativeChart[] }): void {
+    if (res.cells) this.applyDeltas(res.cells);
+    if (res.charts) {
+      this.chartData = res.charts;
+      for (const listener of this.chartListeners) listener();
+    }
+  }
   private sheets: string[] = [];
   private ready = false;
   private degraded: string | null = null;
@@ -149,6 +166,12 @@ export class BrowserEngine implements GridEngine {
   /** An empty .xlsx with these sheets: the base a new workbook opens from. */
   blankXlsx(sheets: string[]): Promise<Uint8Array> {
     return this.rpc.call("blank", { sheets });
+  }
+
+  /** Delimited text (CSV, TSV…) as a new .xlsx with one sheet named after
+   * `name`: the base a workbook opened from text opens from. */
+  csvToXlsx(bytes: Uint8Array, name: string, delimiter?: string): Promise<Uint8Array> {
+    return this.rpc.call("csv", { bytes, name, delimiter });
   }
 
   /** The original file with every session change patched in; untouched
@@ -255,6 +278,7 @@ export class BrowserEngine implements GridEngine {
           // A copy crosses to the engine; the grid keeps its bytes for saving.
           const res = await this.rpc.call("load", { bytes: bytes.slice() });
           this.sheets = res.sheets;
+          this.acceptResult(res);
           const layout = JSON.parse(await this.rpc.call("layout"));
           this.ready = true;
           resolve(layout);
@@ -278,7 +302,7 @@ export class BrowserEngine implements GridEngine {
       if (this.degraded) return;
       try {
         const res = await this.rpc.call("evaluatePending");
-        this.applyDeltas(res.cells);
+        this.acceptResult(res);
       } catch (e) {
         this.degrade(`first evaluate failed: ${e}`);
       }
@@ -336,7 +360,7 @@ export class BrowserEngine implements GridEngine {
     return new Promise((resolve) => {
       this.enqueue(async () => {
         try {
-          this.applyDeltas(await this.rpc.call("defineName", { name, formula }));
+          this.acceptResult(await this.rpc.call("defineName", { name, formula }));
           resolve(true);
         } catch (e) {
           console.warn(`[gridpath] define name ${name} failed:`, e);
@@ -395,7 +419,7 @@ export class BrowserEngine implements GridEngine {
       const sheet = this.sheets.indexOf(sheetName);
       if (sheet < 0) return this.degrade(`${op}: unknown sheet "${sheetName}"`);
       try {
-        this.applyDeltas(await this.rpc.call("structural", { op, sheet, index: index1, count }));
+        this.acceptResult(await this.rpc.call("structural", { op, sheet, index: index1, count }));
       } catch (e) {
         this.degrade(`${op} failed: ${e}`);
       }
@@ -442,7 +466,11 @@ export class BrowserEngine implements GridEngine {
     }
     try {
       const edits = cells.map((c) => ({ sheet, row: c.row, column: c.column, value: c.value }));
-      this.applyDeltas(await this.rpc.call("editBatch", { edits }));
+      const start = performance.now();
+      const res = await this.rpc.call("editBatch", { edits });
+      const returned = performance.now();
+      this.acceptResult(res);
+      this.editTiming = { ...res.timing, roundTripMs: returned-start, applyMs: performance.now()-returned };
     } catch (e) {
       this.degrade(`edit failed: ${e}`);
     }
@@ -456,7 +484,7 @@ export class BrowserEngine implements GridEngine {
     try {
       const res = await this.rpc.call("sheetOp", { op, name, newName: newName ?? null });
       this.sheets = res.sheets;
-      this.applyDeltas(res.cells);
+      this.acceptResult(res);
     } catch (e) {
       this.degrade(`sheet ${op} failed: ${e}`);
     }

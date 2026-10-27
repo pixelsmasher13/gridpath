@@ -25,7 +25,7 @@ fn errors() {
     let model_bytes = "Early in the morning, late in the century, Cricklewood Broadway.".as_bytes();
     assert_eq!(
         &UserModel::from_bytes(model_bytes, "en").unwrap_err(),
-        "Error parsing workbook: invalid packing"
+        "Error parsing workbook: bitcode error"
     );
 }
 

@@ -18,6 +18,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import type { GridEngine } from "../../../../packages/grid/src/engine";
+import { ChartLayer, type ChartLayerHandle } from "../../../../packages/grid/src/charts/ChartLayer";
 import {
   DEFAULT_COL_PX,
   DEFAULT_ROW_PX,
@@ -540,6 +541,7 @@ export const ViewportGrid = React.memo(
 
     const [sheetNames, setSheetNames] = useState<Array<{ name: string; hidden: boolean; color?: string | null }>>([]);
     const [active, setActive] = useState(0);
+    const chartLayerRef = useRef<ChartLayerHandle>(null);
     const [nameBox, setNameBox] = useState("A1");
     const [formulaText, setFormulaText] = useState("");
     const [editing, setEditing] = useState<Editing | null>(null);
@@ -657,7 +659,10 @@ export const ViewportGrid = React.memo(
       if (g) return g;
       const l = layoutRef.current?.sheets[sheet];
       if (!l) return null;
-      const ng = new SheetGeometry(l, sizeOverridesRef.current.get(sheet));
+      const drawings = engine.charts?.().filter(c => c.sheet === l.name) ?? [];
+      const maxRow = Math.min(1_048_576, Math.max(l.maxRow, ...drawings.map(c => (c.anchor.to?.row ?? c.anchor.from.row) + 1)));
+      const maxCol = Math.min(16_384, Math.max(l.maxCol, ...drawings.map(c => (c.anchor.to?.col ?? c.anchor.from.col) + 1)));
+      const ng = new SheetGeometry({ ...l, maxRow, maxCol }, sizeOverridesRef.current.get(sheet));
       geomsRef.current.set(sheet, ng);
       return ng;
     };
@@ -778,6 +783,7 @@ export const ViewportGrid = React.memo(
       drawReq.current = requestAnimationFrame(() => {
         drawReq.current = 0;
         draw();
+        chartLayerRef.current?.sync();
       });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -3771,6 +3777,10 @@ export const ViewportGrid = React.memo(
             />
           )}
         </Scroller>
+        <ChartLayer ref={chartLayerRef} engine={engine} view={() => {
+          const geometry = geom(activeRef.current), scroller = scrollerRef.current;
+          return geometry && scroller ? { geometry, scroller, scale: viewScale(), sheet: layoutRef.current?.sheets[activeRef.current]?.name ?? "" } : null;
+        }} />
         <OutlineCanvas ref={outlineCanvasRef} />
         {gutter.w > 0 && <OutlineStrip data-vp-outline="rows" style={{ left: 0, top: 0, bottom: 0, width: gutter.w }} onMouseDown={onOutlineMouseDown} />}
         {gutter.h > 0 && <OutlineStrip data-vp-outline="cols" style={{ left: gutter.w, top: 0, right: 0, height: gutter.h }} onMouseDown={onOutlineMouseDown} />}

@@ -125,6 +125,7 @@ const AFTER_CALC_PR: &[&[u8]] = &[
 ];
 
 struct WorkbookRewrite<'p> {
+    prefix: String,
     pending_names: Vec<&'p DefinedName>,
     wrote_defined: bool,
     wrote_calc: bool,
@@ -137,18 +138,20 @@ impl<'p> WorkbookRewrite<'p> {
     fn flush_inserts(&mut self, w: &mut Writer<Vec<u8>>) -> Result<(), PatchError> {
         if !self.wrote_defined {
             if !self.pending_names.is_empty() {
-                w.write_event(Event::Start(BytesStart::new("definedNames")))
+                let tag = format!("{}definedNames", self.prefix);
+                w.write_event(Event::Start(BytesStart::new(tag.as_str())))
                     .map_err(xml_err)?;
                 for dn in self.pending_names.drain(..) {
-                    write_defined_name(w, dn)?;
+                    write_defined_name(w, dn, &self.prefix)?;
                 }
-                w.write_event(Event::End(BytesEnd::new("definedNames")))
+                w.write_event(Event::End(BytesEnd::new(tag.as_str())))
                     .map_err(xml_err)?;
             }
             self.wrote_defined = true;
         }
         if !self.wrote_calc {
-            let mut calc = BytesStart::new("calcPr");
+            let tag = format!("{}calcPr", self.prefix);
+            let mut calc = BytesStart::new(tag.as_str());
             calc.push_attribute(("fullCalcOnLoad", "1"));
             w.write_event(Event::Empty(calc)).map_err(xml_err)?;
             self.wrote_calc = true;
@@ -170,6 +173,7 @@ pub fn patch_workbook_xml(
     defined_names: &[DefinedName],
 ) -> Result<Vec<u8>, PatchError> {
     let mut st = WorkbookRewrite {
+        prefix: String::new(),
         pending_names: defined_names.iter().collect(),
         wrote_defined: defined_names.is_empty(),
         wrote_calc: !set_full_calc,
@@ -202,7 +206,7 @@ pub fn patch_workbook_xml(
                 if in_defined_names && local_name(e.name().as_ref()) == b"definedNames" =>
             {
                 for dn in st.pending_names.drain(..) {
-                    write_defined_name(&mut w, dn)?;
+                    write_defined_name(&mut w, dn, &st.prefix)?;
                 }
                 in_defined_names = false;
                 depth = depth.saturating_sub(1);
@@ -259,6 +263,12 @@ pub fn patch_workbook_xml(
             }
 
             Event::Start(e) => {
+                if depth == 0 {
+                    let name = e.name();
+                    if let Some(i) = name.as_ref().iter().rposition(|&b| b == b':') {
+                        st.prefix = String::from_utf8_lossy(&name.as_ref()[..=i]).into_owned();
+                    }
+                }
                 if depth == 1 && st.needs_insert_before(local_name(e.name().as_ref())) {
                     st.flush_inserts(&mut w)?;
                 }
@@ -288,13 +298,14 @@ pub fn patch_workbook_xml(
     Ok(w.into_inner())
 }
 
-fn write_defined_name(w: &mut Writer<Vec<u8>>, dn: &DefinedName) -> Result<(), PatchError> {
-    let mut e = BytesStart::new("definedName");
+fn write_defined_name(w: &mut Writer<Vec<u8>>, dn: &DefinedName, prefix: &str) -> Result<(), PatchError> {
+    let tag = format!("{prefix}definedName");
+    let mut e = BytesStart::new(tag.as_str());
     e.push_attribute(("name", dn.name.as_str()));
     w.write_event(Event::Start(e)).map_err(xml_err)?;
     w.write_event(Event::Text(BytesText::new(&dn.r#ref)))
         .map_err(xml_err)?;
-    w.write_event(Event::End(BytesEnd::new("definedName")))
+    w.write_event(Event::End(BytesEnd::new(tag.as_str())))
         .map_err(xml_err)?;
     Ok(())
 }

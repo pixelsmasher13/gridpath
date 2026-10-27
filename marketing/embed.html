@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Embeddable spreadsheet for React and Next.js: real .xlsx files, formulas, AI review — GridPath</title>
+  <title>Real Excel files inside your app: an embeddable spreadsheet for React and Next.js — GridPath</title>
   <meta name="description" content="Put an Excel-compatible spreadsheet in your web app: open your users' .xlsx files, calculate in the browser, save them back intact. Toolbar, autosave and version history built in; AI tools for your own model and key. Apache-2.0." />
   <link rel="canonical" href="https://gridpath.dev/embed" />
   <meta property="og:type" content="website" />
@@ -21,21 +21,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
   <link rel="apple-touch-icon" sizes="128x128" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="style.css?v=20260930" />
-  <style>
-    .em-install { margin: 24px auto 8px; max-width: 720px; }
-    .em-install pre, .em-code pre { margin: 0; padding: 14px 18px; background: #1e1e1e; color: #e5e7eb; border-radius: 10px; font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
-    .em-install pre { font-size: 15px; }
-    .em-code pre .c { color: #8a8a8a; }
-    .em-links { margin-top: 14px; }
-    .em-links a { margin: 0 6px; }
-    .em-h2 { text-align: center; margin: 64px 0 20px; }
-    .em-code { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
-    .em-code h3 { margin: 0 0 8px; font-size: 14px; }
-    .em-code p { font-size: 14px; color: var(--text-muted, #6b7280); margin: 8px 0 0; }
-    .em-note { font-size: 14px; color: var(--text-muted, #6b7280); border-left: 3px solid var(--border); padding-left: 14px; margin: 24px auto 0; max-width: 760px; }
-    @media (max-width: 900px) { .em-code { grid-template-columns: 1fr; } }
-    @media (max-width: 720px) { .wide-only { display: none; } }
-  </style>
+  <link rel="stylesheet" href="embed.css?v=20261020" />
 </head>
 <body>
 
@@ -62,124 +48,209 @@
   </header>
 
   <main>
-    <section class="hero">
-      <div class="container hero-inner">
-        <p class="fidelity-eyebrow" style="margin-bottom:14px">For React, Next.js and any web app</p>
-        <h1>An embeddable spreadsheet. <br class="wide-only">Real Excel files, saved back intact.</h1>
-        <p class="lede">
-          Open your users' .xlsx files, calculate in the browser with a real engine, and save them back without losing what you didn't touch. Toolbar, autosave and version history come with it; so do AI tools for your own model and key.
-        </p>
-        <div class="em-install">
-          <pre>npm install gridpath</pre>
+    <section class="em-hero">
+      <div class="container em-hero-grid">
+        <div>
+          <p class="em-eyebrow">The spreadsheet component for your app</p>
+          <h1>Real Excel files.<br><span>Inside your app.</span></h1>
+          <p class="em-lede">Give your users a spreadsheet they already know how to use, on the <code>.xlsx</code> files they already have. Formulas calculate in the browser, edits save to your backend, and the file goes back intact.</p>
+          <div class="em-ctas">
+            <a class="btn btn-primary" href="/demo">Try it with your workbook →</a>
+            <a class="btn btn-secondary" href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#in-your-web-app" rel="noopener" target="_blank">Read the guide</a>
+          </div>
+          <div class="em-install"><code id="em-install">npm install gridpath</code><button class="em-copy" type="button" data-copy="em-install">Copy</button></div>
+          <p class="em-meta">Apache-2.0 · React, Next.js or plain JavaScript · <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank">Next.js example</a></p>
         </div>
-        <p class="em-links"><a href="/demo">Try the live demo</a> · <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#in-your-web-app" rel="noopener" target="_blank">Read the guide</a> · <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank">Next.js example</a></p>
-      </div>
-    </section>
+        <div class="em-code-card">
+          <div class="em-code-head"><span>app/Sheet.tsx</span><button class="em-copy" type="button" data-copy="em-hero-code">Copy</button></div>
+<pre id="em-hero-code"><span class="s">"use client"</span>;
+<span class="k">import</span> { Spreadsheet, httpStore } <span class="k">from</span> <span class="s">"gridpath"</span>;
 
-    <section class="screenshot-section">
-      <div class="container">
-        <a class="screenshot-frame" href="/demo" style="display:block">
-          <img src="/embed-demo.png" alt="The GridPath spreadsheet in a web page: a sales sheet with an AI's added Share and Rank columns highlighted, and the AI changes panel listing each change with Accept and Reject" style="width:100%;display:block" />
-        </a>
-      </div>
-    </section>
+<span class="c">// Saves to your API as the user works.</span>
+<span class="c">// Leave it out to save in the browser.</span>
+<span class="k">const</span> store = httpStore({ url: <span class="s">"/api/books"</span> });
 
-    <section class="fidelity-page-points">
-      <div class="container">
-        <h2 class="section-title" style="text-align:center;margin-bottom:8px">A spreadsheet your users already know how to use</h2>
-        <p class="section-sub" style="text-align:center">On top of the files they already have. Apache-2.0.</p>
-        <div class="cap-grid">
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-emerald">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h11l7 7v17H8z"/><path d="M19 4v7h7"/><path d="M12 19h8M12 24h8"/></svg>
-            </div>
-            <h3>Saves the file back intact</h3>
-            <p>A save patches only the parts of the .xlsx the session changed; charts, pivots, macros, names and custom XML come back byte-identical. On a 1.4&nbsp;MB analyst model, 75 of 76 parts were unchanged and nothing was lost; the other embeddable spreadsheets we measured dropped custom XML and printer settings, or most of the defined names.</p>
-          </div>
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-rose">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6c-3 0-4 2-4 5v15"/><path d="M10 14h10"/><path d="M20 20l6 6M26 20l-6 6"/></svg>
-            </div>
-            <h3>A real calculation engine</h3>
-            <p>A Rust engine (an IronCalc fork, compiled to WebAssembly) runs in a Web Worker: dynamic arrays, LET and LAMBDA, XLOOKUP, the IFS family, AGGREGATE. A 1.4&nbsp;MB, 55,000-formula model is usable in 0.6&nbsp;s. A model with 2.3 million cells is usable in 4&nbsp;s and fully recalculated in 11&nbsp;s; in the same test SpreadJS crashed the tab and the Handsontable stack took 11 minutes.</p>
-          </div>
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-amber">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 26h22"/><path d="M8 22V13M14 22V8M20 22v-6M26 22V11"/></svg>
-            </div>
-            <h3>Toolbar and saving built in</h3>
-            <p>Formatting, number formats, insert and delete, sort, filter and freeze. Autosave with a status that says where things are saved ("Saved in this browser", "Saved to your account"), version history with restore, recent workbooks, and Download as .xlsx. If your backend is down, the edits wait in the browser and the save is retried.</p>
-          </div>
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-indigo">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16 Q16 5 28 16 Q16 27 4 16 Z"/><circle cx="16" cy="16" r="4.5"/></svg>
-            </div>
-            <h3>AI that asks before it saves</h3>
-            <p>Give <code>sheet.ai.tools()</code> to your model; its edits land highlighted, and the AI changes panel lists each one (before → after) to accept or reject. Nothing an agent did is saved until the user accepts it.</p>
-          </div>
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-sky">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l11 6.5v13L16 29 5 22.5v-13z"/><path d="M16 16v13M16 16L5 9.5M16 16l11-6.5"/></svg>
-            </div>
-            <h3>Your model, your key</h3>
-            <p>The model call happens on your server with your key; the tools run in the browser, where the workbook is. GridPath never sees a key or a file.</p>
-          </div>
-          <div class="cap-card">
-            <div class="cap-icon cap-icon-teal">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10l-6 6 6 6"/><path d="M20 10l6 6-6 6"/><path d="M18 7l-4 18"/></svg>
-            </div>
-            <h3>Drops into your app</h3>
-            <p>Next.js (Turbopack and webpack), Vite and webpack bundle the worker and engine on their own. Every method has a stated contract, and every error has a code and a hint you can show; the <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank">Next.js example</a> handles each one.</p>
-          </div>
-        </div>
-
-        <h2 class="section-title em-h2">Two files</h2>
-        <div class="em-code">
-          <div>
-            <h3>The spreadsheet</h3>
-            <pre><span class="c">// app/Sheet.tsx</span>
-"use client";
-import { Spreadsheet, httpStore } from "gridpath";
-
-const store = httpStore({ url: "/api/books" });
-
-export function Sheet({ id }: { id: string }) {
-  return (
+<span class="k">export function</span> Sheet({ id }: { id: string }) {
+  <span class="k">return</span> (
     &lt;div style={{ height: 600 }}&gt;
-      &lt;Spreadsheet store={store} documentId={id} /&gt;
+      &lt;Spreadsheet
+        store={store}
+        documentId={id}
+        onError={(e) =&gt; toast(e.hint)}
+      /&gt;
     &lt;/div&gt;
   );
 }</pre>
-            <p>That's a working spreadsheet with a toolbar, autosave to your API and version history. <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#saving-to-your-backend" rel="noopener" target="_blank">The routes it calls</a> are in the guide. Leave out <code>store</code> to keep everything in the browser.</p>
-          </div>
-          <div>
-            <h3>AI, with your key (optional)</h3>
-            <pre><span class="c">// app/api/agent/route.ts</span>
-import Anthropic from "@anthropic-ai/sdk";
-import { AGENT_INSTRUCTIONS, agentTools } from "gridpath/agent";
+        </div>
+      </div>
+    </section>
 
-export async function POST(req: Request) {
-  const { messages } = await req.json();
-  const reply = await new Anthropic().messages.create({
-    model: "claude-opus-5-5",
+    <section class="em-live" id="live">
+      <div class="container">
+        <div class="em-live-head">
+          <h2>The real component, not a recording</h2>
+          <p>The engine runs in your browser. Open your own <code>.xlsx</code> in it: nothing is uploaded.</p>
+        </div>
+        <div class="em-frame" id="em-frame">
+          <img src="/embed-demo.png" alt="The GridPath spreadsheet with a sales workbook and the AI changes panel listing changes to accept or reject" />
+          <div class="em-frame-cover">
+            <button class="btn btn-primary" type="button" id="em-load">Load the live spreadsheet</button>
+            <small>About 1.4 MB the first time, then cached by your browser.</small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="em-outcomes">
+      <div class="container em-outcome-grid">
+        <div class="em-outcome">
+          <div class="cap-icon cap-icon-emerald"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h11l7 7v17H8z"/><path d="M19 4v7h7"/><path d="M12 19h8M12 24h8"/></svg></div>
+          <h3>Keep the workbook.</h3>
+          <p>A save patches the original <code>.xlsx</code>: the parts a session changed are rewritten, everything else is copied byte for byte. On a 1.4&nbsp;MB analyst model, 75 of 76 parts came back identical. The other embeddable spreadsheets we measured dropped custom XML and printer settings, or most of the defined names.</p>
+          <a href="/fidelity">How saving works →</a>
+        </div>
+        <div class="em-outcome">
+          <div class="cap-icon cap-icon-rose"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6c-3 0-4 2-4 5v15"/><path d="M10 14h10"/><path d="M20 20l6 6M26 20l-6 6"/></svg></div>
+          <h3>Calculate in the browser.</h3>
+          <p>A Rust engine, a fork of IronCalc, runs in a Web Worker: dynamic arrays, LET and LAMBDA, XLOOKUP, the IFS family. A 55,000-formula model recalculates in 0.8&nbsp;s; one with 2.3 million cells opens in 4&nbsp;s. Formulas it can't calculate keep Excel's value, and say so.</p>
+          <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#formulas-gridpath-cant-calculate" rel="noopener" target="_blank">What it calculates →</a>
+        </div>
+        <div class="em-outcome">
+          <div class="cap-icon cap-icon-amber"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 26h22"/><path d="M8 22V13M14 22V8M20 22v-6M26 22V11"/></svg></div>
+          <h3>Choose where edits go.</h3>
+          <p>Autosave to the browser, or to your backend with <code>httpStore</code>. The status says which: "Saved to your account". If your backend is down, edits wait in the browser ("Saved in this browser only") and the save retries.</p>
+          <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#saving-to-your-backend" rel="noopener" target="_blank">Saving to your backend →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="em-steps">
+      <div class="container em-steps-grid">
+        <div class="em-steps-intro">
+          <p class="em-eyebrow">From demo to your app</p>
+          <h2>Start small. Make it yours.</h2>
+          <p>Embed the spreadsheet first. Add your backend and an AI agent when you need them; each is a separate step.</p>
+          <ol class="em-step-list">
+            <li><b>1</b><span><strong>Embed.</strong> Toolbar, autosave in the browser, version history and Download come with it.</span></li>
+            <li><b>2</b><span><strong>Save to your backend.</strong> Point <code>httpStore</code> at your API; failed saves retry and nothing is lost.</span></li>
+            <li><b>3</b><span><strong>Add AI.</strong> Your model and key on your server; the user accepts or rejects every change.</span></li>
+          </ol>
+          <a href="https://github.com/pixelsmasher13/gridpath/tree/main/examples/nextjs-demo" rel="noopener" target="_blank"><strong>Open the complete Next.js example ↗</strong></a>
+        </div>
+        <div class="em-code-card">
+          <div class="em-tabs" role="tablist">
+            <button role="tab" aria-selected="true" aria-controls="em-tab-embed" id="em-t-embed">Embed</button>
+            <button role="tab" aria-selected="false" aria-controls="em-tab-store" id="em-t-store">Save to your backend</button>
+            <button role="tab" aria-selected="false" aria-controls="em-tab-ai" id="em-t-ai">Add AI</button>
+          </div>
+          <div role="tabpanel" id="em-tab-embed" aria-labelledby="em-t-embed">
+            <div class="em-code-head"><span>app/Sheet.tsx</span><button class="em-copy" type="button" data-copy="em-code-embed">Copy</button></div>
+<pre id="em-code-embed"><span class="s">"use client"</span>;
+<span class="k">import</span> { Spreadsheet } <span class="k">from</span> <span class="s">"gridpath"</span>;
+
+<span class="k">export function</span> Sheet({ file }: { file?: ArrayBuffer }) {
+  <span class="k">return</span> (
+    &lt;div style={{ height: 600 }}&gt;
+      &lt;Spreadsheet file={file} fileName=<span class="s">"Budget.xlsx"</span> /&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+            <p class="em-tab-note">That's a working spreadsheet with a toolbar, autosave and version history. Problems arrive at <code>onError</code> with a code and a hint you can show: an old <code>.xls</code> gets "an old-format .xls workbook", not a blank grid. CSV and other delimited text open as a new workbook.</p>
+          </div>
+          <div role="tabpanel" id="em-tab-store" aria-labelledby="em-t-store" hidden>
+            <div class="em-code-head"><span>app/Sheet.tsx</span><button class="em-copy" type="button" data-copy="em-code-store">Copy</button></div>
+<pre id="em-code-store"><span class="k">import</span> { Spreadsheet, httpStore } <span class="k">from</span> <span class="s">"gridpath"</span>;
+
+<span class="k">const</span> store = httpStore({
+  url: <span class="s">"/api/books"</span>,
+  <span class="c">// Called before every request; leave it out with cookie sessions.</span>
+  headers: <span class="k">async</span> () =&gt; ({ Authorization: <span class="s">`Bearer ${</span><span class="k">await</span> getToken()<span class="s">}`</span> }),
+});
+
+&lt;Spreadsheet store={store} documentId={book.id} /&gt;
+
+<span class="c">// Your API: PUT and GET /api/books/{id}, GET /api/books,</span>
+<span class="c">// GET /api/books/{id}/versions. The Next.js example has the routes.</span></pre>
+            <p class="em-tab-note">The status says where edits are. While your backend can't be reached, they wait in the browser and the save retries; if the tab closes first, they reopen next time. <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#saving-to-your-backend" rel="noopener" target="_blank">The REST contract</a></p>
+          </div>
+          <div role="tabpanel" id="em-tab-ai" aria-labelledby="em-t-ai" hidden>
+            <div class="em-code-head"><span>app/api/agent/route.ts</span><button class="em-copy" type="button" data-copy="em-code-ai">Copy</button></div>
+<pre id="em-code-ai"><span class="k">import</span> Anthropic <span class="k">from</span> <span class="s">"@anthropic-ai/sdk"</span>;
+<span class="k">import</span> { AGENT_INSTRUCTIONS, agentTools } <span class="k">from</span> <span class="s">"gridpath/agent"</span>;
+
+<span class="k">export async function</span> POST(req: Request) {
+  <span class="k">const</span> { messages } = <span class="k">await</span> req.json();
+  <span class="k">const</span> reply = <span class="k">await new</span> Anthropic().messages.create({
+    model: <span class="s">"claude-opus-5-5"</span>,
     max_tokens: 16000,
     system: AGENT_INSTRUCTIONS,
     tools: agentTools(),
     messages,
   });
-  return Response.json(reply);
-}</pre>
-            <p>Add your own auth and rate limits. In the browser, run each tool call with <code>sheet.ai.run(name, input)</code> and send the results back; <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#ai-your-model-your-key" rel="noopener" target="_blank">the loop is twenty lines</a>.</p>
+  <span class="k">return</span> Response.json(reply);
+}
+<span class="c">// In the browser: run each tool call with sheet.ai.run(name, input).</span></pre>
+            <p class="em-tab-note">Your model and your key, on your server; GridPath never sees either, or the file. The agent's edits land highlighted and nothing is saved until the user accepts them. <a href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#ai-your-model-your-key" rel="noopener" target="_blank">The browser loop is twenty lines</a></p>
           </div>
         </div>
-        <p class="em-note">Measured in Chromium on an M2 Pro against SpreadJS 19.2 and Handsontable 18.1 with HyperFormula and ExcelJS; <a href="https://github.com/pixelsmasher13/gridpath/tree/main/eval/embed-bench#results-2026-10-19" rel="noopener" target="_blank">method and full results</a>. The two real models are private; the benchmark reads your own copies.</p>
+      </div>
+    </section>
+
+    <section class="em-numbers">
+      <div class="container">
+        <p class="em-eyebrow">Measured</p>
+        <h2>Against the spreadsheets you'd embed otherwise.</h2>
+        <p>Two real models, opened, recalculated, edited and saved in Chromium by each component.</p>
+        <div class="em-table-wrap">
+          <table class="em-table">
+            <thead>
+              <tr><th></th><th>GridPath</th><th>SpreadJS 19.2</th><th>Handsontable 18.1 + HyperFormula 3.5 + ExcelJS 4.4</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1.4 MB analyst model: open, fully recalculated</td><td class="em-win">0.6 s, 0.8 s</td><td>1.5 s, 3.6 s</td><td>1.9 s</td></tr>
+              <tr><td>… agrees with Excel's results</td><td class="em-win">95.5%</td><td>94.0%</td><td>56.9%</td></tr>
+              <tr><td>… lost on save</td><td class="em-win">Nothing (75 of 76 parts byte-identical)</td><td>Custom XML, printer settings</td><td>Custom XML, printer settings, comments, 3,335 of 3,418 names</td></tr>
+              <tr><td>Model over 10 MB with 2.3M cells: open, fully recalculated</td><td class="em-win">4.2 s, 10.9 s</td><td class="em-bad">Tab crashes (lazy mode: 6.5 s, 3.7 min)</td><td>10.8 min</td></tr>
+              <tr><td>… edit → dependent updated</td><td class="em-win">2.7 s</td><td class="em-bad">Lazy mode crashes on the first edit</td><td>64 s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="em-small">Measured on an M2 Pro. We wrote the benchmark, so check it: <a href="https://github.com/pixelsmasher13/gridpath/tree/main/eval/embed-bench#results-2026-10-19" rel="noopener" target="_blank">method, harness and full results</a>. The two models are private; the harness runs on your own copies.</p>
+      </div>
+    </section>
+
+    <section class="faq">
+      <div class="container container-narrow">
+        <p class="em-eyebrow">Confidence before commitment</p>
+        <h2 class="section-title" style="text-align:left">Test the files your users rely on.</h2>
+        <p style="color:var(--text-soft);margin:0 0 12px">Keeping a file, calculating it and drawing it are different promises. The demo checks each against your own workbook: what it carries, how long it took to calculate, and, after you edit it, which parts a save rewrote.</p>
+        <details class="faq-item">
+          <summary>What does a save keep?</summary>
+          <p>Every part of the file the session didn't touch comes back byte for byte: charts, pivot tables, VBA macros, images, custom XML, defined names, printer settings. The parts with the cells, formats, rows and sheets the session changed are rewritten, and formulas the edits recalculated carry their new results so readers that don't calculate see current numbers.</p>
+        </details>
+        <details class="faq-item">
+          <summary>What isn't supported yet?</summary>
+          <p>Line charts are drawn and update as you edit; other chart types are kept in the file and shown as a placeholder. There are no data-validation dropdowns and no real-time collaboration yet. Not every Excel function is implemented: a formula GridPath can't calculate (an add-in call, an unsupported function, a link to another workbook) keeps the value Excel saved, the toolbar counts them, and <code>getCell</code> says why.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Does the file leave the browser?</summary>
+          <p>Not in the demo: it opens, calculates and saves in your browser and stores your edits there. In your app the file goes where your store sends it, usually your own API; GridPath runs no server for it.</p>
+        </details>
+        <details class="faq-item">
+          <summary>How were the numbers measured?</summary>
+          <p>In Chromium on an M2 Pro, opening each workbook in each component, recalculating, editing one input and saving; fidelity is a part-by-part comparison with the original file and agreement is against Excel's cached results. The harness is in <a href="https://github.com/pixelsmasher13/gridpath/tree/main/eval/embed-bench" rel="noopener" target="_blank">eval/embed-bench</a>; point it at your own files.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Is it open source?</summary>
+          <p>The engine, the in-place saver and the <code>gridpath</code> package (this component and an MCP server for coding agents) are Apache-2.0. GridPath's desktop app, in the same repository, is source-available under FSL-1.1; each release becomes Apache-2.0 two years after it ships.</p>
+        </details>
       </div>
     </section>
 
     <section class="fidelity-page-cta">
       <div class="container download-inner">
-        <h2>Try it on your own file</h2>
-        <p class="download-sub">The demo runs entirely in your browser: open an .xlsx from File, edit it, try a sample AI edit, download it back.</p>
+        <h2>Bring your workbook.</h2>
+        <p class="download-sub">The demo opens it in your browser, shows what it carries and how long it took to calculate, and checks what a save keeps.</p>
         <div class="download-buttons">
           <a class="btn btn-primary btn-large" href="/demo">Open the demo</a>
           <a class="btn btn-secondary btn-large" href="https://github.com/pixelsmasher13/gridpath/tree/main/packages/gridpath#in-your-web-app" rel="noopener" target="_blank">Read the guide</a>
@@ -228,6 +299,37 @@ export async function POST(req: Request) {
     </div>
   </footer>
 
+  <script>
+    // The live spreadsheet loads on request (its engine is about 1.4 MB).
+    document.getElementById("em-load").addEventListener("click", () => {
+      const frame = document.getElementById("em-frame");
+      const iframe = Object.assign(document.createElement("iframe"), { src: "/demo?embed=1", title: "GridPath, live" });
+      frame.replaceChildren(iframe);
+    });
+    // Tabs.
+    const tabs = [...document.querySelectorAll('.em-tabs [role="tab"]')];
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        for (const t of tabs) {
+          const on = t === tab;
+          t.setAttribute("aria-selected", String(on));
+          document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+        }
+      });
+    }
+    // Copy buttons.
+    for (const b of document.querySelectorAll("[data-copy]")) {
+      b.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);
+          b.textContent = "Copied";
+        } catch {
+          b.textContent = "Select and copy";
+        }
+        setTimeout(() => (b.textContent = "Copy"), 1600);
+      });
+    }
+  </script>
   <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

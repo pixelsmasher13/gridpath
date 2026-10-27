@@ -1314,6 +1314,53 @@ fn cache_refresh_replaces_only_the_cached_value() {
     assert!(!sheet.contains(r#"r="A7""#) && !sheet.contains(r#"<row r="7""#), "nothing created: {sheet}");
 }
 
+/// Prefixed SpreadsheetML is valid even without a default namespace. A
+/// save must preserve matching row tags and qualify inserted cells/caches.
+#[test]
+fn cell_edits_preserve_prefixed_spreadsheet_namespace() {
+    const XML: &str = r#"<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>1</x:v></x:c><x:c r="B1"><x:f>A1*2</x:f><x:v>2</x:v></x:c></x:row><x:row r="2"/></x:sheetData></x:worksheet>"#;
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, data) in entries(&fixture()) {
+        zip.start_file(&name, SimpleFileOptions::default()).unwrap();
+        zip.write_all(if name == "xl/worksheets/sheet1.xml" { XML.as_bytes() } else { &data }).unwrap();
+    }
+    let base = zip.finish().unwrap().into_inner();
+    let p = patch(r#""sheets":[{"name":"Alpha","cells":[
+        {"r":0,"c":0,"v":{"t":"n","n":5}},
+        {"r":0,"c":1,"cache":{"t":"n","n":10}},
+        {"r":1,"c":0,"v":{"t":"s","s":"new text"}},
+        {"r":2,"c":0,"f":"A1+1","v":{"t":"n","n":6}}
+    ]}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let xml = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(xml.contains("<x:row r=\"1\">"), "{xml}");
+    assert!(xml.contains("<x:v>10</x:v>"), "{xml}");
+    assert!(xml.contains("<x:row r=\"2\">"), "{xml}");
+    assert!(xml.contains("<x:row r=\"3\">"), "{xml}");
+    let mut reader = quick_xml::NsReader::from_str(&xml);
+    loop {
+        let (ns, event) = reader.read_resolved_event().unwrap();
+        match event {
+            quick_xml::events::Event::Start(_) | quick_xml::events::Event::Empty(_) => {
+                assert_eq!(ns, quick_xml::name::ResolveResult::Bound(quick_xml::name::Namespace(b"http://schemas.openxmlformats.org/spreadsheetml/2006/main")));
+            }
+            quick_xml::events::Event::Eof => break,
+            _ => {}
+        }
+    }
+    assert_untouched_identical(&base, &out, &["xl/worksheets/sheet1.xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml"], &["xl/calcChain.xml"]);
+}
+
+#[test]
+fn prefixed_workbook_inserts_names_and_calc_properties_in_namespace() {
+    let source = br#"<x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheets/></x:workbook>"#;
+    let names = [super::patch::DefinedName { name: "Discount".into(), r#ref: "Summary!$B$5".into() }];
+    let xml = super::workbook_xml::patch_workbook_xml(source, true, &names).unwrap();
+    let text = String::from_utf8(xml).unwrap();
+    assert!(text.contains("<x:calcPr fullCalcOnLoad=\"1\"/>"), "{text}");
+    assert!(text.contains("<x:definedNames><x:definedName name=\"Discount\">Summary!$B$5</x:definedName></x:definedNames>"), "{text}");
+}
+
 /// A refreshed member of a group that must materialize (another member was
 /// edited) is written whole: the translated formula with its new result.
 #[test]

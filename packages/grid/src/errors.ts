@@ -4,9 +4,10 @@
  */
 
 export type GridPathErrorCode =
-  /** Not an .xlsx: an old .xls, a CSV, a password-protected workbook… */
+  /** Not a spreadsheet: an old .xls, a password-protected workbook, a PDF… */
   | "unsupported-file"
-  /** An .xlsx (zip) the engine could not read: damaged or truncated. */
+  /** An .xlsx (zip) the engine could not read (damaged or truncated), or a
+   * CSV that could not be read as a table. */
   | "malformed-file"
   /** The calculation engine (WebAssembly in a Web Worker) did not start or
    * stopped: the page can't load the worker or .wasm, or the engine failed. */
@@ -70,12 +71,28 @@ export class UnsavedChangesError extends GridPathError {
 
 const isZip = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07);
 const isOle = (b: Uint8Array) => b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0;
+const isUtf16 = (b: Uint8Array) => b.length >= 2 && ((b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff));
+const isText = (b: Uint8Array) =>
+  isUtf16(b) || b.subarray(0, 4096).every((c) => c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127) || c >= 128);
+/** Text that isn't a table: refused, not read as a column of lines. */
+const NOT_A_TABLE = /\.(json|xml|html?|svg|md|markdown|ya?ml|rtf|pdf|js|mjs|ts|css)$/i;
 
-/** A file that is plainly not an .xlsx (empty, an old .xls, a CSV…), told
- * from its first bytes before anything is opened; null when it looks like one. */
+/** Delimited text (CSV, TSV…): opened by converting it to a new .xlsx. */
+export function isDelimitedText(bytes: Uint8Array, name: string): boolean {
+  return bytes.length > 0 && !isZip(bytes) && !isOle(bytes) && isText(bytes) && !NOT_A_TABLE.test(name);
+}
+
+/** The name a workbook opened from delimited text saves under: sales.csv → sales.xlsx. */
+export function workbookName(name: string, bytes: Uint8Array | null): string {
+  return bytes && isDelimitedText(bytes, name) ? `${name.replace(/\.[^./\\]*$/, "")}.xlsx` : name;
+}
+
+/** A file that can't be opened (empty, an old .xls, a PDF…), told from its
+ * first bytes before anything is opened; null when it looks like an .xlsx
+ * or delimited text. */
 export function fileProblem(bytes: Uint8Array, name: string): GridPathError | null {
   if (bytes.length === 0) {
-    return new GridPathError("unsupported-file", `"${name}" is empty`, "Choose an .xlsx file saved by Excel, Google Sheets or another spreadsheet app.");
+    return new GridPathError("unsupported-file", `"${name}" is empty`, "Choose an .xlsx or CSV file.");
   }
   if (isOle(bytes)) {
     return new GridPathError(
@@ -84,15 +101,25 @@ export function fileProblem(bytes: Uint8Array, name: string): GridPathError | nu
       "Open it in Excel and save it as an .xlsx workbook without a password.",
     );
   }
-  if (!isZip(bytes)) {
-    const looksText = bytes.slice(0, 512).every((c) => c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127) || c >= 128);
+  if (!isZip(bytes) && !isDelimitedText(bytes, name)) {
     return new GridPathError(
       "unsupported-file",
-      looksText ? `"${name}" is a text file (CSV or similar), not an .xlsx workbook` : `"${name}" is not an .xlsx workbook`,
-      looksText ? "Open it in a spreadsheet app and save it as .xlsx, or import its rows with setCells()." : "Choose an .xlsx file.",
+      isText(bytes) ? `"${name}" is a text file, not a spreadsheet` : `"${name}" is not a spreadsheet`,
+      "Choose an .xlsx file, or a CSV or other delimited text file.",
     );
   }
   return null;
+}
+
+/** Delimited text that could not be read as a table. */
+export function textTableError(name: string, cause: unknown): GridPathError {
+  const reason = cleanReason(cause instanceof Error ? cause.message : String(cause));
+  return new GridPathError(
+    "malformed-file",
+    `"${name}" could not be read as CSV (${reason})`,
+    "Check that it is comma-, tab-, semicolon- or pipe-separated text.",
+    cause,
+  );
 }
 
 /** Why a file failed to open, from its first bytes and the engine's reason. */

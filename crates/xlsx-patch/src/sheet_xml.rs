@@ -131,6 +131,9 @@ pub struct ColRange {
 
 #[derive(Debug, Default)]
 pub struct ScanResult {
+    /// Prefix of the worksheet's namespace, including the colon if present.
+    /// New cell/row elements must stay in that namespace too.
+    pub prefix: String,
     pub shared_groups: HashMap<u32, SharedGroup>,
     /// Effective base style (cell s → row s → col style → 0) for each
     /// requested style target.
@@ -171,6 +174,9 @@ pub fn scan_sheet(
 
             Event::Start(ref e) | Event::Empty(ref e) => {
                 match local_name(e.name().as_ref()) {
+                    b"worksheet" => {
+                        out.prefix = element_prefix(e.name().as_ref());
+                    }
                     b"row" => {
                         cur_row = attr_value(e, b"r")
                             .and_then(|v| v.parse::<u32>().ok())
@@ -521,7 +527,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                 // swallow the original stub/text.
                 if cell_materialize.is_some() && name == b"f" {
                     let ftext = cell_materialize.take().unwrap();
-                    write_simple(&mut w, "f", &ftext)?;
+                    write_simple(&mut w, &format!("{}f", element_prefix(e.name().as_ref())), &ftext)?;
                     depth += 1;
                     skipping = Some(depth);
                     buf.clear();
@@ -642,6 +648,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                                             rc.1,
                                             action,
                                             action.style.or(orig_style),
+                                            &scan.prefix,
                                         )?;
                                         depth += 1;
                                         skipping = Some(depth);
@@ -691,7 +698,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                 // Shared-formula member stub: <f t="shared" si="N"/>
                 if cell_materialize.is_some() && name == b"f" {
                     let ftext = cell_materialize.take().unwrap();
-                    write_simple(&mut w, "f", &ftext)?;
+                    write_simple(&mut w, &format!("{}f", element_prefix(e.name().as_ref())), &ftext)?;
                     buf.clear();
                     continue;
                 }
@@ -743,7 +750,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                                 write_new_cell(&mut w, row, *col, action, scan)?;
                             }
                         }
-                        w.write_event(Event::End(BytesEnd::new("row"))).map_err(xml_err)?;
+                        w.write_event(Event::End(e.to_end())).map_err(xml_err)?;
                     } else {
                         w.write_event(Event::Empty(e)).map_err(xml_err)?;
                     }
@@ -799,6 +806,7 @@ pub fn rewrite_sheet(xml: &[u8], ops: &SheetOps, scan: &ScanResult) -> Result<Ve
                                     rc.1,
                                     action,
                                     action.style.or(orig_style),
+                                    &scan.prefix,
                                 )?;
                                 buf.clear();
                                 continue;
@@ -934,7 +942,7 @@ fn flush_inserts_before(
 /// Row start tag with height/hidden overrides applied and `spans` dropped
 /// (we may add cells outside the original span hint).
 fn rebuild_row_start(e: &BytesStart, work: Option<&RowWork>) -> BytesStart<'static> {
-    let mut out = BytesStart::new("row");
+    let mut out = BytesStart::new(String::from_utf8_lossy(e.name().as_ref()).into_owned());
     let (height, hidden) = match work {
         Some(wk) => (wk.height, wk.hidden),
         None => (None, None),
@@ -974,7 +982,8 @@ fn write_full_row(
     if work.height.is_none() && work.hidden.is_none() && work.cells.values().all(action_targets_existing_only) {
         return Ok(());
     }
-    let mut start = BytesStart::new("row");
+    let tag = format!("{}row", scan.prefix);
+    let mut start = BytesStart::new(tag.as_str());
     start.push_attribute(("r", (row + 1).to_string().as_str()));
     if let Some(h) = work.height {
         start.push_attribute(("ht", trim_float(h).as_str()));
@@ -989,7 +998,7 @@ fn write_full_row(
             write_new_cell(w, row, *col, action, scan)?;
         }
     }
-    w.write_event(Event::End(BytesEnd::new("row"))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new(tag.as_str()))).map_err(xml_err)?;
     Ok(())
 }
 
@@ -1005,7 +1014,7 @@ fn write_new_cell(
     let style = action
         .style
         .or_else(|| scan.style_bases.get(&(row, col)).copied().filter(|&s| s != 0));
-    write_cell(w, row, col, action, style)
+    write_cell(w, row, col, action, style, &scan.prefix)
 }
 
 fn write_cell(
@@ -1014,8 +1023,14 @@ fn write_cell(
     col: u32,
     action: &CellAction,
     style: Option<u32>,
+    prefix: &str,
 ) -> Result<(), PatchError> {
-    let mut c = BytesStart::new("c");
+    let cell_tag = format!("{prefix}c");
+    let value_tag = format!("{prefix}v");
+    let formula_tag = format!("{prefix}f");
+    let inline_tag = format!("{prefix}is");
+    let text_tag = format!("{prefix}t");
+    let mut c = BytesStart::new(cell_tag.as_str());
     c.push_attribute(("r", format_cell_ref(row, col).as_str()));
     if let Some(s) = style {
         c.push_attribute(("s", s.to_string().as_str()));
@@ -1030,33 +1045,33 @@ fn write_cell(
                 return Err(PatchError::BadValue(format!("non-finite number {n}")));
             }
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            write_simple(w, "v", &trim_float(*n))?;
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            write_simple(w, &value_tag, &trim_float(*n))?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::Text(s) => {
             c.push_attribute(("t", "inlineStr"));
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            w.write_event(Event::Start(BytesStart::new("is"))).map_err(xml_err)?;
-            let mut t = BytesStart::new("t");
+            w.write_event(Event::Start(BytesStart::new(inline_tag.as_str()))).map_err(xml_err)?;
+            let mut t = BytesStart::new(text_tag.as_str());
             t.push_attribute(("xml:space", "preserve"));
             w.write_event(Event::Start(t)).map_err(xml_err)?;
             w.write_event(Event::Text(BytesText::new(&sanitize_xlsx_text(s))))
                 .map_err(xml_err)?;
-            w.write_event(Event::End(BytesEnd::new("t"))).map_err(xml_err)?;
-            w.write_event(Event::End(BytesEnd::new("is"))).map_err(xml_err)?;
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            w.write_event(Event::End(BytesEnd::new(text_tag.as_str()))).map_err(xml_err)?;
+            w.write_event(Event::End(BytesEnd::new(inline_tag.as_str()))).map_err(xml_err)?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::Bool(b) => {
             c.push_attribute(("t", "b"));
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            write_simple(w, "v", if *b { "1" } else { "0" })?;
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            write_simple(w, &value_tag, if *b { "1" } else { "0" })?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::ErrorVal(e) => {
             c.push_attribute(("t", "e"));
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            write_simple(w, "v", e)?;
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            write_simple(w, &value_tag, e)?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::Formula(f, cached) => {
             // Cached-result typing follows OOXML: formula string results are
@@ -1075,28 +1090,28 @@ fn write_cell(
             if action.cm.is_some() {
                 // Dynamic-array formula: Excel evaluates arrays as arrays and
                 // re-spills on its own calc; `ref` is the anchor cell.
-                let mut fe = BytesStart::new("f");
+                let mut fe = BytesStart::new(formula_tag.as_str());
                 fe.push_attribute(("t", "array"));
                 fe.push_attribute(("ref", format_cell_ref(row, col).as_str()));
                 w.write_event(Event::Start(fe)).map_err(xml_err)?;
                 w.write_event(Event::Text(BytesText::new(f))).map_err(xml_err)?;
-                w.write_event(Event::End(BytesEnd::new("f"))).map_err(xml_err)?;
+                w.write_event(Event::End(BytesEnd::new(formula_tag.as_str()))).map_err(xml_err)?;
             } else {
-                write_simple(w, "f", f)?;
+                write_simple(w, &formula_tag, f)?;
             }
             match cached {
-                Some(CachedValue::Number(n)) => write_simple(w, "v", &trim_float(*n))?,
-                Some(CachedValue::Str(s)) => write_simple(w, "v", &sanitize_xlsx_text(s))?,
-                Some(CachedValue::Bool(b)) => write_simple(w, "v", if *b { "1" } else { "0" })?,
-                Some(CachedValue::Error(e)) => write_simple(w, "v", e)?,
+                Some(CachedValue::Number(n)) => write_simple(w, &value_tag, &trim_float(*n))?,
+                Some(CachedValue::Str(s)) => write_simple(w, &value_tag, &sanitize_xlsx_text(s))?,
+                Some(CachedValue::Bool(b)) => write_simple(w, &value_tag, if *b { "1" } else { "0" })?,
+                Some(CachedValue::Error(e)) => write_simple(w, &value_tag, e)?,
                 None => {}
             }
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::MaterializeFormula(f) => {
             w.write_event(Event::Start(c)).map_err(xml_err)?;
-            write_simple(w, "f", f)?;
-            w.write_event(Event::End(BytesEnd::new("c"))).map_err(xml_err)?;
+            write_simple(w, &formula_tag, f)?;
+            w.write_event(Event::End(BytesEnd::new(cell_tag.as_str()))).map_err(xml_err)?;
         }
         CellContent::RefreshCache(_) => {
             // Existing-only (`action_targets_existing_only`), handled where
@@ -1154,6 +1169,7 @@ fn write_refreshed_cell(
         }
         return Ok(());
     }
+    let value_tag = format!("{}v", element_prefix(start.name().as_ref()));
     let name = String::from_utf8_lossy(start.name().as_ref()).into_owned();
     let mut c = BytesStart::new(name);
     for attr in start.attributes().with_checks(false).flatten() {
@@ -1203,14 +1219,21 @@ fn write_refreshed_cell(
         if closes_f || empty_f {
             in_f = false;
             match value {
-                CachedValue::Number(n) => write_simple(w, "v", &trim_float(*n))?,
-                CachedValue::Str(s) => write_simple(w, "v", &sanitize_xlsx_text(s))?,
-                CachedValue::Bool(b) => write_simple(w, "v", if *b { "1" } else { "0" })?,
-                CachedValue::Error(e) => write_simple(w, "v", e)?,
+                CachedValue::Number(n) => write_simple(w, &value_tag, &trim_float(*n))?,
+                CachedValue::Str(s) => write_simple(w, &value_tag, &sanitize_xlsx_text(s))?,
+                CachedValue::Bool(b) => write_simple(w, &value_tag, if *b { "1" } else { "0" })?,
+                CachedValue::Error(e) => write_simple(w, &value_tag, e)?,
             }
         }
     }
     Ok(())
+}
+
+fn element_prefix(name: &[u8]) -> String {
+    match name.iter().rposition(|&b| b == b':') {
+        Some(i) => String::from_utf8_lossy(&name[..=i]).into_owned(),
+        None => String::new(),
+    }
 }
 
 fn write_simple(w: &mut Writer<Vec<u8>>, tag: &str, text: &str) -> Result<(), PatchError> {

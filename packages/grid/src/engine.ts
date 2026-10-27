@@ -16,8 +16,12 @@
 export type DeltaApplier = (sheetName: string, cells: { row0: number; col0: number; v: unknown }[]) => boolean;
 
 export type FindHit = { sheet: number; row: number; column: number; text: string };
+import type { NativeChart } from "./charts/types";
 
 export interface GridEngine {
+  /** Native charts, with values from the latest completed calculation. */
+  charts?(): NativeChart[];
+  subscribeCharts?(listener: () => void): () => void;
   /** Load the workbook and return its layout (geometry, merges, frozen
    * panes, styles); null when the load fails. The first evaluate is
    * deferred until `startDeferredSettle`. `bytes` are the file's bytes; an

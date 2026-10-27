@@ -279,9 +279,10 @@ pub fn rename_sheet(
 
     // Every worksheet: formulas (f), CF/DV formulas, ext formulas.
     // Every chart part: series formulas (c:f).
+    let chart_parts = crate::charts::chart_parts(store)?;
     for part in store.names() {
         let is_sheet = part.starts_with(&format!("{wb_dir}worksheets/")) && part.ends_with(".xml");
-        let is_chart = part.starts_with(&format!("{wb_dir}charts/")) && part.ends_with(".xml");
+        let is_chart = chart_parts.contains(&part);
         if !is_sheet && !is_chart {
             continue;
         }
@@ -615,11 +616,12 @@ pub fn delete_sheet(
 
     // Guard: nothing else may reference this sheet by name. Formulas that
     // reference a deleted sheet need #REF! rewrites we don't do yet.
+    let chart_parts = crate::charts::chart_parts(store)?;
     for other in store.names() {
         let is_sheet = other.starts_with(&format!("{wb_dir}worksheets/"))
             && other.ends_with(".xml")
             && other != part;
-        let is_chart = other.starts_with(&format!("{wb_dir}charts/")) && other.ends_with(".xml");
+        let is_chart = chart_parts.contains(&other);
         if !is_sheet && !is_chart {
             continue;
         }

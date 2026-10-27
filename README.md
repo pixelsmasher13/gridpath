@@ -8,8 +8,8 @@
 
 GridPath opens the `.xlsx` files people already have and calculates every
 formula with a Rust engine. AI can edit the files, with a review step. The
-saved file is the same one that was opened: charts, pivots, VBA and add-in
-data come back byte-identical.
+saved file patches the original: untouched parts come back byte-identical,
+while recalculated formulas and supported chart data caches carry current values.
 
 | | **In your web app**: `npm install gridpath` | **In your coding agent**: `npx gridpath mcp` | **Desktop app** |
 |---|---|---|---|
@@ -154,9 +154,10 @@ the Claude or ChatGPT subscription you already pay for.
 
 Under active development.
 
-- **The web package** is at 0.4. Not yet supported: drawing charts in the
-  grid (they are kept in the file, but not shown), data-validation
-  dropdowns, real-time collaboration.
+- **The web package** is at 0.5: it draws a workbook's line charts, which
+  update as you edit and save as native Excel charts, and opens CSV and
+  other delimited text. Other chart types, creating charts,
+  data-validation dropdowns and real-time collaboration are not supported yet.
 - **For agents**, editing existing workbooks is the strongest path, and the
   one benchmarked continuously. Building large multi-sheet models from
   scratch works but is still improving. The

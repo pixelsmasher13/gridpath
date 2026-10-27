@@ -1,5 +1,6 @@
 import { defineConfig, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import { agentTurn } from "./server/agent";
 
 /** POST /api/agent on the dev and preview servers: the demo's backend. */
@@ -24,6 +25,14 @@ function agentRoute(): Plugin {
 }
 
 export default defineConfig({
+  // An already-open recording page can start another worker after a rebuild.
+  // Keep its hashed assets available until that page is reloaded.
+  build: process.env.VITE_RECORDING === "1" ? { emptyOutDir: false } : undefined,
+  // Recording uses the locally rebuilt engine, including the namespace-save
+  // regression fix. The ordinary demo retains its packaged dependency.
+  resolve: process.env.VITE_RECORDING === "1" ? {
+    alias: [{ find: /^gridpath$/, replacement: fileURLToPath(new URL("../../packages/gridpath/dist/web/index.js", import.meta.url)) }],
+  } : undefined,
   plugins: [react(), agentRoute()],
   // The package loads its worker and .wasm with `new URL(..., import.meta.url)`;
   // dev-server pre-bundling would move the script away from those files.

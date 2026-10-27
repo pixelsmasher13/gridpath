@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { browserStore, httpStore, Spreadsheet, type Spreadsheet as SheetApi } from "gridpath";
 import { ask, type AgentEvent, type Message } from "./agentLoop";
+import { analyse, BLUE, DropOverlay, isWorkbookFile, OpenButton, ReportBar, useFileDrop, type Opened } from "./Report";
+import { RecordingDemo } from "./RecordingDemo";
 
 type LogLine = { who: "you" | "agent" | "tool" | "error"; text: string };
 
@@ -24,17 +26,26 @@ const store =
 // no server, so no Ask panel; a sample workbook, and a scripted AI edit that
 // shows the review flow without calling a model.
 const SITE = (import.meta as any).env?.VITE_SITE === "1";
+// ?embed=1 (inside the /embed page): a slim bar instead of the site header.
+const EMBED = SITE && params.get("embed") === "1";
 const BASE: string = (import.meta as any).env?.BASE_URL ?? "/";
+// The site's sample: a fictional three-sheet income statement with native charts.
+const SAMPLE_FILE = "larkspur-income-statement.xlsx";
+const SAMPLE_NAME = "Larkspur Orbital income statement.xlsx";
 
 /** The scripted "AI edit": the tool calls an agent would make, run through
  * sheet.ai like a real agent's, so they land as changes to review. */
 async function sampleEdit(sheet: SheetApi): Promise<string | null> {
-  if (!sheet.getSheetNames().includes("Sales")) return "The sample edit works on the sample workbook (File → Recent → Sample sales.xlsx).";
-  const header = { bold: true, font_color: "#FFFFFF", background_color: "#1F4E79", horizontal_align: "center" };
-  await sheet.ai.run("set_range", { sheet: "Sales", top_left: "H1", values: [["Share"], ...[2, 3, 4, 5, 6, 7, 8].map((r) => [`=E${r}/$E$8`])] });
-  await sheet.ai.run("set_format", { sheet: "Sales", range: "H2:H8", format: { number_format: "0.0%" } });
-  await sheet.ai.run("set_range", { sheet: "Sales", top_left: "I1", values: [["Rank"], ...[2, 3, 4, 5, 6, 7].map((r) => [`=RANK(E${r},$E$2:$E$7)`])] });
-  await sheet.ai.run("set_format", { sheet: "Sales", range: "H1:I1", format: header });
+  const IS = "Income statement";
+  if (!sheet.getSheetNames().includes(IS)) return `The sample AI edit works on the sample workbook: reopen it from File → Recent → ${SAMPLE_NAME}.`;
+  // An EPS growth row under diluted EPS, styled like the statement's other growth rows.
+  const growth = ["E", "F", "G", "H", "I", "J"].map((c, i) => {
+    const prev = "DEFGHI"[i];
+    return `=IFERROR(IF(${prev}43<=0,"n.a.",${c}43/${prev}43-1),"n.a.")`;
+  });
+  await sheet.ai.run("set_range", { sheet: IS, top_left: "C44", values: [["Diluted EPS growth", "n.a.", ...growth]] });
+  await sheet.ai.run("set_format", { sheet: IS, range: "C44:J44", format: { italic: true, font_color: "#61748A" } });
+  await sheet.ai.run("set_format", { sheet: IS, range: "D44:J44", format: { number_format: '0.0%;(0.0%);"–"', horizontal_align: "right" } });
   return null;
 }
 
@@ -98,37 +109,74 @@ function AgentPanel({ sheet }: { sheet: SheetApi | null }) {
 
 function App() {
   const [sheet, setSheet] = useState<SheetApi | null>(null);
+  const sheetRef = useRef<SheetApi | null>(null);
   const [status, setStatus] = useState("Starting the engine…");
-  const [sample, setSample] = useState<ArrayBuffer | null>(null);
+  const [sample, setSample] = useState<Uint8Array | null>(null);
+  const sampleT0 = useRef(0);
+  // The site's file report: the open workbook, and edits since the last check.
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const [stale, setStale] = useState(0);
+  const [message, setMessage] = useState<string | null>(null);
+  const opening = useRef(false);
   const describe = (api: SheetApi) => `${api.getDocument().name}: ${api.getSheetNames().length} sheet(s)`;
   useEffect(() => {
-    if (SITE) void fetch(`${BASE}sample.xlsx`).then((r) => r.arrayBuffer()).then(setSample);
+    if (!SITE) return;
+    void fetch(`${BASE}${SAMPLE_FILE}`)
+      .then((r) => r.arrayBuffer())
+      .then((b) => {
+        sampleT0.current = performance.now();
+        setSample(new Uint8Array(b));
+      });
   }, []);
 
+  /** A file from the button or a drop: opened here, then reported on. */
+  const openFile = useCallback(async (f: File) => {
+    const api = sheetRef.current;
+    if (!api) return;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    setMessage(null);
+    const t0 = performance.now();
+    opening.current = true;
+    try {
+      await api.open(bytes, { name: f.name });
+    } catch (e: any) {
+      setMessage(e?.code === "pending-changes" ? "Accept or reject the AI's changes first (the AI changes panel), then open the file." : `${e?.message ?? e}. ${e?.hint ?? ""}`);
+      return;
+    } finally {
+      opening.current = false;
+    }
+    // A CSV opens as a new workbook: there is no original .xlsx to report on.
+    if (SITE) isWorkbookFile(bytes) ? void analyse(api, f.name, bytes, t0, setOpened) : setOpened(null);
+  }, []);
+  const dragging = useFileDrop((f) => void openFile(f));
+
+  const aiEdit = () => void (sheet && sampleEdit(sheet).then((msg) => setMessage(msg)));
+  const secondary = { padding: EMBED ? "4px 10px" : "6px 12px", borderRadius: 6, border: `1px solid ${BLUE}`, background: "#fff", color: BLUE, cursor: "pointer", fontSize: EMBED ? 13 : 14 } as const;
+
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "system-ui, sans-serif" }}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        const f = e.dataTransfer.files[0];
-        if (f && sheet) void f.arrayBuffer().then((b) => sheet.open(b, { name: f.name }));
-      }}
-    >
-      {SITE ? (
-        <header style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
-          <a href="/" style={{ fontWeight: 700, color: "#111", textDecoration: "none" }}>GridPath</a>
-          <span style={{ color: "#555" }}>The embeddable spreadsheet. Open, edit and save real .xlsx files; everything stays in this browser.</span>
-          <span style={{ flex: 1 }} />
-          <button
-            disabled={!sheet}
-            title="Runs the tool calls an agent would make (scripted; no AI model is called)"
-            onClick={() => void (sheet && sampleEdit(sheet).then((msg) => msg && alert(msg)))}
-            style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #1F4E79", background: "#1F4E79", color: "#fff", cursor: "pointer" }}
-          >
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "system-ui, sans-serif" }}>
+      {dragging && <DropOverlay />}
+      {EMBED ? (
+        // Inside the /embed page: the live component with a slim bar.
+        <header style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "6px 12px", borderBottom: "1px solid #ddd", fontSize: 13 }}>
+          <OpenButton small onFile={(f) => void openFile(f)} disabled={!sheet} />
+          <button disabled={!sheet} title="Runs the tool calls an agent would make (scripted; no AI model is called)" onClick={aiEdit} style={secondary}>
             Try a sample AI edit
           </button>
-          <a href="/embed" style={{ color: "#1F4E79" }}>Embed it in your app →</a>
+          <span style={{ flex: 1 }} />
+          <span style={{ color: "#666" }}>The real component, running in this page</span>
+          <a href="/demo" target="_top" style={{ color: BLUE }}>Full demo ↗</a>
+        </header>
+      ) : SITE ? (
+        <header style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
+          <a href="/" style={{ fontWeight: 700, color: "#111", textDecoration: "none" }}>GridPath</a>
+          <span className="demo-tag" style={{ color: "#555" }}>Open a real .xlsx, edit it, save it back. Your file never leaves this browser.</span>
+          <span style={{ flex: 1 }} />
+          <OpenButton onFile={(f) => void openFile(f)} disabled={!sheet} />
+          <button disabled={!sheet} title="Runs the tool calls an agent would make (scripted; no AI model is called)" onClick={aiEdit} style={secondary}>
+            Try a sample AI edit
+          </button>
+          <a href="/embed" style={{ color: BLUE }}>Embed it in your app →</a>
         </header>
       ) : (
         <header style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #ddd", fontSize: 14 }}>
@@ -136,6 +184,13 @@ function App() {
           <span style={{ color: "#666" }}>{status}</span>
         </header>
       )}
+      {message && (
+        <div role="status" style={{ padding: "6px 14px", background: "#fff8e6", borderBottom: "1px solid #f3e3b5", color: "#6a4a00", fontSize: 13, display: "flex", gap: 8 }}>
+          <span style={{ flex: 1 }}>{message}</span>
+          <button onClick={() => setMessage(null)} aria-label="Dismiss" style={{ border: 0, background: "none", cursor: "pointer", color: "#6a4a00" }}>✕</button>
+        </div>
+      )}
+      {SITE && sheet && opened && <ReportBar sheet={sheet} opened={opened} compact={EMBED} stale={stale} />}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <main style={{ flex: 1, minWidth: 0 }}>
           {/* The toolbar, File menu (open, new, recent, version history),
@@ -145,16 +200,23 @@ function App() {
           <Spreadsheet
             engine={engineOptions}
             store={store}
-            {...(SITE && sample ? { file: sample, fileName: "Sample sales.xlsx", documentId: "gridpath-demo-sample" } : {})}
+            {...(SITE && sample ? { file: sample, fileName: SAMPLE_NAME, documentId: "gridpath-demo-larkspur" } : {})}
             onProgress={setStatus}
             onReady={(api) => {
               setSheet(api);
+              sheetRef.current = api;
               setStatus(describe(api));
               (window as any).__demo = { sheet: api, ready: true };
+              if (SITE && sample) void analyse(api, api.getDocument().name, sample, sampleT0.current, setOpened);
             }}
             onDocumentChange={() => {
               const api = (window as any).__demo?.sheet as SheetApi | undefined;
               if (api) setStatus(describe(api));
+              // Opened from the File menu: there are no original bytes to compare against.
+              if (!opening.current) setOpened(null);
+            }}
+            onStatusChange={(s) => {
+              if (s.state === "unsaved" || s.state === "review") setStale((v) => v + 1);
             }}
             onError={(err) => {
               setStatus(`Error: ${err.message}`);
@@ -169,4 +231,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(params.get("record") === "1" ? <RecordingDemo /> : <App />);

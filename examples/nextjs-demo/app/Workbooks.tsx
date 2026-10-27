@@ -58,7 +58,7 @@ export function Workbooks({ id }: { id?: string }) {
               Upload .xlsx
               <input
                 type="file"
-                accept=".xlsx,.xlsm"
+                accept=".xlsx,.xlsm,.csv,.tsv,.txt"
                 hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0];

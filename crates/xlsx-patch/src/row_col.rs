@@ -59,7 +59,7 @@ fn names_eq(a: &str, b: &str) -> bool {
 pub fn apply_row_col_op(
     store: &mut PartStore,
     workbook_path: &str,
-    wb_dir: &str,
+    _wb_dir: &str,
     wb_rels_path: &str,
     op: &RowColOp,
 ) -> Result<(), PatchError> {
@@ -114,12 +114,7 @@ pub fn apply_row_col_op(
     }
 
     // --- 4. chart parts (series formulas reference sheets by name) ---
-    let chart_prefix = format!("{wb_dir}charts/");
-    for part in store.names() {
-        if !part.starts_with(&chart_prefix) || !part.ends_with(".xml") || part.contains("/_rels/")
-        {
-            continue;
-        }
+    for part in crate::charts::chart_parts(store)? {
         let bytes = store.read(&part)?;
         if !mentions_name(&bytes, sheet_name) {
             continue;

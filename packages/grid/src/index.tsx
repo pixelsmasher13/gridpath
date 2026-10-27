@@ -1,6 +1,6 @@
 /**
- * gridpath: a spreadsheet for web apps. Opens real .xlsx files (or
- * starts blank), calculates with GridPath's Rust engine compiled to
+ * gridpath: a spreadsheet for web apps. Opens real .xlsx files (or CSV
+ * and other delimited text, or starts blank), calculates with GridPath's Rust engine compiled to
  * WebAssembly in a Web Worker, draws only the visible window on a canvas,
  * and saves by patching the original file so every part it did not touch
  * (charts, pivots, VBA, add-in data) comes back byte-identical.
@@ -32,10 +32,13 @@ import {
   engineError,
   engineStartError,
   fileProblem,
+  isDelimitedText,
   notReady,
   openError,
   saveFailed,
   storageError,
+  textTableError,
+  workbookName,
 } from "./errors";
 
 export { BrowserEngine, type EngineOptions } from "./browserEngine";
@@ -47,8 +50,9 @@ export { GridPathError, PendingChangesError, UnsavedChangesError, type GridPathE
 export type { SaveStatus } from "./ui/Chrome";
 
 export interface SpreadsheetOptions {
-  /** An .xlsx to open. Without it the workbook starts blank (or reopens the
-   * stored one, see `documentId`). */
+  /** An .xlsx to open, or CSV or other delimited text (it opens as a new
+   * .xlsx). Without it the workbook starts blank (or reopens the stored one,
+   * see `documentId`). */
   file?: ArrayBuffer | Uint8Array;
   /** Sheet names for a blank workbook (default ["Sheet1"]). */
   sheets?: string[];
@@ -149,6 +153,10 @@ export interface OpenOptions {
 }
 
 export interface Spreadsheet {
+  /** Native chart descriptors and current source values, after calculation. */
+  getCharts(): Promise<import("./charts/types").NativeChart[]>;
+  /** Breakdown of the last engine edit; milliseconds, excluding caller/UI waits. */
+  getLastEditTimings(): import("./charts/types").EditTimings | null;
   /** Sheet names in workbook order. */
   getSheetNames(): string[];
   /**
@@ -216,6 +224,8 @@ export interface Spreadsheet {
    *   `UnsavedChangesError`, unless `discardUnsaved`. A remote store's
    *   failed save still counts as saved when the changes are kept in this
    *   browser.
+   * - CSV and other delimited text open as a new .xlsx (sales.csv saves
+   *   as sales.xlsx).
    * - A file that can't be opened rejects with `unsupported-file` or
    *   `malformed-file`, and the previous workbook stays open.
    */
@@ -552,7 +562,7 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
     if (found && (!file || found.source === source)) {
       setDoc({ key: ++keyRef.current, id, name: found.name, bytes: found.bytes, source: found.source ?? source, savedAt: found.savedAt, draft: found.draft });
     } else {
-      setDoc({ key: ++keyRef.current, id, name: p.fileName ?? "Untitled.xlsx", bytes: file, source, savedAt: null });
+      setDoc({ key: ++keyRef.current, id, name: workbookName(p.fileName ?? "Untitled.xlsx", file), bytes: file, source, savedAt: null });
     }
   }, [fromStore, store]);
   const retryFirst = useCallback(() => {
@@ -843,7 +853,7 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
       // A different file by that name (or the store can't say): its own id.
       if (found || unknown) key = `${name}~${source}`;
     }
-    return openDoc({ id: key, name, bytes, source, savedAt: null }, opts);
+    return openDoc({ id: key, name: workbookName(name, bytes), bytes, source, savedAt: null }, opts);
   }, [openDoc, store, fromStore]);
 
   const openStored = useCallback(async (id: string, opts: { discardUnsaved?: boolean } = {}) => {
@@ -939,6 +949,8 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
       if (!(await e.settledWithin(ms))) throw calcTimeout(ms);
     };
     const api: Spreadsheet = {
+      getCharts: async () => { grid(); await calculated(); return structuredClone(engineRef.current!.charts()); },
+      getLastEditTimings: () => engineRef.current?.lastEditTimings() ?? null,
       getSheetNames: () => grid().getSheetNames(),
       getCell: async (sheet, ref) => {
         const g = grid();
@@ -1032,11 +1044,13 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
     };
     (async () => {
       const p = propsRef.current;
+      // CSV and other delimited text open as a new .xlsx made from it.
+      const fromText = !!d.bytes && isDelimitedText(d.bytes, d.name);
       let base: Uint8Array;
       try {
-        base = d.bytes ?? (await engine.blankXlsx(p.sheets ?? ["Sheet1"]));
+        base = !d.bytes ? await engine.blankXlsx(p.sheets ?? ["Sheet1"]) : fromText ? await engine.csvToXlsx(d.bytes, d.name) : d.bytes;
       } catch (err) {
-        throw engineError(err instanceof Error ? err.message : String(err), err);
+        throw fromText && engine.alive() ? textTableError(d.name, err) : engineError(err instanceof Error ? err.message : String(err), err);
       }
       const res = await grid.loadBytes(base, (s) => propsRef.current.onProgress?.(s), { tabId, path: d.name });
       if (!live) return finish();
@@ -1081,6 +1095,7 @@ export function Spreadsheet(props: SpreadsheetProps): React.ReactElement {
         schedule();
       } else {
         setStatus(d.savedAt ? { state: "saved", savedAt: d.savedAt, ...(store?.label ? { where: store.label } : {}) } : { state: "idle" });
+        if (fromText) notify(`Opened as a new workbook · saves as ${d.name}`, 4000);
       }
       refreshIssues();
       if (!readyCalled.current) {

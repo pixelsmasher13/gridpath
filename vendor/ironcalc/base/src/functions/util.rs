@@ -309,6 +309,25 @@ pub(crate) fn result_matches_regex(calc_result: &CalcResult, reg: &regex::Regex)
     }
 }
 
+/// The test an exact-match lookup (VLOOKUP/MATCH type 0, XLOOKUP/XMATCH
+/// wildcard mode) applies to each candidate for text `lookup`: a
+/// case-insensitive equality when the text has no wildcard characters,
+/// the wildcard regex otherwise. Compiling the regex for every plain lookup
+/// cost 50k regex builds per recalculation on a 25k-row table of VLOOKUPs.
+pub(crate) fn text_lookup_matcher(lookup: &str) -> Box<dyn Fn(&CalcResult) -> bool> {
+    let lowered = lookup.to_lowercase();
+    if !lowered.contains(['*', '?', '~']) {
+        return Box::new(move |x| match x {
+            CalcResult::String(s) => eq_lowered(&lowered, s),
+            _ => false,
+        });
+    }
+    match from_wildcard_to_regex(&lowered, true) {
+        Ok(reg) => Box::new(move |x| result_matches_regex(x, &reg)),
+        Err(_) => Box::new(|_| false),
+    }
+}
+
 fn result_is_equal_to_string(calc_result: &CalcResult, target: &str) -> bool {
     match calc_result {
         CalcResult::String(s) => eq_lowered(target, s),

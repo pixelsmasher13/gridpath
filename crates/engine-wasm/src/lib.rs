@@ -17,9 +17,20 @@ use ironcalc_base::{Model, UserModel};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
+mod csv_import;
+
 fn js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn clock_ms() -> f64;
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn clock_ms() -> f64 { 0. }
 
 #[wasm_bindgen]
 pub struct Workbook {
@@ -49,6 +60,7 @@ pub struct Workbook {
     /// Formula cells this session's edits changed: their cached results are
     /// refreshed on save (`recalculatedCells`).
     session: gridpath_engine_core::session::SessionChanges,
+    charts: Vec<xlsx_patch::charts::Chart>,
 }
 
 #[wasm_bindgen]
@@ -67,6 +79,7 @@ impl Workbook {
         // by the caller and evaluated once, incrementally where possible.
         model.pause_evaluation();
         Ok(Workbook {
+            charts: xlsx_patch::charts::read(bytes).map_err(js_err)?,
             model,
             cached,
             session: Default::default(),
@@ -90,6 +103,7 @@ impl Workbook {
         let mut model = UserModel::from_model(model);
         model.pause_evaluation();
         Ok(Workbook {
+            charts: xlsx_patch::charts::read(bytes).map_err(js_err)?,
             model,
             cached,
             session: Default::default(),
@@ -140,6 +154,7 @@ impl Workbook {
     /// a `sheet` index, and the style table entries those cells reference.
     #[wasm_bindgen(js_name = evaluateEdited)]
     pub fn evaluate_edited(&mut self) -> Result<String, JsError> {
+        let started = clock_ms();
         let edited = std::mem::take(&mut self.edited);
         let restyled = std::mem::take(&mut self.restyled);
         let mut changed: Vec<(u32, i32, i32)> = Vec::new();
@@ -149,8 +164,10 @@ impl Workbook {
         } else if !edited.is_empty() {
             changed = self.model.get_model_mut().evaluate_edited(&edited);
         }
+        let evaluated = clock_ms();
         self.session.record(self.model.get_model(), &edited);
         self.session.record(self.model.get_model(), &changed);
+        let tracked = clock_ms();
         let full = self.needs_full_snapshot;
         self.needs_full_eval = false;
         self.needs_full_snapshot = false;
@@ -180,6 +197,7 @@ impl Workbook {
         }
         out.push_str("],\"styles\":");
         out.push_str(&serde_json::to_string(&table.styles).map_err(js_err)?);
+        out.push_str(&format!(",\"timing\":{{\"evaluateMs\":{},\"trackingMs\":{},\"serializeMs\":{}}}", evaluated-started, tracked-evaluated, clock_ms()-tracked));
         out.push('}');
         Ok(out)
     }
@@ -297,6 +315,25 @@ impl Workbook {
         self.needs_full_snapshot = true;
     }
 
+    fn shift_charts(&mut self, sheet: u32, rows: bool, index: i32, count: i32, insert: bool) -> Result<(), JsError> {
+        let name = self.sheet_names().get(sheet as usize).cloned().ok_or_else(||js_err("unknown sheet"))?;
+        let shift = xlsx_patch::refs::RowColShift { rows, start: (index-1) as u32, count: count as u32, insert };
+        for chart in &mut self.charts {
+            for series in &mut chart.series {
+                for f in [&mut series.name_ref, &mut series.categories_ref, &mut series.values_ref].into_iter().flatten() {
+                    *f = xlsx_patch::refs::adjust_formula(f, &shift, &name, false).map_err(js_err)?;
+                }
+            }
+            if chart.sheet.eq_ignore_ascii_case(&name) && !chart.anchor.absolute {
+                for marker in std::iter::once(&mut chart.anchor.from).chain(chart.anchor.to.iter_mut()) {
+                    let value = if rows { &mut marker.row } else { &mut marker.col };
+                    *value = shift.clamp_index(*value);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Sheet-level properties changed (nothing to recalc, but the snapshot's
     /// per-sheet data must be rebuilt).
     fn mark_sheet_props(&mut self) {
@@ -409,6 +446,38 @@ impl Workbook {
         gridpath_engine_core::window::workbook_layout_json(self.model.get_model()).map_err(js_err)
     }
 
+    /// Bounded native chart descriptors with data read from the live engine,
+    /// including source ranges outside the viewport. Excel XML is retained by
+    /// the saver; this is only the display model.
+    #[wasm_bindgen(js_name = charts)]
+    pub fn charts_json(&self) -> Result<String, JsError> {
+        let mut charts = self.charts.clone();
+        if self.pending_eval { return serde_json::to_string(&charts).map_err(js_err); }
+        let m = self.model.get_model();
+        let read = |formula: &str, display: bool| -> Option<Vec<serde_json::Value>> {
+            let range = xlsx_patch::charts::range(formula)?;
+            let sheet = m.workbook.worksheets.iter().position(|s|s.name.eq_ignore_ascii_case(&range.sheet))? as u32;
+            Some(range.cells().map(|(r,c)| {
+                let value = m.get_cell_value_by_index(sheet,r as i32+1,c as i32+1);
+                if display {
+                    m.get_formatted_cell_value(sheet,r as i32+1,c as i32+1).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null)
+                } else { value.map(gridpath_engine_core::cell_value_json).unwrap_or(serde_json::Value::Null) }
+            }).collect())
+        };
+        for chart in &mut charts {
+            for series in &mut chart.series {
+                if let Some(f)=&series.name_ref { if let Some(v)=read(f,true) {series.name=v.first().and_then(serde_json::Value::as_str).unwrap_or("").into();} }
+                if let Some(f)=&series.categories_ref {
+                    if let Some(v)=read(f,true) {series.categories=v;} else {chart.unsupported=Some("The category reference cannot be resolved.".into());}
+                }
+                if let Some(f)=&series.values_ref {
+                    if let Some(v)=read(f,false) {series.values=v.iter().map(serde_json::Value::as_f64).collect();} else {chart.unsupported=Some("The value reference cannot be resolved.".into());}
+                }
+            }
+        }
+        serde_json::to_string(&charts).map_err(js_err)
+    }
+
     /// Viewport grid: one rectangle of cells (1-based, inclusive).
     #[wasm_bindgen(js_name = sheetWindow)]
     pub fn sheet_window(&self, sheet: u32, r0: i32, r1: i32, c0: i32, c1: i32) -> Result<String, JsError> {
@@ -485,6 +554,7 @@ impl Workbook {
     pub fn insert_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.insert_rows(sheet, row, count).map_err(js_err)?;
+        self.shift_charts(sheet, true, row, count, true)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_rows(id, row, count);
         }
@@ -495,6 +565,7 @@ impl Workbook {
     pub fn delete_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.delete_rows(sheet, row, count).map_err(js_err)?;
+        self.shift_charts(sheet, true, row, count, false)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_rows(id, row, -count);
         }
@@ -505,6 +576,7 @@ impl Workbook {
     pub fn insert_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.insert_columns(sheet, col, count).map_err(js_err)?;
+        self.shift_charts(sheet, false, col, count, true)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_columns(id, col, count);
         }
@@ -515,6 +587,7 @@ impl Workbook {
     pub fn delete_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.delete_columns(sheet, col, count).map_err(js_err)?;
+        self.shift_charts(sheet, false, col, count, false)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_columns(id, col, -count);
         }
@@ -533,17 +606,28 @@ impl Workbook {
     #[wasm_bindgen(js_name = renameSheet)]
     pub fn rename_sheet(&mut self, sheet: u32, name: &str) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
+        let old = self.model.get_model().workbook.worksheets.get(sheet as usize).map(|s|s.name.clone()).ok_or_else(||js_err("unknown sheet"))?;
         self.model.rename_sheet(sheet, name).map_err(js_err)?;
+        for chart in &mut self.charts {
+            if chart.sheet == old {chart.sheet=name.into();}
+            for series in &mut chart.series {
+                for f in [&mut series.name_ref,&mut series.categories_ref,&mut series.values_ref].into_iter().flatten() {
+                    *f=xlsx_patch::refs::rename_sheet_in_formula(f,&old,name).map_err(js_err)?;
+                }
+            }
+        }
         self.mark_structural();
         Ok(())
     }
     #[wasm_bindgen(js_name = deleteSheet)]
     pub fn delete_sheet(&mut self, sheet: u32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
+        let old = self.model.get_model().workbook.worksheets.get(sheet as usize).map(|s|s.name.clone()).ok_or_else(||js_err("unknown sheet"))?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.remove_sheet(id);
         }
         self.model.delete_sheet(sheet).map_err(js_err)?;
+        self.charts.retain(|c|c.sheet!=old);
         self.mark_structural();
         Ok(())
     }
@@ -620,13 +704,16 @@ pub fn blank_xlsx(sheet_names: Vec<String>) -> Result<Vec<u8>, JsError> {
     for name in sheet_names.iter().skip(1) {
         model.add_sheet(name).map_err(js_err)?;
     }
-    // Excel's default body font, not IronCalc's (Inter 12): a new workbook
-    // should open in Excel looking like one made there.
-    if let Some(font) = model.workbook.styles.fonts.first_mut() {
-        font.name = "Calibri".to_string();
-        font.sz = 11;
-    }
+    csv_import::excel_default_font(&mut model);
     let out = ironcalc::export::save_xlsx_to_writer(&model, std::io::Cursor::new(Vec::new()))
         .map_err(|e| js_err(format!("{e:?}")))?;
     Ok(out.into_inner())
+}
+
+/// Delimited text (CSV, TSV…) as a new .xlsx with one sheet named after
+/// `file_name`; then it opens like any file. `delimiter` overrides the guess.
+#[wasm_bindgen(js_name = csvToXlsx)]
+pub fn csv_to_xlsx(bytes: &[u8], file_name: &str, delimiter: Option<String>) -> Result<Vec<u8>, JsError> {
+    let delimiter = delimiter.and_then(|d| d.chars().next());
+    csv_import::csv_to_xlsx(bytes, file_name, delimiter).map_err(js_err)
 }

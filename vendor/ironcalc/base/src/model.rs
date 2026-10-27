@@ -211,16 +211,47 @@ pub(crate) struct ReaderIndex {
 pub(crate) struct SpanBucket {
     groups: Vec<(i32, i32, Vec<CellReferenceIndex>)>,
     by_span: HashMap<(i32, i32), usize>,
+    /// Groups whose span is shorter than `READER_INDEX_NARROW`, listed under
+    /// every position they cover. A per-row formula such as `SUM(I5:J5)` is
+    /// a span of its own, so a 25k-row table puts 25k one-row groups in one
+    /// column's bucket; scanning them all for every dirty cell of that
+    /// column made the closure quadratic (2.9 s of a 4.1 s edit on a
+    /// 125k-formula model). Looking the position up is O(1).
+    short_at: HashMap<i32, Vec<usize>>,
+    /// Groups with longer spans (`SUMIFS` over a whole table column), few
+    /// distinct ones: scanned linearly.
+    long: Vec<usize>,
 }
 
 impl SpanBucket {
     fn add(&mut self, from: i32, to: i32, reader: CellReferenceIndex) {
-        let groups = &mut self.groups;
-        let g = *self.by_span.entry((from, to)).or_insert_with(|| {
-            groups.push((from, to, Vec::new()));
-            groups.len() - 1
-        });
+        let g = match self.by_span.get(&(from, to)) {
+            Some(&g) => g,
+            None => {
+                let g = self.groups.len();
+                self.groups.push((from, to, Vec::new()));
+                self.by_span.insert((from, to), g);
+                if to - from < READER_INDEX_NARROW {
+                    for p in from..=to {
+                        self.short_at.entry(p).or_default().push(g);
+                    }
+                } else {
+                    self.long.push(g);
+                }
+                g
+            }
+        };
         self.groups[g].2.push(reader);
+    }
+
+    /// Indices of the groups whose span covers `pos`.
+    fn groups_at(&self, pos: i32) -> impl Iterator<Item = usize> + '_ {
+        let short = self.short_at.get(&pos).into_iter().flatten().copied();
+        let long = self.long.iter().copied().filter(move |&g| {
+            let (from, to, _) = &self.groups[g];
+            *from <= pos && pos <= *to
+        });
+        short.chain(long)
     }
 }
 
@@ -333,15 +364,17 @@ impl ReaderIndex {
             hit.extend_from_slice(readers);
         }
         if let Some(b) = self.col_ranges.get(&(t.0, t.2)) {
-            for (g, (r1, r2, readers)) in b.groups.iter().enumerate() {
-                if *r1 <= t.1 && t.1 <= *r2 && !readers.is_empty() && seen.insert(GroupKey::Col(t.0, t.2, g)) {
+            for g in b.groups_at(t.1) {
+                let readers = &b.groups[g].2;
+                if !readers.is_empty() && seen.insert(GroupKey::Col(t.0, t.2, g)) {
                     hit.extend_from_slice(readers);
                 }
             }
         }
         if let Some(b) = self.row_ranges.get(&(t.0, t.1)) {
-            for (g, (c1, c2, readers)) in b.groups.iter().enumerate() {
-                if *c1 <= t.2 && t.2 <= *c2 && !readers.is_empty() && seen.insert(GroupKey::Row(t.0, t.1, g)) {
+            for g in b.groups_at(t.2) {
+                let readers = &b.groups[g].2;
+                if !readers.is_empty() && seen.insert(GroupKey::Row(t.0, t.1, g)) {
                     hit.extend_from_slice(readers);
                 }
             }

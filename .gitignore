@@ -58,3 +58,9 @@ vendor/**/target/
 # SpreadsheetBench lane: downloaded dataset + run outputs (eval/spreadsheetbench/)
 eval/spreadsheetbench/spreadsheetbench_*/
 eval/spreadsheetbench/runs/
+
+# Local run output: demo screenshots, timings, edited workbooks and
+# multi-hundred-MB *.inspect.ndjson dumps. Docs may point here, but nothing
+# reads from it; the public snapshot copies main's whole tree.
+outputs/
+*.inspect.ndjson

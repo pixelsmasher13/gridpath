@@ -17,6 +17,7 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   external: ["react", "react-dom", "react/jsx-runtime", "styled-components"],
+  noExternal: [/^echarts(?:\/|$)/, /^zrender(?:\/|$)/],
   esbuildOptions(o) {
     o.jsx = "automatic";
   },

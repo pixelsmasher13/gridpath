@@ -5,6 +5,9 @@
 //! touch is copied raw. See docs/surgical-save-plan.md for the design.
 
 pub mod package;
+pub mod charts;
+#[cfg(test)]
+mod charts_tests;
 pub mod metadata;
 mod patch;
 pub mod refs;
@@ -310,6 +313,14 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
     // Everything the patch rewrote is re-checked against the Excel-strict
     // invariants before a single byte reaches disk. A failure here means a
     // generator bug — fail the save, never write a file Excel would repair.
+    if patch.has_content_changes() {
+        charts::refresh_caches(&mut store, |r| {
+            patch.sheets.iter().any(|s|s.name.eq_ignore_ascii_case(&r.sheet) &&
+                s.cells.iter().any(|c|c.r>=r.r0 && c.r<=r.r1 && c.c>=r.c0 && c.c<=r.c1))
+            || patch.row_col_ops.iter().any(|op|row_col::op_shift(op).0.eq_ignore_ascii_case(&r.sheet))
+            || patch.sheet_ops.iter().any(|op|matches!(op,SheetOp::Rename {new_name,..} if new_name.eq_ignore_ascii_case(&r.sheet)))
+        })?;
+    }
     validate::validate_store(&mut store, &workbook_path, &wb_rels_path)?;
 
     store.finish()

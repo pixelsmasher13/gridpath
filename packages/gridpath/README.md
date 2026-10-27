@@ -16,12 +16,13 @@ it with review, and save back the same file.
 
 Both run the same engine (a fork of [IronCalc](https://github.com/ironcalc/IronCalc)):
 real formulas evaluated in process, and saves that patch the original file so
-charts, pivots, VBA macros, add-in data and custom XML come back byte-identical.
+untouched parts come back byte-identical. Recalculated formulas and supported
+chart data caches carry current values; chart definitions remain native Excel XML.
 
 ## In your web app
 
 - [Quick start](#quick-start) · [Next.js](#nextjs) · [What users get](#what-users-get-without-any-code)
-- [Workbooks and documents](#workbooks-and-documents) · [Saving](#saving) · [Saving to your backend](#saving-to-your-backend)
+- [Workbooks and documents](#workbooks-and-documents) · [CSV and text files](#csv-and-text-files) · [Saving](#saving) · [Saving to your backend](#saving-to-your-backend)
 - [Errors](#errors) · [Excel's saved values](#formulas-gridpath-cant-calculate) · [AI](#ai-your-model-your-key)
 - [Options](#options) · [Methods](#methods) · [Bundlers](#bundlers) · [How saving works](#how-saving-works)
 
@@ -113,7 +114,7 @@ shows:
   - `reviewPanel={false}` turns the panel off if your app has its own
     review UI.
 - **Plain explanations** in place of the grid when a file can't be opened,
-  for example "a text file (CSV or similar), not an .xlsx workbook".
+  for example "an old-format .xls workbook or a password-protected .xlsx".
 - **A count of formulas showing Excel's saved value** in the toolbar, with
   a list of them.
 - **Its own question before anything is lost**: opening another workbook
@@ -146,7 +147,7 @@ starts blank.
 | AI changes are waiting for review | It rejects with `PendingChangesError`. Accept or reject them first. |
 | There are unsaved edits and a store or `onSave` | They are saved first. |
 | The save fails or nothing is set up to save to | It rejects with `UnsavedChangesError`. Pass `{ discardUnsaved: true }` to drop the edits. A remote store's failed save is not counted as a failure here: those edits are kept in this browser. |
-| The new file can't be opened | It rejects with `unsupported-file` or `malformed-file`, and the previous workbook stays open. Plainly wrong files (empty, CSV, old `.xls`) are refused before anything changes. |
+| The new file can't be opened | It rejects with `unsupported-file` or `malformed-file`, and the previous workbook stays open. Plainly wrong files (empty, old `.xls`, a PDF or image) are refused before anything changes. |
 
 The File menu follows the same rules and asks the user before it discards
 anything.
@@ -160,6 +161,29 @@ anything.
   `sheet` object fails with `not-ready`.
 - **Closing the page** while edits are unsaved prompts the browser's
   "Leave site?" warning.
+
+### CSV and text files
+
+`file`, `open()` and the File menu also take CSV and other delimited text.
+It opens as a new workbook, which saves as `.xlsx`: `sales.csv` becomes
+`sales.xlsx`, with one sheet named `sales`, and the toolbar says so.
+
+- **Delimiters**: comma, tab, semicolon or pipe, whichever the first lines
+  agree on. Excel's `sep=;` first line is honoured. In semicolon files a
+  comma is the decimal point (`1.234,5` is 1234.5).
+- **Encodings**: UTF-8 (with or without a byte-order mark), UTF-16 with a
+  mark (Excel's "Unicode Text"), otherwise Windows-1252.
+- **Values** are read as if typed into the cell: numbers, currency,
+  percentages, ISO and US dates, `TRUE`/`FALSE`, and `=` formulas, which
+  calculate. A formula that doesn't parse stays text.
+- **Kept as text, where Excel would lose them**: digits with leading zeros
+  (ZIP codes, IDs) and digit strings longer than 15 (card and account
+  numbers).
+- Columns are widened to fit their text, up to 60 characters.
+
+Text that isn't a table (`.json`, `.xml`, `.html`, `.md`…) is refused with
+`unsupported-file`. A 17 MB CSV (2 million cells) opens in 7 to 10 seconds
+in Chromium on a recent Mac.
 
 ### Saving
 
@@ -289,8 +313,8 @@ try {
 
 | `code` | When | What to do |
 |---|---|---|
-| `unsupported-file` | Not an `.xlsx`: an empty file, a CSV, an old-format `.xls`, a password-protected workbook. | Ask for an `.xlsx` (the hint says how to get one). |
-| `malformed-file` | An `.xlsx` the engine couldn't read: damaged or truncated. | Open and re-save it in Excel. |
+| `unsupported-file` | Not a spreadsheet: an empty file, an old-format `.xls`, a password-protected workbook, a PDF, image or JSON file. | Ask for an `.xlsx` or CSV (the hint says how to get one). |
+| `malformed-file` | An `.xlsx` the engine couldn't read (damaged or truncated), or a CSV that couldn't be read as a table. | Open and re-save it in Excel. |
 | `engine-failed` | The engine's worker or `.wasm` didn't load, or the engine stopped later. If it stopped, a banner says calculation stopped and offers Download. | Serve the package's `engine.worker.js` and `.wasm` (see [Bundlers](#bundlers)); reload the page. |
 | `storage-failed` | The store failed. With `httpStore`, the error's `cause` is an `HttpStoreError` with the response `status`. A URL that returns a web page instead of data says so. | On 401/403, sign the user in again. Otherwise autosave retries. |
 | `save-failed` | The session's changes couldn't be written into the file. | The edits are still on screen; undo the last change and save again. |
@@ -462,6 +486,27 @@ openpyxl with `data_only=True`, file previews) sees current numbers. Formulas
 the session did not affect keep the values Excel saved. The file is also
 marked for recalculation on open, which Excel honours.
 
+### Charts
+
+The browser renders imported standard line charts at their worksheet anchors,
+using a separately loaded Apache ECharts SVG renderer. Source values come from
+the calculation engine, including cells outside the viewport; edits and undo
+update the chart after recalculation. `await sheet.getCharts()` returns the
+display descriptors and current values. `sheet.getLastEditTimings()` reports
+the most recent edit's calculation, serialization and transfer/apply timings.
+
+This first version supports direct one-dimensional worksheet references up to
+10,000 points per series, basic titles, legends, RGB line colors and numeric
+axes. It approximates Excel's visual styling. Other chart types, named/external
+data references, stacked/smoothed lines, date/log/secondary axes, and chart
+creation or editing controls are not supported. Unsupported charts show a
+placeholder and retain their native definitions on save.
+
+Browser and headless saves refresh affected direct-reference numeric/string
+chart caches from the saved worksheet values. Source references, styling and
+unrelated chart XML stay intact. Unsupported references retain their original
+caches; Excel's recalculation flag remains set.
+
 ### Compared with other embeddable spreadsheets
 
 Against the spreadsheet components a web app would otherwise embed, on real
@@ -521,8 +566,9 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
   that page can write the file; the agent just hands you the link.
 - **Leaves your Excel file intact.** No re-export through a library, no
   conversion into another format. Saves patch the original bytes: only the
-  parts an edit touched are rewritten; charts, pivots, **VBA macros**, add-in
-  data and custom XML come back byte-identical.
+  parts an edit touched are rewritten. Untouched parts, including pivots,
+  **VBA macros**, add-in data and custom XML, come back byte-identical.
+  Referenced chart caches update with recalculated worksheet values.
 - **Real formulas, in process.** A calculation engine (a fork of
   [IronCalc](https://github.com/ironcalc/IronCalc), compiled to WebAssembly)
   runs inside the server. The agent reads evaluated values and writes formulas
@@ -539,7 +585,7 @@ that edits the `.xlsx` / `.xlsm` files you already have, with a review step:
 
 #### Claude Desktop (no terminal)
 
-Download [`gridpath-0.4.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.4.0/gridpath-0.4.0.mcpb)
+Download [`gridpath-0.5.0.mcpb`](https://github.com/pixelsmasher13/gridpath/releases/download/v0.5.0/gridpath-0.5.0.mcpb)
 and open it. Claude Desktop shows an install dialog where you pick the folders
 Claude may edit and whether saving requires review. Node is bundled; nothing else
 to install. Claude Desktop shows its standard "not verified" warning for any
@@ -673,10 +719,10 @@ import { WorkbookSession } from "gridpath/headless";
 
 ## Status
 
-v0.4. Not yet supported:
+v0.5. Not yet supported:
 
-- **In the grid:** drawing charts (they are kept in the file, but not
-  shown), data-validation dropdowns, real-time collaboration.
+- **In the grid:** chart types other than line charts, creating or editing
+  charts, data-validation dropdowns, real-time collaboration.
 - **For agents:** the `fetch_web` and `edgar_lookup` sourcing tools, and
   edits to charts or pivots.
 

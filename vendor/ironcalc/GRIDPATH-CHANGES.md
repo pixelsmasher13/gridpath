@@ -448,3 +448,22 @@ two-cell circles with a reader outside, a diverging circle stops at 100,
 an edit re-converges, TRIM); xlsx `test_iterative_calculation_from_calc_pr`
 with `tests/openpyxl_iterative.xlsx`. base 2245, xlsx 219 workbook tests.
 
+
+## Edit speed: per-position span index; plain-text lookups skip the regex (2026-10-22)
+
+`SpanBucket` (model.rs) indexes short spans (under `READER_INDEX_NARROW`) by
+every position they cover (`short_at`) and keeps long spans in `long`, so
+`groups_at(pos)` replaces a linear scan of every group in a (sheet, column)
+bucket. Per-row formulas such as `SUM(I5:J5)` made 25k one-row groups in one
+bucket and the dirty closure quadratic: 2.9 s → 65 ms on a 125k-formula
+model. Neutral where closures are small.
+
+`text_lookup_matcher` (functions/util.rs), used by VLOOKUP/HLOOKUP, MATCH
+type 0, and XLOOKUP/XMATCH in wildcard mode: case-insensitive equality when
+the lookup text has no `*?~`, the wildcard regex otherwise. Removed 50k
+regex builds per recalculation on a 25k-row VLOOKUP table (re-evaluate
+925 → 387 ms; full evaluate on open 1.7 → 1.2 s). The model's edit went
+from 4.1 s to 0.8 s native, 1.2 s in WASM.
+
+Tests: base 2245 pass; `test_to_from_bytes::errors` fails with or without
+this change (the bitcode crate's error text is now "bitcode error").

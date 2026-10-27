@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:recording": "tsc --project tsconfig.recording.json --noEmit",
+    "recording": "npm --prefix ../../packages/grid run build && VITE_RECORDING=1 VITE_SITE=1 vite build && vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "build:site": "VITE_SITE=1 vite build --base /demo/ --outDir ../../marketing/demo --emptyOutDir",
     "preview": "vite preview"
   },
   "dependencies": {
-    "gridpath": "file:../../packages/gridpath/gridpath-0.4.0.tgz",
+    "gridpath": "file:../../packages/gridpath/gridpath-0.5.0.tgz",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

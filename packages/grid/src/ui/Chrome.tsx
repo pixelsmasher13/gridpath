@@ -159,7 +159,7 @@ function FileMenu(props: ChromeProps) {
       <input
         ref={input}
         type="file"
-        accept=".xlsx,.xlsm"
+        accept=".xlsx,.xlsm,.csv,.tsv,.txt"
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
