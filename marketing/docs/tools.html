@@ -4,17 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>All tools — GridPath Docs</title>
-  <meta name="description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.1): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta name="description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <link rel="canonical" href="https://gridpath.dev/docs/tools" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="GridPath" />
   <meta property="og:title" content="All tools — GridPath Docs" />
-  <meta property="og:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.1): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta property="og:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <meta property="og:url" content="https://gridpath.dev/docs/tools" />
   <meta property="og:image" content="https://gridpath.dev/og-image.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="All tools — GridPath Docs" />
-  <meta name="twitter:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.1): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta name="twitter:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -26,7 +26,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "All tools",
-    "description": "Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.1): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions.",
+    "description": "Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions.",
     "url": "https://gridpath.dev/docs/tools",
     "author": { "@type": "Organization", "name": "GridPath" },
     "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
@@ -95,13 +95,13 @@
     <li><a href="/docs/tools" aria-current="page">All tools</a></li>
     <li><a href="/docs/options">CLI options and limits</a></li>
   </ul>
-  <p class="docs-nav-version">gridpath 0.5.1</p>
+  <p class="docs-nav-version">gridpath 0.5.2</p>
 </nav>
       </aside>
       <article class="docs-body legal post">
         <p class="docs-crumb"><a href="/docs">Docs</a> / All tools</p>
 <h1 class="legal-title">All tools.</h1>
-<p class="legal-lede">Every tool the GridPath MCP server exposes, generated from the server's own tool definitions for gridpath 0.5.1. The descriptions are the ones the agent sees. 33 tools.</p>
+<p class="legal-lede">Every tool the GridPath MCP server exposes, generated from the server's own tool definitions for gridpath 0.5.2. The descriptions are the ones the agent sees. 33 tools.</p>
 
 <p>Every tool takes <code>path</code>: the <code>.xlsx</code> or <code>.xlsm</code> to operate on, absolute or <code>~/…</code>. It must sit inside an allowed folder (see <a href="/docs/options">CLI options</a>). Cells and ranges are A1 notation; sheet names are case-sensitive.</p>
 <p>Write tools never touch the file. They accumulate as pending batches, each write returns a readback of what landed plus a <code>review_url</code>, and <code>save_workbook</code> is the only call that writes to disk. See <a href="/docs/review">Review before save</a>.</p>
