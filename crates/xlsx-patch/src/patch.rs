@@ -26,6 +26,17 @@ pub struct Patch {
     /// before cell patches (cell coordinates are post-shift).
     #[serde(default)]
     pub row_col_ops: Vec<RowColOp>,
+    /// Links to other workbooks: the parts behind `[n]Sheet!A1` formulas
+    /// (see `external_links.rs`). An entry creates link `index` or brings
+    /// the one the file already has up to date.
+    #[serde(default)]
+    pub external_links: Vec<ExternalLinkPatch>,
+    /// Charts made in this session, as they are now (their ranges and place
+    /// already follow every row, column and sheet change of the patch).
+    /// Written last: the chart part, its place in the sheet's drawing, and
+    /// the data it plots as the engine has it.
+    #[serde(default)]
+    pub charts: Vec<crate::charts::Chart>,
 }
 
 impl Patch {
@@ -35,6 +46,8 @@ impl Patch {
         self.defined_names.is_empty()
             && self.sheet_ops.is_empty()
             && self.row_col_ops.is_empty()
+            && self.external_links.is_empty()
+            && self.charts.is_empty()
             && self.sheets.iter().all(SheetPatch::is_empty)
     }
 
@@ -50,6 +63,48 @@ impl Patch {
                 .iter()
                 .any(|op| !matches!(op, SheetOp::Create { .. } | SheetOp::SetVisibility { .. } | SheetOp::SetTabColor { .. }))
     }
+}
+
+/// One other workbook this one reads.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalLinkPatch {
+    /// The `n` of `[n]Sheet!A1`: 1-based position in workbook.xml's
+    /// `<externalReferences>`. An index the file already has is updated in
+    /// place; a new one must be the next free index.
+    pub index: u32,
+    /// The other file as the link's relationship spells it (`NOW.xlsx`,
+    /// `../models/NOW%202026.xlsx`, `file:///…`). Only written for a new
+    /// link: an existing link keeps the path it was saved with.
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub sheets: Vec<ExternalSheetPatch>,
+}
+
+/// One sheet of the other workbook, with the last values of the cells this
+/// workbook reads from it. Excel shows these until the link is refreshed.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalSheetPatch {
+    pub name: String,
+    /// What this workbook reads on the sheet, as 0-based inclusive
+    /// `[r1, c1, r2, c2]`. Values the file kept inside these are dropped:
+    /// `cells` is everything that is there now. Kept values outside them
+    /// (read by something this patch does not know about) stay.
+    #[serde(default)]
+    pub areas: Vec<[u32; 4]>,
+    /// The non-empty cells inside `areas`.
+    #[serde(default)]
+    pub cells: Vec<ExternalCellPatch>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalCellPatch {
+    pub r: u32,
+    pub c: u32,
+    pub v: CellValue,
 }
 
 /// Sheet-level structure operation.

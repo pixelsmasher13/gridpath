@@ -978,6 +978,9 @@ pub(super) fn parse_sheet_xml(
 
     // Cells part of an array formula
     let mut array_cell = HashMap::new();
+    // GRIDPATH: the cells of what-if data tables, each with the index of the
+    // TABLE(...) formula that stands for its block (see "dataTable" below).
+    let mut data_table_cell: HashMap<(i32, i32), i32> = HashMap::new();
 
     for row in sheet_data_nodes.children() {
         // This is the row number 1-indexed
@@ -1231,7 +1234,68 @@ pub(super) fn parse_sheet_xml(
                         }
                     }
                     "dataTable" => {
-                        return Err(XlsxError::NotImplemented("data table formulas".to_string()));
+                        // GRIDPATH: a what-if data table (Data > What-If
+                        // Analysis > Data Table). The file keeps it on the
+                        // first cell of its block,
+                        //   <f t="dataTable" ref="I18:N23" dt2D="1" dtr="1" r1="C7" r2="C5"/>
+                        // and the other cells of `ref` carry only a value.
+                        // Excel shows every cell of the block as
+                        // {=TABLE(C7,C5)}: row input cell, column input cell.
+                        //
+                        // This engine does not compute data tables. Every
+                        // cell of the block gets that formula, which names
+                        // a function the engine does not have: the cells
+                        // evaluate to #NAME? and so keep the value the file
+                        // saved, the way add-in calls do, and they read as
+                        // formulas, not as typed numbers. (Upstream refuses
+                        // the whole workbook here.)
+                        let range = match formula_ref {
+                            Some(r) => r,
+                            None => {
+                                return Err(XlsxError::Xml(
+                                    "Data table formulas must have a ref attribute".to_string(),
+                                ))
+                            }
+                        };
+                        let (row1, column1, row2, column2) = parse_range(range)
+                            .map_err(|_| XlsxError::Xml(format!("Invalid range: {}", range)))?;
+                        // The inputs are fixed cells, whichever cell of the
+                        // block shows them: absolute references.
+                        let input = |name: &str, deleted: &str| -> String {
+                            if formula_node.attribute(deleted) == Some("1") {
+                                return "#REF!".to_string();
+                            }
+                            let cell = formula_node.attribute(name).unwrap_or("").replace('$', "");
+                            let letters = cell.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+                            let (column, row) = cell.split_at(letters);
+                            if column.is_empty() || row.is_empty() || !row.chars().all(|c| c.is_ascii_digit()) {
+                                return String::new();
+                            }
+                            format!("${}${}", column.to_ascii_uppercase(), row)
+                        };
+                        let first = input("r1", "del1");
+                        let text = if formula_node.attribute("dt2D") == Some("1") {
+                            format!("TABLE({},{})", first, input("r2", "del2"))
+                        } else if formula_node.attribute("dtr") == Some("1") {
+                            format!("TABLE({},)", first)
+                        } else {
+                            format!("TABLE(,{})", first)
+                        };
+                        let context = format!("{sheet_name}!{cell_ref}");
+                        let formula = from_a1_to_rc(text, &mut parser, context, false)?;
+                        match formula_index_map.get(&formula) {
+                            Some(index) => formula_index = *index,
+                            None => {
+                                shared_formulas.push(formula.clone());
+                                formula_index = shared_formulas.len() as i32 - 1;
+                                formula_index_map.insert(formula, formula_index);
+                            }
+                        }
+                        for r in row1..=row2 {
+                            for c in column1..=column2 {
+                                data_table_cell.insert((r, c), formula_index);
+                            }
+                        }
                     }
                     "array" => {
                         let range = match formula_ref {
@@ -1301,6 +1365,13 @@ pub(super) fn parse_sheet_xml(
                             "Invalid formula type {formula_type:?}.",
                         )));
                     }
+                }
+            }
+            // GRIDPATH: a cell inside a data table's block has no <f> of its
+            // own; it shows the block's formula.
+            if formula_index == -1 {
+                if let Some(index) = data_table_cell.get(&(r_index, column_index)) {
+                    formula_index = *index;
                 }
             }
             let anchor_cell = array_cell.get(&(r_index, column_index)).cloned();

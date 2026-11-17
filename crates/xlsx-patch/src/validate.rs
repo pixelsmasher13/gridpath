@@ -118,6 +118,9 @@ pub fn validate_package(bytes: &[u8]) -> Result<(), PatchError> {
 }
 
 fn validate_part(name: &str, bytes: &[u8], workbook_path: &str) -> Result<(), PatchError> {
+    if name.ends_with(".xml") || name.ends_with(".rels") {
+        prefixes_declared(name, bytes)?;
+    }
     if name == workbook_path {
         validate_workbook(name, bytes)
     } else if is_worksheet_part(name) {
@@ -146,6 +149,70 @@ fn well_formed(part: &str, xml: &[u8]) -> Result<(), PatchError> {
             Ok(Event::Eof) => return Ok(()),
             Ok(_) => {}
             Err(e) => return Err(err(part, format!("malformed XML: {e}"))),
+        }
+        buf.clear();
+    }
+}
+
+/// Every namespace prefix an element or an attribute uses is declared on
+/// that element or one above it. The XML reader does not check this, and a
+/// part that fails it is not a damaged file Excel repairs: it is one Excel
+/// does not open (`r:id` written into a workbook that never declared `r`).
+pub(crate) fn prefixes_declared(part: &str, xml: &[u8]) -> Result<(), PatchError> {
+    let mut r = strict_reader(xml);
+    let mut buf = Vec::new();
+    // Declared prefixes, innermost last, and how many each open element added.
+    let mut declared: Vec<Vec<u8>> = vec![b"xml".to_vec()];
+    let mut added: Vec<usize> = Vec::new();
+    loop {
+        let ev = r
+            .read_event_into(&mut buf)
+            .map_err(|e| err(part, format!("malformed XML: {e}")))?;
+        let is_start = matches!(ev, Event::Start(_));
+        match ev {
+            Event::Eof => return Ok(()),
+            Event::Start(ref e) | Event::Empty(ref e) => {
+                let mut own = 0;
+                // Most elements (cells, values) have no colon at all.
+                if e.iter().any(|b| *b == b':') {
+                    for a in e.attributes().with_checks(false).flatten() {
+                        if let Some(prefix) = a.key.as_ref().strip_prefix(b"xmlns:") {
+                            declared.push(prefix.to_vec());
+                            own += 1;
+                        }
+                    }
+                    let check = |name: &[u8]| -> Result<(), PatchError> {
+                        let Some(colon) = name.iter().position(|b| *b == b':') else { return Ok(()) };
+                        let prefix = &name[..colon];
+                        if prefix == b"xmlns" || declared.iter().any(|d| d == prefix) {
+                            return Ok(());
+                        }
+                        Err(err(
+                            part,
+                            format!(
+                                "namespace prefix \"{}\" on {} is not declared",
+                                String::from_utf8_lossy(prefix),
+                                String::from_utf8_lossy(name)
+                            ),
+                        ))
+                    };
+                    check(e.name().as_ref())?;
+                    for a in e.attributes().with_checks(false).flatten() {
+                        check(a.key.as_ref())?;
+                    }
+                }
+                if is_start {
+                    added.push(own);
+                } else {
+                    declared.truncate(declared.len() - own);
+                }
+            }
+            Event::End(_) => {
+                if let Some(own) = added.pop() {
+                    declared.truncate(declared.len() - own);
+                }
+            }
+            _ => {}
         }
         buf.clear();
     }
@@ -585,7 +652,7 @@ fn validate_workbook_rels(
 }
 
 /// Collapse "xl/../foo" and "xl/./foo" segments.
-fn normalize_path(path: &str) -> String {
+pub(crate) fn normalize_path(path: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for seg in path.split('/') {
         match seg {

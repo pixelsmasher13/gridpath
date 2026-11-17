@@ -647,14 +647,171 @@ Rules:
 17a. **Locate before you read.** On a sheet whose preview is truncated, do NOT page through `read_range` probes to find where something lives — call `describe_workbook` once for the section map (and header-row → column letters), or `find_rows("total revenue")` for exact row numbers with an evaluated sample. For DATA sheets (one record per row), use `query_rows` to filter rows by column values, project the columns you need, or group-and-sum — e.g. every row whose Owner is "Acme", or revenue by region — in one engine-served call on any sheet size; never page through a data sheet with `read_range` or write a script just to find rows. One call replaces several exploratory `read_range` probes and a full turn each. Then use `read_range` only on the exact rows you've located, and reserve it for what it's for: verifying values and pulling ranges you already know you need.
 17b. **Live evaluation can collapse on imported models — attribute it correctly.** GridPath re-evaluates every formula with its own engine, which cannot fully compute some constructs Excel can (INDIRECT chains, external-workbook references, add-in functions). On such cells the LIVE value can read 0, empty, or an Excel error even though the user's file is perfectly sound. `read_range` detects this on cells you haven't edited and returns Excel's last-saved value alongside: `{"cell":"BO67","value":0,"file_saved":596.6}`; the workbook context may also carry a calc-health warning naming the affected sheets. `file_saved` is attached ONLY when live is unusable (0 / empty / error) — two finite numbers that merely disagree are not flagged; the live grid value is what the user sees, report that. When `file_saved` is present: (a) treat `file_saved` as the authoritative figure for reporting, comparisons, and hardcoding; (b) do NOT build live formula links onto flagged cells — they would evaluate wrong in the grid; hardcode the `file_saved` figure instead and label its source; (c) NEVER describe the divergence to the user as an error, staleness, or "data integrity issue" in THEIR model — it is a GridPath evaluation limitation, say so plainly if it's worth mentioning at all. Cells you edited this session are never flagged; their live values are the only truth for them.
 17c. **What the calculation engine computes — don't hedge, don't build around imagined gaps.** GridPath evaluates with its own engine (an IronCalc fork), and these WORK exactly as in Excel 365: dynamic arrays and spills (`FILTER`, `UNIQUE`, `SORT`, `SORTBY`, `SEQUENCE`, `TRANSPOSE`) and the table-shaping functions (`VSTACK`, `HSTACK`, `TAKE`, `DROP`, `CHOOSECOLS`, `CHOOSEROWS`, `TOCOL`, `TOROW`, `WRAPROWS`, `EXPAND`, `MAKEARRAY`), `LET` and `LAMBDA` with `MAP` / `REDUCE` / `BYROW` / `BYCOL` / `SCAN`, `XLOOKUP` / `XMATCH` / `INDEX` / `MATCH` (array forms too), the `*IFS` family, `SUMPRODUCT` with `--(condition)` coercion, `ROW(range)` / `COLUMN(range)` returning arrays (so `LARGE(IF(rng<>"", key*1e5+ROW(rng)), k)` ranking idioms decode correctly), `TEXTJOIN` / `TEXTSPLIT` over arrays, `IFS` / `SWITCH` / `IFERROR`, `OFFSET` / `INDIRECT` (volatile — avoid in bulk), `EOMONTH` / `EDATE` / `NETWORKDAYS` / `YEARFRAC`, `NPV` / `IRR` / `XNPV` / `XIRR` / `PMT`, `MMULT`. `RANK` / `RANK.EQ` / `RANK.AVG`, `PERCENTILE` / `PERCENTILE.INC` / `QUARTILE`, `MEDIAN`, `STDEV.S/P`, `MODE`, `SUBTOTAL` and `AGGREGATE` all work too (all 19 `AGGREGATE` functions and 8 options, so `AGGREGATE(15,6,ROW(rng)/(cond),k)` finds the k-th matching row). NOT implemented (evaluates to `#NAME?`, and it will fail layout validation): `GETPIVOTDATA`, `HYPERLINK`, `GROUPBY`, `PIVOTBY` (group with `UNIQUE` + `SUMIFS`, or `MAP`/`LAMBDA`). Formulas you write are evaluated immediately and `read_range` returns the live value — if a construct you believe in reads `#NAME?` or `#N/IMPL!`, that is the engine, not your logic: write a `done` justification note naming the function and pick a supported equivalent, don't rebuild the sheet as `OFFSET`/`MATCH` enumeration chains. Choosing the read tool: `describe_workbook` / `find_rows` to locate labels and headers; `query_rows` for data sheets (filter rows by column values, project columns, group-and-sum — one engine-served call on any sheet size); `run_script` when the read feeds a WRITE (reads inside scripts are free and unbudgeted — scan whole regions, name the sheets you read); `read_range` only for exact cells you have already located. **Derived tables are ONE spilled formula, not N rows of links.** A ranked / filtered / combined view of data sheets (top-50 by growth, every row where owner is X across two trackers, a de-duplicated list) is written as a single formula in the table's top-left cell — `=LET(t, VSTACK(east!A2:F7000, west!A2:F6500), k, FILTER(t, CHOOSECOLS(t,3)<>"Acme"), TAKE(SORTBY(k, -CHOOSECOLS(k,6)), 50))` — which spills the whole table, stays live (re-sorts when the data changes) and costs one formula instead of hundreds of INDEX/MATCH cells with a frozen ranking. Headers and any per-row commentary go next to the spill, never inside its range. Use a script to DECIDE the layout; use a spilled formula to COMPUTE the table.
+17d. **What-if data tables are Excel's to compute.** A block of cells that all read `=TABLE(row input, column input)` (one argument may be empty) is a what-if data table, typically a sensitivity grid in a valuation. Excel recalculates it; this engine does not: the cells show the values the file was saved with and do not follow a change to the inputs or to the model. Treat them as the file's formulas, not as hardcodes: never overwrite a cell of the block, never write a `TABLE(...)` formula yourself, and never link new work to its values as if they were live. If the user asks for a sensitivity table, build it with ordinary formulas (each cell computes its own case). If an edit changes what the table depends on, say that the data table will only update when the workbook is opened in Excel. Rows and columns cannot be inserted or deleted on the sheet that holds one.
 18. **Write raw numbers, not pre-formatted strings.** When putting numeric data into cells, use the bare number — `7839`, `0.215`, `-1837` — never a display-formatted string like `"7,839"`, `"21.5%"`, or `"(1,837)"`. Pre-formatted strings get stored as text, downstream formulas can't do arithmetic on them, and you waste turns re-fixing the row. Number formatting (commas, percent signs, parentheses for negatives, currency symbols) is the job of `set_format` via `number_format`, never the cell value.
 19. **Light font colors REQUIRE a contrasting `background_color`.** If you set `font_color` to white (`#FFFFFF`), a near-white gray, or any pale tone, you MUST also set `background_color` to a dark color in the same `set_format` op — otherwise the text renders invisibly on the default white cell fill. The classic "dark blue header bar with white text" pattern is `{"background_color": "#1F4E79", "font_color": "#FFFFFF", "bold": true}`. Never set one without the other.
 20. **Reference workbooks are READ-ONLY context.** When the user message contains a "Reference workbooks" block, those are other xlsx files the user attached for comparison — analyst models, comps, prior versions. Use their previews and the `read_reference` tool to pull figures, but NEVER try to write to them: every write tool (set_cell, set_range, set_format, …) targets the ACTIVE workbook only, and sheet names in write calls always mean active-workbook sheets. When you build a comparison from several references, pull the actual ranges via `read_reference` first (don't rely on a truncated preview for numbers you'll hardcode into cells), and label which reference each figure came from (e.g. a column per source model) so the user can trace them.
+20a. **Workspace workbooks are live models: read them, and LINK to them.** When the context has a "Workspace" block, the files listed there are other workbooks the user works on together with the active one. (i) They are the source for anything they hold: for a figure about a company or model in that list, read the workbook with `describe_workbook` / `find_rows` / `read_range` / `query_rows` and `workbook: "<file name>"` — do NOT go to filings or the web for it (rule 10 is for data no workspace workbook has). `run_script` and `read_reference` cannot read them. (ii) Bring their figures into the active workbook as formulas that name the other file, never as typed numbers: `='[SNOW.xlsx]Model'!BV32`, `=SUM('[SNOW.xlsx]Model'!BT32:BV32)`, `=INDEX('[SNOW.xlsx]Model'!$A$1:$CZ$900, MATCH("Revenue", '[SNOW.xlsx]Model'!$A$1:$A$900, 0), 74)` — always the quoted form `'[File name]Sheet name'!Cell`. The engine evaluates the link, it follows edits in the other workbook, and it is saved as a link between workbooks, as Excel does. Locate the exact cell first (`find_rows`, then `read_range` on that workbook: its result carries the `link_prefix` to use), then write the link, and check the readback value equals what you read there. Put the period or label each linked figure stands for next to it. (iii) Write tools change the ACTIVE workbook. To change another workbook of the workspace, pass `workbook: "<file name>"` to the write tool (set_range, set_cell, run_script, set_format, create_sheet, …): the workbook is opened in a tab if it is not, and its changes are reviewed there, separately from the active workbook's. Do that only when the user asks for a change in that workbook; reading and linking never need it. When the user asks for a NEW workbook ("pull these into a new Comps workbook"), call `create_workbook` first, then write to it with `workbook`. A link written into another workbook names files the same way, and a formula there that reads the active workbook names the active workbook's file. One `done` at the end covers every workbook you changed; say in its justification which workbooks you changed. (iv) When the Workspace block says the active workbook cannot hold links (it has no file yet), bring figures in as values, name the workbook and cell each came from, and tell the user that saving the workbook first lets you link.
+20b. **Charts are native and live.** `create_chart` adds a real Excel chart (columns, lying bars, a line, or columns with a line on a second axis) that plots ranges of the workbook: it is drawn on the sheet, follows the cells, and is saved into the .xlsx. When the user asks for a chart or graph, first make sure the cells it plots exist (a chart cannot plot typed-in numbers, and plots its own workbook only: link another workbook's figures into cells first), then create it beside or below that data, and read the result, which lists each series' first and last value. Pie, area and scatter charts are not available: say so instead of substituting another kind unasked. Charts that are already in the file are shown to the user but you cannot see, change or delete them.
+20c. **A breakdown of a data sheet is a table of formulas, not typed numbers.** For "summarise / break down / pivot X by Y" over a data sheet (one record per row), use `create_summary_table`: it writes the whole table as SUMIFS-style formulas with totals and a check cell, in one call, and the table follows the data. `query_rows` is for LOOKING at such data; numbers copied from its result into cells go stale the moment the data changes. If the data has a totals row at the bottom, pass `last_row` so it stays out. The workbook cannot hold a PivotTable object you create: say "a summary table of live formulas", not "a pivot table".
 21. **Tie out to reported figures EXACTLY — compute plugs, don't accept drift.** When modeling from a company's reported financials, the anchor lines (revenue, EBIT, pretax income, net income) must match the reported values exactly, not "close": if your derived P&L is off by even €5m, do not ship it with a caveat — make the reconciling line a COMPUTED plug instead. Structure the model so this is mechanical: hardcode the sourced actuals (revenue, COGS, opex, interest, tax, net income), derive subtotals by formula (gross profit, EBIT), and let one explicitly-labeled reconciling line (e.g. "Other non-operating (derived)") absorb the residual: plug = reported_pretax − derived_EBIT − interest. Then add a **check row** (`=modeled_NI − reported_NI`, formatted as a "Check (should be 0)" line) for each anchor, and read it back: every check must evaluate to 0 before `done`. A model whose checks tie to zero is trustworthy; a model that is "approximately right" is not a model, it's a sketch.
     Run the tie-out at EXTRACTION time too, not only before `done`: the moment you pull figures you intend to build a breakdown or reconciliation from (reference-workbook rows, web sources, filings), sum the named parts against the total they must reconcile to. A negative or implausible residual means the source mixes bases or definitions (pro-forma standalone vs consolidated, pre- vs post-acquisition, calendar vs fiscal) — disqualify or re-scope that sourcing THEN, before designing the sheet around it, instead of discovering the mismatch after several build iterations.
 22. **Triangulate financial data — one aggregator is not a source.** Aggregators (Yahoo Finance, stockanalysis, etc.) round, normalize, and sometimes mix consolidation scopes. For any company model: confirm the key figures against a primary source when reachable (the company's IR press release or filing via web_search/fetch_web), and watch for DEFINITION mismatches that aggregators hide — IFRS/GAAP revenue vs. "total segment revenue" (intersegment eliminations), reported vs. adjusted EBITDA, margins on revenue vs. on GMV/volume, continuing vs. discontinued operations. When two sources disagree, say which one each number came from — put a short Sources & Notes section (or tab) in the model recording source + definition per hardcoded block, and mark derived figures as derived. If guidance exists for a forecast year, sanity-check your projection against the guidance range and say so.
 "##;
     base.replace("{RULE_10}", rule_10)
+}
+
+/// The tools as the desktop agent gets them: `agent_tools()` plus what only
+/// the desktop has. Four read tools take `workbook`, the file name of
+/// another workbook in the user's workspace (the webview answers those from
+/// that workbook's engine model). Not part of the shared schema: the
+/// headless package names the workbook with `path` on every tool instead.
+pub fn desktop_agent_tools() -> Vec<Value> {
+    let mut tools = agent_tools();
+    // Before the loop below, so that they take `workbook` like the other
+    // write tools.
+    tools.push(json!({
+        "name": "create_summary_table",
+        "description": "Build a pivot-style summary of a DATA sheet (one record per row under a header row) as ordinary formulas: one row per distinct value of a field, optionally a second field across the top, and totals. You name the fields; the app finds the distinct values and writes every cell as SUMIFS / COUNTIFS / AVERAGEIFS / MINIFS / MAXIFS over the data, with a Total row taken straight from the data and a check cell that reads 0 while the table accounts for every row. Use it instead of hand-writing a block of SUMIFS, and instead of typing in numbers you got from query_rows: the table is live and follows edits to the data. It is not an Excel PivotTable object (no refresh, no draggable fields): if rows are added below the data, or a category appears that is not listed, the check cell stops reading 0 and the table has to be made again. The result gives the table's range, the row of each label and the column of each heading, so a chart (create_chart) or other formulas can point at it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_sheet": { "type": "string", "description": "The sheet that holds the data: one record per row, a header row on top." },
+                "rows": { "type": "string", "description": "The field to group by, one table row per distinct value: its header text (e.g. \"Region\") or its column letter." },
+                "columns": { "type": "string", "description": "Optional. A second field across the top (e.g. \"Quarter\"), which makes a crosstab. With it, give exactly one entry in `values`." },
+                "values": {
+                    "type": "array",
+                    "description": "What to total: 1 to 6 entries (exactly one when `columns` is given).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": { "type": "string", "description": "Header text or column letter of the field, e.g. \"Revenue\"." },
+                            "fn": { "type": "string", "enum": ["sum", "count", "average", "min", "max"], "description": "Default sum." }
+                        },
+                        "required": ["field"]
+                    }
+                },
+                "dest_sheet": { "type": "string", "description": "Sheet the table is written on (created if it does not exist)." },
+                "dest": { "type": "string", "description": "Top-left cell of the table, e.g. \"A1\". The table needs free cells to the right and below: it writes over what is there." },
+                "title": { "type": "string", "description": "Optional title above the table." },
+                "sort": { "type": "string", "enum": ["label", "value"], "description": "Order of the rows: by label (default), or largest first by the first value." },
+                "header_row": { "type": "integer", "description": "Optional. The data's header row (1-based) when it is not the first row with headers." },
+                "first_row": { "type": "integer", "description": "Optional. First data row (1-based)." },
+                "last_row": { "type": "integer", "description": "Optional. Last data row (1-based). Give it when something other than data sits below the records (a totals row must stay out of the summary)." }
+            },
+            "required": ["source_sheet", "rows", "values", "dest_sheet", "dest"]
+        }
+    }));
+    tools.push(json!({
+        "name": "create_chart",
+        "description": "Add a native Excel chart to a sheet: columns, lying bars, a line, or columns with a line on a second axis (revenue with its margin). The chart plots CELLS of this workbook, so it follows the model: point `categories` and each series' `values` at ranges (one row or one column each, all the same length), never at typed-in numbers, and build the cells it plots first. It is drawn on the sheet at once and saved into the .xlsx as a real chart that Excel opens and edits. Place it where it covers no data: beside or below the table, or on a sheet of its own (create_sheet first). The result lists what is plotted (each series' name, first and last value): check it reads as intended. Not available: pie, area and scatter charts, and changing or deleting a chart that is already there.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sheet": { "type": "string", "description": "Sheet the chart is placed on. Ranges given without a sheet name are read from this sheet." },
+                "anchor": { "type": "string", "description": "Top-left cell of the chart, e.g. \"H2\"." },
+                "type": { "type": "string", "enum": ["column", "stacked_column", "percent_stacked_column", "bar", "stacked_bar", "line"], "description": "\"column\" = upright bars side by side; \"bar\" = lying bars; \"line\"; stacked variants stack the series. For columns with a line, use \"column\" and give that series `type: \"line\"`." },
+                "title": { "type": "string", "description": "Chart title. Optional." },
+                "categories": { "type": "string", "description": "Range of the category labels (periods, names): one row or one column, e.g. \"B1:M1\" or \"'P&L'!B1:M1\"." },
+                "series": {
+                    "type": "array",
+                    "description": "What is plotted, 1 to 24 series.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "description": "Series name as text, e.g. \"Revenue\"." },
+                            "name_cell": { "type": "string", "description": "Instead of `name`: the cell that holds the name, e.g. \"A5\"." },
+                            "values": { "type": "string", "description": "Range of the values, the same length as `categories`, e.g. \"B5:M5\"." },
+                            "type": { "type": "string", "enum": ["column", "line"], "description": "Draw this series differently from the chart's type: \"line\" on a column chart gives columns with a line." },
+                            "secondary_axis": { "type": "boolean", "description": "Plot this line against a second value axis on the right (a percentage next to amounts). Lines only." },
+                            "color": { "type": "string", "description": "Optional \"#RRGGBB\"." }
+                        },
+                        "required": ["values"]
+                    }
+                },
+                "width": { "type": "number", "description": "Optional width in pixels (default 480)." },
+                "height": { "type": "number", "description": "Optional height in pixels (default 288)." }
+            },
+            "required": ["sheet", "anchor", "type", "series"]
+        }
+    }));
+    for tool in tools.iter_mut() {
+        let name = tool["name"].as_str().unwrap_or("").to_string();
+        // Handled in Rust, or about the turn itself: no workbook to name.
+        // `read_reference` has its own, required, `workbook`.
+        if matches!(name.as_str(), "fetch_web" | "edgar_lookup" | "keep_pages" | "read_source" | "read_reference" | "done") {
+            continue;
+        }
+        let read = matches!(name.as_str(), "read_range" | "describe_workbook" | "find_rows" | "query_rows");
+        let extra = match name.as_str() {
+            "read_range" => " Pass `workbook` to read another workbook of the workspace instead of the active one; the result then carries the `link_prefix` for formulas that link to those cells.",
+            "describe_workbook" => " Pass `workbook` to map another workbook of the workspace instead.",
+            "find_rows" => " Pass `workbook` to search another workbook of the workspace instead (one workbook per call).",
+            "query_rows" => " Pass `workbook` to query a sheet of another workbook of the workspace instead.",
+            "run_script" => " Pass `workbook` to run the script against another workbook of the workspace instead (it reads and writes that one workbook only).",
+            _ => "",
+        };
+        if !extra.is_empty() {
+            if let Some(desc) = tool["description"].as_str().map(str::to_string) {
+                tool["description"] = json!(format!("{desc}{extra}"));
+            }
+        }
+        let param = if read {
+            "Optional. File name of another workbook in the workspace, exactly as listed under \"Workspace\" in the context (e.g. \"SNOW.xlsx\"). Omit for the active workbook."
+        } else {
+            "Optional. File name of another workbook in the workspace to change INSTEAD of the active one (e.g. \"Comps.xlsx\"); it is opened in a tab if needed and its changes are reviewed there. Omit for the active workbook, which is the usual case."
+        };
+        tool["input_schema"]["properties"]["workbook"] = json!({ "type": "string", "description": param });
+    }
+    tools.push(json!({
+        "name": "create_workbook",
+        "description": "Create a NEW, empty workbook file in the workspace and open it in a tab. Use it when the user asks for a new workbook (\"pull revenue for these models into a new Comps workbook\"); do not use it for a new sheet in an existing workbook (write to a new sheet name instead). The file is created next to the active workbook. The result gives the file name: pass it as `workbook` to the write tools to fill the new workbook, and bring figures in as links to the other workbooks (rule 20a). The active workbook does not change.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "File name for the new workbook, e.g. \"Comps\" or \"Comps.xlsx\". A name that is taken is refused: pick another." },
+                "sheets": { "type": "array", "items": { "type": "string" }, "description": "Optional sheet names, in order (default: one sheet, \"Sheet1\")." }
+            },
+            "required": ["name"]
+        }
+    }));
+    tools
+}
+
+#[cfg(test)]
+mod desktop_tools {
+    #[test]
+    fn workbook_tools_take_a_workbook_and_the_shared_schema_does_not() {
+        let tools = super::desktop_agent_tools();
+        let takes = |name: &str| {
+            let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("no tool {name}"));
+            !tool["input_schema"]["properties"]["workbook"].is_null()
+        };
+        for name in ["read_range", "describe_workbook", "find_rows", "query_rows"] {
+            assert!(takes(name), "{name} takes a workbook");
+        }
+        for name in ["set_cell", "set_range", "run_script", "copy_range", "clear_range", "set_format", "create_sheet", "insert_rows"] {
+            assert!(takes(name), "{name} takes a workbook");
+        }
+        for name in ["fetch_web", "edgar_lookup", "keep_pages", "read_source", "done", "create_workbook"] {
+            assert!(!takes(name), "{name} does not take a workbook");
+        }
+        // A chart or a summary table goes into the active workbook or, with
+        // `workbook`, another one.
+        assert!(takes("create_chart"));
+        assert!(takes("create_summary_table"));
+        // The shared schema is untouched; the desktop adds three tools.
+        let shared = super::agent_tools();
+        assert_eq!(shared.len() + 3, tools.len());
+        assert!(shared.iter().all(|t| t["name"] != "create_chart" && t["name"] != "create_summary_table"));
+        assert_eq!(tools.last().unwrap()["name"], "create_workbook");
+        assert!(shared.iter().find(|t| t["name"] == "read_range").unwrap()["input_schema"]["properties"]["workbook"].is_null());
+        // read_reference keeps its own, required, `workbook`.
+        assert!(takes("read_reference"));
+        assert!(super::system_prompt(true).contains("20a. **Workspace workbooks are live models"));
+        assert!(super::system_prompt(true).contains("20b. **Charts are native and live.**"));
+        assert!(super::system_prompt(true).contains("20c. **A breakdown of a data sheet is a table of formulas"));
+    }
 }
 
 #[cfg(test)]

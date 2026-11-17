@@ -69,7 +69,8 @@ import "@univerjs/preset-sheets-note/lib/index.css";
 // to Univer's commercial xlsx exchange we just swap the two translators.
 
 // Shared with the headless gridpath package; defined in core/types.ts.
-import type { CellFormatShape, SaveMirror, BorderSide, BordersShape } from "../types";
+import type { CellFormatShape, SaveMirror, BorderSide, BordersShape, ChartSpec } from "../types";
+import type { NativeChart } from "../../../../packages/grid/src/charts/types";
 export type { CellFormatShape, SaveMirror, BorderSide, BordersShape } from "../types";
 
 export interface UniverGridHandle {
@@ -109,6 +110,10 @@ export interface UniverGridHandle {
   getFidelityRisks: () => FidelityRisks | null;
   /** The exact bytes this grid was loaded from (for post-export audits). */
   getSourceBytes: () => Uint8Array | null;
+  /** Viewport grid: the rows and columns the user inserted or deleted here
+   *  (row menu, keyboard, toolbar), in order, as the save replays them. The
+   *  grid keeps this record itself so that undo can take an op back out. */
+  getManualRowColOps?: () => NonNullable<SaveMirror["rowColOps"]>;
   /**
    * Reset the save baseline to "the file now holds exactly `bytes`, which
    * reflect the live model". Called after a successful FULL-EXPORT save:
@@ -426,6 +431,13 @@ export interface UniverGridHandle {
   defineName: (name: string, ref: string) => void;
   /** Delete a defined name. No-op if it doesn't exist. */
   deleteName: (name: string) => void;
+  /** Viewport grid: add a chart made in this session (the agent's
+   *  `create_chart`). The chart comes back as it is drawn, with the data
+   *  it plots; a chart that cannot be made says why. The same id again
+   *  replaces the chart. */
+  addChart?: (spec: ChartSpec) => Promise<{ ok: true; chart: NativeChart } | { ok: false; error: string }>;
+  /** Viewport grid: take a chart made in this session away again. */
+  removeChart?: (id: string) => Promise<void>;
   /** Current ref string of a defined name, or null if it doesn't exist. */
   getDefinedNameRef: (name: string) => string | null;
 

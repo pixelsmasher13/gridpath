@@ -86,7 +86,9 @@ export function sessionNameFromPrompt(prompt: string): string {
 }
 
 export type TabAction =
-  | { type: "open"; tab: WorkbookTab }
+  /** `background`: the tab opens without taking the view (the agent opened
+   *  it to write there while the user is in another workbook). */
+  | { type: "open"; tab: WorkbookTab; background?: boolean }
   | { type: "close"; tabId: string }
   | { type: "activate"; tabId: string }
   | { type: "mark_dirty"; tabId: string; dirty: boolean }
@@ -127,7 +129,7 @@ export function reduceWorkspace(state: WorkspaceState, action: TabAction): Works
     case "open":
       return {
         tabs: [...state.tabs, action.tab],
-        activeTabId: action.tab.id,
+        activeTabId: action.background && state.activeTabId ? state.activeTabId : action.tab.id,
       };
     case "close": {
       const idx = state.tabs.findIndex((t) => t.id === action.tabId);

@@ -458,6 +458,9 @@ pub fn query_rows(m: &Model, q: &QueryInput) -> Result<Value, String> {
     // group key → (count, per-agg accumulators)
     let mut groups: HashMap<String, (usize, Vec<Acc>)> = HashMap::new();
     let mut group_order: Vec<String> = Vec::new();
+    // The key as the cell holds it (a number stays a number, a date its
+    // serial): what a formula has to compare against to find the group.
+    let mut group_values: HashMap<String, Value> = HashMap::new();
     let empty: HashMap<i32, Cell> = HashMap::new();
 
     for r in row_keys.iter().copied().filter(|r| *r >= start && *r <= end) {
@@ -483,7 +486,11 @@ pub fn query_rows(m: &Model, q: &QueryInput) -> Result<Value, String> {
                 Some(cell) => {
                     let v = cell_v(m, sheet, r, gc, cell);
                     let d = matches!(v, V::Num(_)) && is_date(m, r, gc, cell, &mut facts);
-                    v.text(d).trim().to_string()
+                    let key = v.text(d).trim().to_string();
+                    if !group_values.contains_key(&key) {
+                        group_values.insert(key.clone(), v.to_json(false));
+                    }
+                    key
                 }
                 None => String::new(),
             };
@@ -543,6 +550,9 @@ pub fn query_rows(m: &Model, q: &QueryInput) -> Result<Value, String> {
             let mut g = Map::new();
             g.insert("key".into(), json!(if k.is_empty() { "(blank)" } else { k.as_str() }));
             g.insert("count".into(), json!(count));
+            if let Some(v) = group_values.get(*k).filter(|v| !v.is_null() && !k.is_empty()) {
+                g.insert("value".into(), v.clone());
+            }
             for (i, (ac, f)) in aggs.iter().enumerate() {
                 let name = format!("{}_{}", f, header_of(*ac).unwrap_or_else(|| col_letters(ac - 1)));
                 g.insert(name, accs[i].value(f).map(|x| json!(x)).unwrap_or(Value::Null));
@@ -776,6 +786,14 @@ mod tests {
         assert_eq!(groups[1]["key"], "Texas");
         assert_eq!(groups[2]["key"], "Mountain");
         assert_eq!(groups[2]["sum_Revenue ($m)"], 50.0);
+        // Each group also gives its key as the cell holds it: text here, and
+        // for a date column the serial number, which is what a formula has
+        // to compare against (the key itself reads as the date).
+        assert_eq!(groups[0]["value"], "Northeast");
+        let by_date = run(&m, json!({ "sheet": 0, "end_row": 6, "group_by": "Online" }));
+        let first = &by_date["groups"][0];
+        assert!(first["key"].as_str().unwrap().starts_with("20"), "{first}");
+        assert!(first["value"].as_f64().unwrap() > 40000.0, "{first}");
     }
 
     #[test]

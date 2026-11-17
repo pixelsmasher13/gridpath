@@ -284,6 +284,7 @@ impl<'a> Model<'a> {
                             return CalcResult::Number(range.left.sheet as f64 + 1.0)
                         }
                         ParsedDefinedName::InvalidDefinedNameFormula
+                        | ParsedDefinedName::DeletedReference
                         | ParsedDefinedName::LambdaDefinition(..) => {
                             return CalcResult::Error {
                                 error: Error::ERROR,

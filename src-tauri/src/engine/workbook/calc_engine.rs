@@ -15,46 +15,241 @@
 
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use ironcalc::base::cell::CellValue;
 use ironcalc::base::expressions::token::get_error_by_english_name;
+use ironcalc::base::new_empty::is_link_sheet_name;
 use ironcalc::base::types::FormulaValue;
 use ironcalc::base::Model;
 use ironcalc::import::load_from_xlsx;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-type Models = Arc<Mutex<HashMap<String, Loaded>>>;
+use super::workspace::{self, LinkEntry, LinkReport, Stamp, TabDeltas};
+
+/// Every loaded model: one per tab, under the tab's id, and the workbooks
+/// that open ones read and that have no tab, under `bg:<path>` (see
+/// `workspace.rs`).
+pub(super) type Models = Arc<Mutex<HashMap<String, Loaded>>>;
 
 #[derive(Default)]
 pub struct CalcEngineState {
-    inner: Models,
+    pub(super) inner: Models,
+    pub(super) workspace: workspace::Shared,
 }
 
-struct Loaded {
-    model: Model<'static>,
-    path: String,
-    sheets: Vec<String>,
+pub(super) struct Loaded {
+    pub(super) model: Model<'static>,
+    pub(super) path: String,
+    pub(super) sheets: Vec<String>,
     /// File-cached values of formula cells, captured before the first
     /// evaluation (see `gridpath_engine_core::Cached`). Empty for models
     /// that did not come from a file.
-    cached: gridpath_engine_core::Cached,
+    pub(super) cached: gridpath_engine_core::Cached,
     /// Per-sheet memo of the structural index served to `describe_workbook`
     /// / `find_rows`; mutating commands mark the sheets they touch dirty.
-    index: gridpath_engine_core::index::IndexCache,
+    pub(super) index: gridpath_engine_core::index::IndexCache,
     /// Loaded with `defer_eval`: the model still holds the file's cached
     /// values and no evaluation has run yet. Settled by
     /// `calc_engine_evaluate_pending` (the open path, after the grid is
     /// up) or by the first command that needs computed values.
-    pending_eval: bool,
+    pub(super) pending_eval: bool,
+    /// The hidden copies this workbook keeps of sheets of other workbooks,
+    /// one per sheet its formulas read (see `workspace.rs`).
+    pub(super) links: Vec<LinkEntry>,
+    /// Opened with links: formulas typed here may name other workbooks.
+    pub(super) linkable: bool,
+    /// The file as it was when this model was read from it.
+    pub(super) stamp: Option<Stamp>,
+    /// Its formulas followed rows that moved, or a sheet that was renamed,
+    /// in a workbook it reads, and the file does not have that yet.
+    pub(super) needs_saving: bool,
+    /// That happened at some point since the file was read: a save writes
+    /// every formula that names another workbook, not only the edited ones.
+    pub(super) rewrite_links: bool,
+    /// Order of loading. Should two tabs hold the same file, the later one
+    /// stands for it.
+    pub(super) seq: u64,
+    /// The file's native charts as the grid draws them (see
+    /// `xlsx_patch::charts`): read once when a tab opens the file, kept in
+    /// step with row, column and sheet changes, their data read from the
+    /// model whenever it is asked for. Empty for a model without a tab.
+    pub(super) charts: Vec<super::xlsx_patch::charts::Chart>,
+}
+
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(1);
+
+pub(super) fn next_seq() -> u64 {
+    NEXT_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
+impl Loaded {
+    pub(super) fn new(model: Model<'static>, path: String, pending_eval: bool) -> Self {
+        let sheets = model.workbook.get_worksheet_names();
+        Loaded {
+            model,
+            path,
+            sheets,
+            cached: Default::default(),
+            index: Default::default(),
+            pending_eval,
+            links: Vec::new(),
+            linkable: false,
+            stamp: None,
+            needs_saving: false,
+            rewrite_links: false,
+            seq: next_seq(),
+            charts: Vec::new(),
+        }
+    }
+}
+
+/// The native charts of the file at `path`, for a tab that has just opened
+/// it. A file whose charts cannot be read opens without them: nothing here
+/// may fail the open, or (a panic) take the tab's model with it.
+fn read_charts(path: &str) -> Vec<super::xlsx_patch::charts::Chart> {
+    let t = Instant::now();
+    let read = std::panic::catch_unwind(|| {
+        std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| super::xlsx_patch::charts::read(&bytes).map_err(|e| e.to_string()))
+    })
+    .unwrap_or_else(|_| Err("the chart reader failed".to_string()));
+    match read {
+        Ok(charts) => {
+            if !charts.is_empty() {
+                let drawn = charts.iter().filter(|c| c.unsupported.is_none()).count();
+                log::info!("[calc-engine] charts: {} ({} drawn) read in {} ms", charts.len(), drawn, t.elapsed().as_millis());
+            }
+            charts
+        }
+        Err(e) => {
+            log::warn!("[calc-engine] charts of {path} not read: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// Fills `charts` from the live model: series names and category labels as
+/// the sheet shows them, values as numbers, and, for a chart made in this
+/// session, the number formats of the cells it plots.
+fn fill_charts(loaded: &Loaded, charts: &mut [super::xlsx_patch::charts::Chart]) {
+    use super::xlsx_patch::charts::Range;
+    let m = &loaded.model;
+    let sheet_of = |range: &Range| m.workbook.worksheets.iter().position(|s| s.name.eq_ignore_ascii_case(&range.sheet)).map(|i| i as u32);
+    let read = |range: &Range, text: bool| -> Option<Vec<serde_json::Value>> {
+        let sheet = sheet_of(range)?;
+        Some(
+            range
+                .cells()
+                .map(|(r, c)| {
+                    let (row, column) = (r as i32 + 1, c as i32 + 1);
+                    if text {
+                        m.get_formatted_cell_value(sheet, row, column).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null)
+                    } else {
+                        m.get_cell_value_by_index(sheet, row, column).map(cell_value_to_json).unwrap_or(serde_json::Value::Null)
+                    }
+                })
+                .collect(),
+        )
+    };
+    super::xlsx_patch::charts::fill_live(charts, &read);
+    let format_of = |range: &Range| -> Option<String> {
+        let sheet = sheet_of(range)?;
+        m.get_style_for_cell(sheet, range.r0 as i32 + 1, range.c0 as i32 + 1).ok().map(|style| style.num_fmt)
+    };
+    super::xlsx_patch::charts::link_formats(charts, &format_of);
+}
+
+/// The tab's charts with their data read from the live model. Before the
+/// first evaluate the file's own cached chart data stands.
+#[tauri::command]
+pub async fn calc_engine_charts(
+    state: State<'_, CalcEngineState>,
+    tab: String,
+) -> Result<Vec<super::xlsx_patch::charts::Chart>, String> {
+    let key = tab.clone();
+    run_contained(state.inner.clone(), tab, move |inner| {
+        let guard = lock_recover(inner);
+        let loaded = guard.get(&key).ok_or("no workbook loaded for tab")?;
+        let mut charts = loaded.charts.clone();
+        if charts.is_empty() || loaded.pending_eval {
+            return Ok(charts);
+        }
+        fill_charts(loaded, &mut charts);
+        Ok(charts)
+    })
+    .await
+}
+
+/// Adds a chart to the tab's workbook: one made in this session, which the
+/// next save writes into the file (see `xlsx_patch::chart_write`). Gives
+/// the chart as it is drawn, with the data it plots, or says why it cannot
+/// be made. An id that is already there is replaced (a redo).
+pub(super) fn add_chart(
+    inner: &Models,
+    key: &str,
+    spec: &super::xlsx_patch::charts::ChartSpec,
+) -> Result<super::xlsx_patch::charts::Chart, String> {
+    let mut guard = lock_recover(inner);
+    let loaded = guard.get_mut(key).ok_or("no workbook loaded for tab")?;
+    // Sheets under the names the workbook spells them; never the hidden
+    // copy of another workbook's sheet.
+    let own: Vec<String> = loaded.model.workbook.worksheets.iter().map(|s| s.name.clone()).filter(|n| !n.starts_with('[')).collect();
+    let sheet_named = |name: &str| own.iter().find(|n| n.eq_ignore_ascii_case(name)).cloned();
+    let chart = super::xlsx_patch::charts::build(spec, &sheet_named).map_err(|e| {
+        if e.contains("there is no sheet") {
+            format!("{e}. Sheets: {}", own.join(", "))
+        } else {
+            e
+        }
+    })?;
+    if chart.id.trim().is_empty() {
+        return Err("the chart needs an id".into());
+    }
+    let mut filled = vec![chart.clone()];
+    fill_charts(loaded, &mut filled);
+    let filled = filled.remove(0);
+    if let Some(why) = &filled.unsupported {
+        return Err(why.clone());
+    }
+    loaded.charts.retain(|c| c.id != chart.id);
+    loaded.charts.push(chart);
+    Ok(filled)
+}
+
+#[tauri::command]
+pub async fn calc_engine_add_chart(
+    state: State<'_, CalcEngineState>,
+    tab: String,
+    spec: super::xlsx_patch::charts::ChartSpec,
+) -> Result<super::xlsx_patch::charts::Chart, String> {
+    let key = tab.clone();
+    run_contained(state.inner.clone(), tab, move |inner| add_chart(inner, &key, &spec)).await
+}
+
+/// Takes a chart made in this session away again (its batch was rejected
+/// or undone). A chart of the file is not removed: `false`.
+#[tauri::command]
+pub async fn calc_engine_remove_chart(state: State<'_, CalcEngineState>, tab: String, id: String) -> Result<bool, String> {
+    let key = tab.clone();
+    run_contained(state.inner.clone(), tab, move |inner| {
+        let mut guard = lock_recover(inner);
+        let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
+        let before = loaded.charts.len();
+        loaded.charts.retain(|c| !(c.id == id && c.part.is_empty()));
+        Ok(loaded.charts.len() < before)
+    })
+    .await
 }
 
 /// Locks the model map, recovering from lock poisoning: after a caught engine
 /// panic the affected tab is removed anyway, so the poison flag carries no
 /// information worth propagating.
-fn lock_recover(inner: &Models) -> MutexGuard<'_, HashMap<String, Loaded>> {
+pub(super) fn lock_recover(inner: &Models) -> MutexGuard<'_, HashMap<String, Loaded>> {
     inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
@@ -63,6 +258,10 @@ pub struct CalcLoadResult {
     pub sheets: Vec<String>,
     pub load_ms: u64,
     pub eval_ms: u64,
+    /// What changed in other open workbooks: the ones that read this file.
+    pub others: Vec<TabDeltas>,
+    /// The model was held without a tab and has changes the file lacks.
+    pub needs_saving: bool,
 }
 
 /// One computed cell value. Row/column are 1-based (IronCalc convention).
@@ -78,12 +277,23 @@ pub struct CellDelta {
 pub struct CalcEditResult {
     pub recalc_ms: u64,
     pub changed: Vec<CellDelta>,
+    /// What changed in other open workbooks: the ones that read this one.
+    pub others: Vec<TabDeltas>,
+    /// The sheet list, when the edit added a hidden copy of a linked sheet.
+    pub sheets: Option<Vec<String>>,
+    /// What became of the links to other workbooks the edit spelled.
+    pub links: Option<LinkReport>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct CalcSnapshot {
     pub ms: u64,
     pub cells: Vec<CellDelta>,
+    /// What changed in other open workbooks: the ones that read this one.
+    pub others: Vec<TabDeltas>,
+    /// Tabs whose formulas moved to follow this workbook: they have changes
+    /// to save now.
+    pub moved: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -93,7 +303,7 @@ pub struct CalcTabStatus {
     pub sheets: Vec<String>,
 }
 
-fn cell_value_to_json(value: CellValue) -> serde_json::Value {
+pub(super) fn cell_value_to_json(value: CellValue) -> serde_json::Value {
     match value {
         CellValue::None => serde_json::Value::Null,
         CellValue::String(s) => serde_json::Value::String(s),
@@ -133,7 +343,7 @@ fn formula_cell_deltas(loaded: &Loaded) -> Vec<CellDelta> {
     out
 }
 
-fn deltas_for(loaded: &Loaded, keys: impl IntoIterator<Item = (u32, i32, i32)>) -> Vec<CellDelta> {
+pub(super) fn deltas_for(loaded: &Loaded, keys: impl IntoIterator<Item = (u32, i32, i32)>) -> Vec<CellDelta> {
     keys.into_iter()
         .map(|(s, r, c)| CellDelta {
             sheet: s,
@@ -152,7 +362,7 @@ fn deltas_for(loaded: &Loaded, keys: impl IntoIterator<Item = (u32, i32, i32)>) 
 /// formula cells whose computed value differs from the file's cached value
 /// (usually a handful: constructs our engine evaluates differently, stale
 /// caches from manual-calc files). No-op once settled.
-fn settle_pending(loaded: &mut Loaded) -> Vec<CellDelta> {
+pub(super) fn settle_pending(loaded: &mut Loaded) -> Vec<CellDelta> {
     if !loaded.pending_eval {
         return Vec::new();
     }
@@ -195,7 +405,7 @@ fn changed_deltas(
 
 /// Runs `f` on a blocking thread with panic containment; a panic drops the
 /// tab's model (it may be mid-mutation) and returns an error.
-async fn run_contained<T, F>(inner: Models, tab: String, f: F) -> Result<T, String>
+pub(super) async fn run_contained<T, F>(inner: Models, tab: String, f: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&Models) -> Result<T, String> + Send + 'static,
@@ -221,10 +431,28 @@ pub async fn calc_engine_load(
     tab: String,
     path: String,
     defer_eval: Option<bool>,
+    links: Option<bool>,
 ) -> Result<CalcLoadResult, String> {
     let key = tab.clone();
     let defer = defer_eval.unwrap_or(false);
+    let shared = state.workspace.clone();
     run_contained(state.inner.clone(), tab, move |inner| {
+        // With links: the workbooks this file was saved reading are found
+        // and loaded too, and formulas typed later may name others.
+        if links.unwrap_or(false) {
+            let opened = workspace::open_tab(inner, &shared, &key, &path, defer)?;
+            let charts = read_charts(&path);
+            if let Some(loaded) = lock_recover(inner).get_mut(&key) {
+                loaded.charts = charts;
+            }
+            return Ok(CalcLoadResult {
+                sheets: opened.sheets,
+                load_ms: opened.load_ms,
+                eval_ms: opened.eval_ms,
+                others: opened.others,
+                needs_saving: opened.needs_saving,
+            });
+        }
         let t = Instant::now();
         let mut model = load_from_xlsx(&path, "en", "UTC", "en")
             .map_err(|e| format!("ironcalc load: {e}"))?;
@@ -252,22 +480,18 @@ pub async fn calc_engine_load(
         let eval_ms = t.elapsed().as_millis() as u64;
         log::info!("[calc-engine] load {}: parse {} ms, evaluate {} ms{}", path, load_ms, eval_ms, if defer { " (deferred)" } else { "" });
 
-        let sheets = model.workbook.get_worksheet_names();
-        lock_recover(inner).insert(
-            key,
-            Loaded {
-                model,
-                path,
-                sheets: sheets.clone(),
-                cached,
-                index: Default::default(),
-                pending_eval: defer,
-            },
-        );
+        let charts = read_charts(&path);
+        let mut loaded = Loaded::new(model, path, defer);
+        loaded.cached = cached;
+        loaded.charts = charts;
+        let sheets = loaded.sheets.clone();
+        let others = workspace::install_tab(&mut lock_recover(inner), &key, loaded);
         Ok(CalcLoadResult {
             sheets,
             load_ms,
             eval_ms,
+            others,
+            needs_saving: false,
         })
     })
     .await
@@ -276,6 +500,8 @@ pub async fn calc_engine_load(
 /// Applies one cell edit (`value` uses spreadsheet input syntax: `=SUM(..)`,
 /// `42`, `hello`, empty string clears) and incrementally recalculates.
 /// Returns the cells whose values changed (dirty closure + the edited cell).
+/// A formula that names another workbook, `='[NOW.xlsx]Model'!B2`, is
+/// linked to it (see `workspace::apply_edits`).
 #[tauri::command]
 pub async fn calc_engine_edit(
     state: State<'_, CalcEngineState>,
@@ -286,26 +512,9 @@ pub async fn calc_engine_edit(
     value: String,
 ) -> Result<CalcEditResult, String> {
     let key = tab.clone();
+    let shared = state.workspace.clone();
     run_contained(state.inner.clone(), tab, move |inner| {
-        let mut guard = lock_recover(inner);
-        let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
-
-        let settled = settle_pending(loaded);
-        let t = Instant::now();
-        loaded.model.set_user_input(sheet, row, column, value)?;
-        let changed_keys = loaded.model.evaluate_edited(&[(sheet, row, column)]);
-        let recalc_ms = t.elapsed().as_millis() as u64;
-        loaded.index.mark_dirty(sheet);
-        for k in &changed_keys {
-            loaded.index.mark_dirty(k.0);
-        }
-
-        let mut changed = settled;
-        changed.extend(deltas_for(
-            loaded,
-            std::iter::once((sheet, row, column)).chain(changed_keys),
-        ));
-        Ok(CalcEditResult { recalc_ms, changed })
+        workspace::apply_edits(inner, &shared, &key, vec![EditCell { sheet, row, column, value }])
     })
     .await
 }
@@ -327,36 +536,8 @@ pub async fn calc_engine_edit_batch(
     edits: Vec<EditCell>,
 ) -> Result<CalcEditResult, String> {
     let key = tab.clone();
-    run_contained(state.inner.clone(), tab, move |inner| {
-        let mut guard = lock_recover(inner);
-        let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
-
-        let settled = settle_pending(loaded);
-        let t = Instant::now();
-        let mut keys = Vec::with_capacity(edits.len());
-        for e in &edits {
-            loaded
-                .model
-                .set_user_input(e.sheet, e.row, e.column, e.value.clone())?;
-            keys.push((e.sheet, e.row, e.column));
-        }
-        let changed_keys = loaded.model.evaluate_edited(&keys);
-        let recalc_ms = t.elapsed().as_millis() as u64;
-        for k in keys.iter().chain(changed_keys.iter()) {
-            loaded.index.mark_dirty(k.0);
-        }
-        log::info!(
-            "[calc-engine] edit batch: {} cells → recalc {} ms, {} dependents changed",
-            keys.len(),
-            recalc_ms,
-            changed_keys.len()
-        );
-
-        let mut changed = settled;
-        changed.extend(deltas_for(loaded, keys.into_iter().chain(changed_keys)));
-        Ok(CalcEditResult { recalc_ms, changed })
-    })
-    .await
+    let shared = state.workspace.clone();
+    run_contained(state.inner.clone(), tab, move |inner| workspace::apply_edits(inner, &shared, &key, edits)).await
 }
 
 /// Full formula-cell value snapshot — applied to the grid after load, and
@@ -375,6 +556,7 @@ pub async fn calc_engine_snapshot(
         Ok(CalcSnapshot {
             ms: t.elapsed().as_millis() as u64,
             cells,
+            ..Default::default()
         })
     })
     .await
@@ -463,7 +645,7 @@ pub async fn calc_engine_sheet_cells(
 /// Structural operation: `op` is one of `insert_rows`, `delete_rows`,
 /// `insert_columns`, `delete_columns`; `index` is 1-based. References shift
 /// like in Excel; a full re-evaluation follows (the dependency map is stale
-/// after a shift) and the full snapshot is returned.
+/// after a shift) and the values that changed are returned.
 #[tauri::command]
 pub async fn calc_engine_structural(
     state: State<'_, CalcEngineState>,
@@ -474,56 +656,81 @@ pub async fn calc_engine_structural(
     count: i32,
 ) -> Result<CalcSnapshot, String> {
     let key = tab.clone();
-    run_contained(state.inner.clone(), tab, move |inner| {
-        let mut guard = lock_recover(inner);
-        let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
-        let t = Instant::now();
-        let before = gridpath_engine_core::diff::formula_values(&loaded.model);
-        match op.as_str() {
-            "insert_rows" => loaded.model.insert_rows(sheet, index, count)?,
-            "delete_rows" => loaded.model.delete_rows(sheet, index, count)?,
-            "insert_columns" => loaded.model.insert_columns(sheet, index, count)?,
-            "delete_columns" => loaded.model.delete_columns(sheet, index, count)?,
-            other => return Err(format!("unknown structural op: {other}")),
+    run_contained(state.inner.clone(), tab, move |inner| structural(inner, &key, &op, sheet, index, count)).await
+}
+
+/// What `calc_engine_structural` does, for the model under `key`.
+pub(super) fn structural(inner: &Models, key: &str, op: &str, sheet: u32, index: i32, count: i32) -> Result<CalcSnapshot, String> {
+    let mut guard = lock_recover(inner);
+    let loaded = guard.get_mut(key).ok_or("no workbook loaded for tab")?;
+    let t = Instant::now();
+    let before = gridpath_engine_core::diff::formula_values(&loaded.model);
+    match op {
+        "insert_rows" => loaded.model.insert_rows(sheet, index, count)?,
+        "delete_rows" => loaded.model.delete_rows(sheet, index, count)?,
+        "insert_columns" => loaded.model.insert_columns(sheet, index, count)?,
+        "delete_columns" => loaded.model.delete_columns(sheet, index, count)?,
+        other => return Err(format!("unknown structural op: {other}")),
+    }
+    // The file's saved values follow their cells.
+    gridpath_engine_core::shift_cached(
+        &mut loaded.cached,
+        sheet,
+        index,
+        if op.starts_with("insert") { count } else { -count },
+        op.ends_with("rows"),
+    );
+    let t_eval = Instant::now();
+    loaded.model.evaluate();
+    loaded.pending_eval = false;
+    let eval_ms = t_eval.elapsed().as_millis();
+    loaded.index.mark_all_dirty();
+    // Where each pre-op formula cell lives now (grid did the same shift).
+    let (rows, insert) = match op {
+        "insert_rows" => (true, true),
+        "delete_rows" => (true, false),
+        "insert_columns" => (false, true),
+        _ => (false, false),
+    };
+    let cells = changed_deltas(before, loaded, |(s, r, c)| {
+        if s != sheet {
+            return Some((s, r, c));
         }
-        let t_eval = Instant::now();
-        loaded.model.evaluate();
-        loaded.pending_eval = false;
-        let eval_ms = t_eval.elapsed().as_millis();
-        loaded.index.mark_all_dirty();
-        // Where each pre-op formula cell lives now (grid did the same shift).
-        let (rows, insert) = match op.as_str() {
-            "insert_rows" => (true, true),
-            "delete_rows" => (true, false),
-            "insert_columns" => (false, true),
-            _ => (false, false),
+        let axis = if rows { r } else { c };
+        let moved = if insert {
+            if axis >= index { axis + count } else { axis }
+        } else if axis >= index && axis < index + count {
+            return None;
+        } else if axis >= index + count {
+            axis - count
+        } else {
+            axis
         };
-        let cells = changed_deltas(before, loaded, |(s, r, c)| {
-            if s != sheet {
-                return Some((s, r, c));
-            }
-            let axis = if rows { r } else { c };
-            let moved = if insert {
-                if axis >= index { axis + count } else { axis }
-            } else if axis >= index && axis < index + count {
-                return None;
-            } else if axis >= index + count {
-                axis - count
-            } else {
-                axis
-            };
-            Some(if rows { (s, moved, c) } else { (s, r, moved) })
-        });
-        log::info!(
-            "[calc-engine] structural {op} sheet {sheet} @{index} x{count}: full evaluate {eval_ms} ms, {} values changed",
-            cells.len()
-        );
-        Ok(CalcSnapshot {
-            ms: t.elapsed().as_millis() as u64,
-            cells,
-        })
+        Some(if rows { (s, moved, c) } else { (s, r, moved) })
+    });
+    log::info!(
+        "[calc-engine] structural {op} sheet {sheet} @{index} x{count}: full evaluate {eval_ms} ms, {} values changed",
+        cells.len()
+    );
+    // The workbooks that read this one: links into the sheet follow the
+    // cells they pointed at, and every value read is compared again.
+    let sheet_name = loaded.model.workbook.worksheets.get(sheet as usize).map(|ws| ws.name.clone()).unwrap_or_default();
+    // The charts' ranges and anchors follow too.
+    if !loaded.charts.is_empty() {
+        let shift = super::xlsx_patch::refs::RowColShift { rows, start: (index - 1).max(0) as u32, count: count.max(0) as u32, insert };
+        if let Err(e) = super::xlsx_patch::charts::shift(&mut loaded.charts, &sheet_name, &shift) {
+            log::warn!("[calc-engine] charts not moved with {op} on {sheet_name}: {e}");
+        }
+    }
+    let path = loaded.path.clone();
+    let (mut others, moved) = workspace::mirror_structural(&mut guard, key, &sheet_name, op, index, count);
+    workspace::merge(&mut others, workspace::propagate(&mut guard, &path, workspace::Change::All));
+    Ok(CalcSnapshot {
+        ms: t.elapsed().as_millis() as u64,
+        cells,
+        others,
+        moved,
     })
-    .await
 }
 
 /// Creates an EMPTY model for a tab — untitled/blank workbooks that the
@@ -548,22 +755,15 @@ pub async fn calc_engine_new(
             model.add_sheet(name)?;
         }
         model.evaluate();
-        let names = model.workbook.get_worksheet_names();
-        lock_recover(inner).insert(
-            key,
-            Loaded {
-                model,
-                path: String::new(),
-                sheets: names.clone(),
-                cached: Default::default(),
-                index: Default::default(),
-                pending_eval: false,
-            },
-        );
+        let loaded = Loaded::new(model, String::new(), false);
+        let names = loaded.sheets.clone();
+        lock_recover(inner).insert(key, loaded);
         Ok(CalcLoadResult {
             sheets: names,
             load_ms: 0,
             eval_ms: 0,
+            others: Vec::new(),
+            needs_saving: false,
         })
     })
     .await
@@ -573,6 +773,10 @@ pub async fn calc_engine_new(
 pub struct CalcSheetsResult {
     pub sheets: Vec<String>,
     pub cells: Vec<CellDelta>,
+    /// What changed in other open workbooks: the ones that read this one.
+    pub others: Vec<TabDeltas>,
+    /// Tabs whose formulas were respelled to follow a renamed sheet.
+    pub moved: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -602,6 +806,8 @@ pub struct CalcResyncResult {
     pub cells: Vec<CellDelta>,
     pub seeded: usize,
     pub ms: u64,
+    /// What changed in other open workbooks: the ones that read this one.
+    pub others: Vec<TabDeltas>,
 }
 
 /// Cached value for a reseeded formula cell. Strings that name an Excel
@@ -665,17 +871,7 @@ pub async fn calc_engine_resync(
         // A tab whose load failed has no model — resync can heal that too.
         if !guard.contains_key(&key) {
             let model = Model::new_empty("resynced", "en", "UTC", "en")?;
-            guard.insert(
-                key.clone(),
-                Loaded {
-                    model,
-                    path: String::new(),
-                    sheets: Vec::new(),
-                    cached: Default::default(),
-                    index: Default::default(),
-                    pending_eval: false,
-                },
-            );
+            guard.insert(key.clone(), Loaded::new(model, String::new(), false));
         }
         let loaded = guard.get_mut(&key).expect("just inserted");
         let model = &mut loaded.model;
@@ -689,8 +885,10 @@ pub async fn calc_engine_resync(
                 model.add_sheet(name)?;
             }
         }
+        // The hidden copies of linked sheets are the engine's own: the grid
+        // does not list them, and they stay as they are.
         for name in existing {
-            if !want.contains(&name.as_str()) {
+            if !want.contains(&name.as_str()) && !is_link_sheet_name(&name) {
                 model.delete_sheet_by_name(&name)?;
             }
         }
@@ -700,6 +898,7 @@ pub async fn calc_engine_resync(
             .iter()
             .filter(|s| s.keep)
             .filter_map(|s| names.iter().position(|n| n == &s.name).map(|i| i as u32))
+            .chain(names.iter().enumerate().filter(|(_, n)| is_link_sheet_name(n)).map(|(i, _)| i as u32))
             .collect();
         model.resync_clear_contents_except(&kept);
 
@@ -742,11 +941,15 @@ pub async fn calc_engine_resync(
         loaded.sheets = model.workbook.get_worksheet_names();
         loaded.index.mark_all_dirty();
         let cells = formula_cell_deltas(loaded);
+        let names = loaded.sheets.clone();
+        let path = loaded.path.clone();
+        let others = workspace::propagate(&mut guard, &path, workspace::Change::All);
         Ok(CalcResyncResult {
-            sheets: loaded.sheets.clone(),
+            sheets: names,
             cells,
             seeded,
             ms: t.elapsed().as_millis() as u64,
+            others,
         })
     })
     .await
@@ -765,38 +968,65 @@ pub async fn calc_engine_sheet_op(
     new_name: Option<String>,
 ) -> Result<CalcSheetsResult, String> {
     let key = tab.clone();
-    run_contained(state.inner.clone(), tab, move |inner| {
-        let mut guard = lock_recover(inner);
-        let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
-        let before = gridpath_engine_core::diff::formula_values(&loaded.model);
-        let deleted_index = if op == "delete" { loaded.sheets.iter().position(|n| *n == name).map(|i| i as u32) } else { None };
-        match op.as_str() {
-            "add" => loaded.model.add_sheet(&name)?,
-            "rename" => loaded
-                .model
-                .rename_sheet(&name, new_name.as_deref().ok_or("rename needs new_name")?)?,
-            "delete" => loaded.model.delete_sheet_by_name(&name)?,
-            other => return Err(format!("unknown sheet op: {other}")),
+    run_contained(state.inner.clone(), tab, move |inner| sheet_op(inner, &key, &op, &name, new_name.as_deref())).await
+}
+
+/// What `calc_engine_sheet_op` does, for the model under `key`.
+pub(super) fn sheet_op(inner: &Models, key: &str, op: &str, name: &str, new_name: Option<&str>) -> Result<CalcSheetsResult, String> {
+    let mut guard = lock_recover(inner);
+    let loaded = guard.get_mut(key).ok_or("no workbook loaded for tab")?;
+    let before = gridpath_engine_core::diff::formula_values(&loaded.model);
+    let deleted_index = if op == "delete" { loaded.sheets.iter().position(|n| n == name).map(|i| i as u32) } else { None };
+    match op {
+        "add" => loaded.model.add_sheet(name)?,
+        "rename" => loaded
+            .model
+            .rename_sheet(name, new_name.ok_or("rename needs new_name")?)?,
+        "delete" => loaded.model.delete_sheet_by_name(name)?,
+        other => return Err(format!("unknown sheet op: {other}")),
+    }
+    if let Some(deleted) = deleted_index {
+        gridpath_engine_core::remove_sheet_from_cached(&mut loaded.cached, deleted);
+    }
+    let t_eval = Instant::now();
+    loaded.model.evaluate();
+    loaded.pending_eval = false;
+    let eval_ms = t_eval.elapsed().as_millis();
+    loaded.sheets = loaded.model.workbook.get_worksheet_names();
+    loaded.index.mark_all_dirty();
+    // Adding appends (no index moves); deleting shifts later sheets down.
+    let cells = changed_deltas(before, loaded, |(s, r, c)| match deleted_index {
+        Some(d) if s == d => None,
+        Some(d) if s > d => Some((s - 1, r, c)),
+        _ => Some((s, r, c)),
+    });
+    log::info!("[calc-engine] sheet op {op} {name:?}: full evaluate {eval_ms} ms, {} values changed", cells.len());
+    match (op, new_name) {
+        ("rename", Some(new)) => {
+            if let Err(e) = super::xlsx_patch::charts::rename_sheet(&mut loaded.charts, name, new) {
+                log::warn!("[calc-engine] charts not renamed with {name:?}: {e}");
+            }
         }
-        let t_eval = Instant::now();
-        loaded.model.evaluate();
-        loaded.pending_eval = false;
-        let eval_ms = t_eval.elapsed().as_millis();
-        loaded.sheets = loaded.model.workbook.get_worksheet_names();
-        loaded.index.mark_all_dirty();
-        // Adding appends (no index moves); deleting shifts later sheets down.
-        let cells = changed_deltas(before, loaded, |(s, r, c)| match deleted_index {
-            Some(d) if s == d => None,
-            Some(d) if s > d => Some((s - 1, r, c)),
-            _ => Some((s, r, c)),
-        });
-        log::info!("[calc-engine] sheet op {op} {name:?}: full evaluate {eval_ms} ms, {} values changed", cells.len());
-        Ok(CalcSheetsResult {
-            sheets: loaded.sheets.clone(),
-            cells,
-        })
+        ("delete", _) => super::xlsx_patch::charts::remove_sheet(&mut loaded.charts, name),
+        _ => {}
+    }
+    let names = loaded.sheets.clone();
+    let path = loaded.path.clone();
+    // The workbooks that read this one: a renamed sheet is renamed in
+    // their links, and every value read is compared again. A deleted
+    // sheet keeps its last values there (the list shows the link as
+    // broken).
+    let (mut others, moved) = match (op, new_name) {
+        ("rename", Some(new)) => workspace::mirror_rename(&mut guard, key, name, new),
+        _ => (Vec::new(), Vec::new()),
+    };
+    workspace::merge(&mut others, workspace::propagate(&mut guard, &path, workspace::Change::All));
+    Ok(CalcSheetsResult {
+        sheets: names,
+        cells,
+        others,
+        moved,
     })
-    .await
 }
 
 /// Settles a deferred first evaluate (see `calc_engine_load`): runs it if
@@ -813,7 +1043,10 @@ pub async fn calc_engine_evaluate_pending(
         let loaded = guard.get_mut(&key).ok_or("no workbook loaded for tab")?;
         let t = Instant::now();
         let cells = settle_pending(loaded);
-        Ok(CalcSnapshot { ms: t.elapsed().as_millis() as u64, cells })
+        let path = loaded.path.clone();
+        let keys = cells.iter().map(|d| (d.sheet, d.row, d.column)).collect();
+        let others = workspace::propagate(&mut guard, &path, workspace::Change::Cells(keys));
+        Ok(CalcSnapshot { ms: t.elapsed().as_millis() as u64, cells, others, moved: Vec::new() })
     })
     .await
 }
@@ -1028,6 +1261,10 @@ pub async fn calc_engine_find(
                     continue;
                 }
             }
+            // Hidden copies of sheets of other workbooks are not the user's.
+            if is_link_sheet_name(&ws.name) {
+                continue;
+            }
             let mut rows: Vec<&i32> = ws.sheet_data.keys().collect();
             rows.sort_unstable();
             for r in rows {
@@ -1177,7 +1414,10 @@ pub async fn calc_engine_define_name(
             .map(|((sheet, row, column), v)| CellDelta { sheet, row, column, value: v.to_json() })
             .collect();
         log::info!("[calc-engine] defined name {name} = {f}: {} ms, {} values changed", t.elapsed().as_millis(), cells.len());
-        Ok(CalcSnapshot { ms: t.elapsed().as_millis() as u64, cells })
+        let path = loaded.path.clone();
+        let keys = cells.iter().map(|d| (d.sheet, d.row, d.column)).collect();
+        let others = workspace::propagate(&mut guard, &path, workspace::Change::Cells(keys));
+        Ok(CalcSnapshot { ms: t.elapsed().as_millis() as u64, cells, others, moved: Vec::new() })
     })
     .await
 }
@@ -1215,6 +1455,9 @@ pub async fn calc_engine_status(state: State<'_, CalcEngineState>) -> Result<Vec
         let guard = lock_recover(&inner);
         guard
             .iter()
+            // Tabs only: the workbooks loaded without one are listed by
+            // `workspace_status`.
+            .filter(|(tab, _)| !workspace::is_bg(tab))
             .map(|(tab, loaded)| CalcTabStatus {
                 tab: tab.clone(),
                 path: loaded.path.clone(),
@@ -1226,12 +1469,25 @@ pub async fn calc_engine_status(state: State<'_, CalcEngineState>) -> Result<Vec
     .map_err(|e| format!("calc task join error: {e}"))
 }
 
-/// Drops the model for a tab (tab closed).
+/// Drops the model for a tab (tab closed). A workbook that other open
+/// workbooks read stays loaded without the tab: as it is, or, when the tab
+/// had unsaved changes (`dirty`), as its file has it. Returns what that
+/// changed in the workbooks that read it.
 #[tauri::command]
-pub async fn calc_engine_unload(state: State<'_, CalcEngineState>, tab: String) -> Result<(), String> {
+pub async fn calc_engine_unload(
+    state: State<'_, CalcEngineState>,
+    tab: String,
+    dirty: Option<bool>,
+) -> Result<Vec<TabDeltas>, String> {
     let inner = state.inner.clone();
+    let shared = state.workspace.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        lock_recover(&inner).remove(&tab);
+        let closing = tab.clone();
+        std::panic::catch_unwind(AssertUnwindSafe(|| workspace::close_tab(&inner, &shared, &closing, dirty.unwrap_or(false))))
+            .unwrap_or_else(|_| {
+                lock_recover(&inner).remove(&tab);
+                Vec::new()
+            })
     })
     .await
     .map_err(|e| format!("calc task join error: {e}"))
@@ -1242,8 +1498,7 @@ mod tests {
     use super::*;
 
     fn loaded_from(model: Model<'static>) -> Loaded {
-        let sheets = model.workbook.get_worksheet_names();
-        Loaded { model, path: String::new(), sheets, cached: Default::default(), index: Default::default(), pending_eval: false }
+        Loaded::new(model, String::new(), false)
     }
 
     /// A deferred load serves the file's cached values; settling runs the
@@ -1264,6 +1519,70 @@ mod tests {
         assert_eq!(got, vec![(1, 2, serde_json::json!(6.0)), (2, 2, serde_json::json!(7.0))]);
         assert!(!loaded.pending_eval);
         assert!(settle_pending(&mut loaded).is_empty());
+    }
+
+    /// A chart made in a session: built from ranges, drawn with the live
+    /// data, kept in step with rows that move, and taken away again.
+    #[test]
+    fn a_chart_made_in_the_session_plots_live_cells_and_follows_them() {
+        use super::super::xlsx_patch::charts::{ChartSpec, SeriesSpec};
+        let mut m = Model::new_empty("wb", "en", "UTC", "en").unwrap();
+        m.rename_sheet_by_index(0, "P&L").unwrap();
+        for (c, year) in ["FY24", "FY25", "FY26"].iter().enumerate() {
+            let col = c as i32 + 2;
+            m.set_user_input(0, 1, col, year.to_string()).unwrap();
+            m.set_user_input(0, 2, col, format!("{}", 100 * (c + 1))).unwrap();
+            m.set_user_input(0, 3, col, format!("={}2*0.25/{}2", ["B", "C", "D"][c], ["B", "C", "D"][c])).unwrap();
+        }
+        m.set_user_input(0, 2, 1, "Revenue".to_string()).unwrap();
+        m.set_user_input(0, 3, 4, "30%".to_string()).unwrap();
+        m.evaluate();
+        let inner: Models = Arc::new(Mutex::new(HashMap::new()));
+        inner.lock().unwrap().insert("t".to_string(), loaded_from(m));
+
+        let spec = ChartSpec {
+            id: "new:1".into(),
+            sheet: "p&l".into(),
+            row: 5,
+            col: 1,
+            title: "Revenue".into(),
+            kind: "column".into(),
+            categories: Some("B1:D1".into()),
+            series: vec![
+                SeriesSpec { name_ref: Some("A2".into()), values: "B2:D2".into(), ..Default::default() },
+                SeriesSpec { name: Some("Margin".into()), values: "'P&L'!B3:D3".into(), kind: Some("line".into()), secondary: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let chart = add_chart(&inner, "t", &spec).unwrap();
+        assert_eq!(chart.sheet, "P&L");
+        assert_eq!(chart.series[0].name, "Revenue");
+        assert_eq!(chart.series[0].categories, vec![serde_json::json!("FY24"), serde_json::json!("FY25"), serde_json::json!("FY26")]);
+        assert_eq!(chart.series[0].values, vec![Some(100.), Some(200.), Some(300.)]);
+        assert_eq!(chart.series[1].values, vec![Some(0.25), Some(0.25), Some(0.3)]);
+        assert_eq!(chart.series[1].values_ref.as_deref(), Some("'P&L'!$B$3:$D$3"));
+        // The same id again replaces the chart (a redo), it does not add one.
+        add_chart(&inner, "t", &spec).unwrap();
+        assert_eq!(inner.lock().unwrap()["t"].charts.len(), 1);
+
+        // What cannot be made says why, and adds nothing.
+        let on = |change: &dyn Fn(&mut ChartSpec)| {
+            let mut s = spec.clone();
+            s.id = "new:2".into();
+            change(&mut s);
+            add_chart(&inner, "t", &s).unwrap_err()
+        };
+        assert!(on(&|s| s.sheet = "Charts".into()).contains("there is no sheet \"Charts\" to put the chart on. Sheets: P&L"));
+        assert!(on(&|s| s.series[0].values = "Other!B2:D2".into()).contains("series 1: values: there is no sheet \"Other\""));
+        assert!(on(&|s| s.series[0].values = "B2:D3".into()).contains("one row or one column"));
+        assert_eq!(inner.lock().unwrap()["t"].charts.len(), 1);
+
+        // A row inserted above the data: the chart's ranges and place follow.
+        structural(&inner, "t", "insert_rows", 0, 1, 1).unwrap();
+        let moved = inner.lock().unwrap()["t"].charts[0].clone();
+        assert_eq!(moved.series[0].values_ref.as_deref(), Some("'P&L'!$B$3:$D$3"));
+        assert_eq!(moved.series[0].name_ref.as_deref(), Some("'P&L'!$A$3"));
+        assert_eq!(moved.anchor.from.row, 6);
     }
 
     /// A sheet add changes no value; a row insert moves formulas but only

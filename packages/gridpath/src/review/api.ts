@@ -53,7 +53,9 @@ function uiDir(): string | null {
 /** Per-cell before/after for every pending batch of one workbook. */
 export function diffForReview(handlers: ToolHandlers, workbookPath: string) {
   const s = handlers.session(workbookPath);
-  const batches = s.batches.map((b) => {
+  // Not listed: the repeats of another workbook's row, column and sheet
+  // edits, which follow that workbook's batches and are not reviewed here.
+  const batches = handlers.pendingBatches(workbookPath).map((b) => {
     const cells: Array<{ sheet: string; row: number; col: number; before: unknown; after: unknown; before_formula: string | null; after_formula: string | null }> = [];
     for (const m of b.mutations) {
       if (m.type === "set_cell") {

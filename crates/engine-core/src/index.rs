@@ -550,6 +550,11 @@ pub fn defined_names(m: &Model) -> Vec<DefinedName> {
 pub fn build_workbook_index(m: &Model) -> Result<WorkbookIndex, String> {
     let mut sheets = Vec::with_capacity(m.workbook.worksheets.len());
     for i in 0..m.workbook.worksheets.len() {
+        // The hidden copy of another workbook's sheet is not part of this
+        // workbook's map; that workbook describes it.
+        if crate::links::is_link_sheet(m, i as u32) {
+            continue;
+        }
         sheets.push(build_sheet_index(m, i as u32)?);
     }
     Ok(WorkbookIndex { sheets, defined_names: defined_names(m) })
@@ -580,7 +585,12 @@ impl IndexCache {
         self.sheets.resize(n, None);
         let mut rebuilt = 0usize;
         let mut out = String::from("{\"sheets\":[");
+        let mut first = true;
         for (i, ws) in m.workbook.worksheets.iter().enumerate() {
+            if crate::links::is_link_sheet(m, i as u32) {
+                self.sheets[i] = None;
+                continue;
+            }
             let fresh = match &self.sheets[i] {
                 Some((name, _)) if name == &ws.name => false,
                 _ => true,
@@ -591,9 +601,10 @@ impl IndexCache {
                 self.sheets[i] = Some((ws.name.clone(), json));
                 rebuilt += 1;
             }
-            if i > 0 {
+            if !first {
                 out.push(',');
             }
+            first = false;
             out.push_str(&self.sheets[i].as_ref().expect("filled above").1);
         }
         out.push_str("],\"definedNames\":");

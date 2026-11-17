@@ -20,8 +20,8 @@ use crate::{
     locale::{get_default_locale, get_locale},
     model::{get_milliseconds_since_epoch, Model, ParsedDefinedName},
     types::{
-        DefinedName, Metadata, SheetState, Workbook, WorkbookSettings, WorkbookView, Worksheet,
-        WorksheetView,
+        Cell, DefinedName, FormulaValue, Metadata, SheetState, SpillValue, Workbook,
+        WorkbookSettings, WorkbookView, Worksheet, WorksheetView,
     },
     utils::ParsedReference,
 };
@@ -38,6 +38,34 @@ pub const IRONCALC_USER: &str = "IronCalc User";
 fn is_valid_sheet_name(name: &str) -> bool {
     let invalid = ['\\', '/', '*', '?', ':', '[', ']'];
     !name.is_empty() && name.chars().count() <= 31 && !name.contains(&invalid[..])
+}
+
+/// GRIDPATH: whether `name` is the name of a link sheet, the hidden copy of a
+/// sheet of another workbook (`[NOW.xlsx]Model`). No ordinary sheet name can
+/// hold a bracket.
+pub fn is_link_sheet_name(name: &str) -> bool {
+    name.starts_with('[')
+}
+
+/// `[book]Sheet`, with a sheet part that is a valid sheet name.
+fn is_valid_link_sheet_name(name: &str) -> bool {
+    name.strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .is_some_and(|(book, sheet)| {
+            !book.is_empty() && !book.contains('[') && is_valid_sheet_name(sheet)
+        })
+}
+
+/// GRIDPATH: what a cell holds, as a link sheet takes it over from the other
+/// workbook: the typed value and nothing else (no formula, no style). An
+/// error stays an error; it is not the text "#DIV/0!".
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkValue {
+    Empty,
+    Number(f64),
+    Text(String),
+    Boolean(bool),
+    Error(crate::expressions::token::Error),
 }
 
 impl<'a> Model<'a> {
@@ -166,6 +194,9 @@ impl<'a> Model<'a> {
                     Node::LambdaDefKind { parameters, body } => {
                         ParsedDefinedName::LambdaDefinition(parameters, *body)
                     }
+                    // GRIDPATH: what a name becomes when its cells are
+                    // deleted, here or in Excel before the file was saved.
+                    _ if formula_body.contains("#REF!") => ParsedDefinedName::DeletedReference,
                     _ => ParsedDefinedName::InvalidDefinedNameFormula,
                 }
             };
@@ -194,6 +225,12 @@ impl<'a> Model<'a> {
     /// defined name added after load makes the formulas that already
     /// referenced it (parsed as #NAME?) resolve.
     pub fn reset_parsed_structures(&mut self) {
+        self.reparse_structures();
+        self.evaluate();
+    }
+
+    /// `reset_parsed_structures` without the evaluation.
+    fn reparse_structures(&mut self) {
         let defined_names = self.workbook.get_defined_names_with_scope();
         self.parser
             .set_worksheets_and_names(self.workbook.get_worksheet_names(), defined_names);
@@ -204,7 +241,202 @@ impl<'a> Model<'a> {
         self.parse_formulas();
         self.parsed_defined_names = HashMap::new();
         self.parse_defined_names();
-        self.evaluate();
+    }
+
+    /// GRIDPATH (workspace-links spike): adds the hidden sheet that stands in
+    /// for a sheet of ANOTHER workbook, so that `[1]Model!B23` — which has
+    /// always parsed to an unresolvable reference and kept its cached value —
+    /// resolves like any other sheet reference and is evaluated, tracked and
+    /// incrementally recalculated by the machinery that already exists.
+    ///
+    /// `sheet_name` is the reference prefix exactly as formulas spell it:
+    /// `[1]Model`, `[NOW.xlsx]Income Statement`. The caller fills the sheet
+    /// with the other workbook's values and keeps it in step.
+    ///
+    /// Differences from `add_sheet`:
+    /// * the name is one `add_sheet` rejects (brackets),
+    /// * the sheet is appended and very hidden, so no existing index moves,
+    /// * cells frozen at their cached value stay frozen UNLESS their formula
+    ///   now resolves — other workbooks that are not loaded keep their data,
+    /// * it does not evaluate: fill the sheet first, then evaluate once.
+    ///
+    /// Returns the index of the new sheet.
+    pub fn add_link_sheet(&mut self, sheet_name: &str) -> Result<u32, String> {
+        if !is_valid_link_sheet_name(sheet_name) {
+            return Err(format!(
+                "Invalid name for a link sheet: '{sheet_name}' (expected '[book]Sheet')"
+            ));
+        }
+        if self
+            .workbook
+            .get_worksheet_names()
+            .iter()
+            .map(|s| s.to_uppercase())
+            .any(|x| x == sheet_name.to_uppercase())
+        {
+            return Err("A worksheet already exists with that name".to_string());
+        }
+        let sheet_id = self.get_new_sheet_id();
+        let view_ids: Vec<&u32> = self.workbook.views.keys().collect();
+        let mut worksheet = Model::new_empty_worksheet(sheet_name, sheet_id, &view_ids);
+        worksheet.state = SheetState::VeryHidden;
+        self.workbook.worksheets.push(worksheet);
+        self.reparse_structures();
+        // Nothing moved, so the frozen coordinates are still right; drop only
+        // the ones the new sheet has just made resolvable.
+        let frozen = std::mem::take(&mut self.import_wrongref_frozen);
+        self.import_wrongref_frozen = frozen
+            .into_iter()
+            .filter(|&(sheet, row, column)| {
+                let formula = self
+                    .workbook
+                    .worksheet(sheet)
+                    .ok()
+                    .and_then(|ws| ws.cell(row, column))
+                    .and_then(|cell| cell.get_formula());
+                formula
+                    .and_then(|f| {
+                        self.parsed_formulas
+                            .get(sheet as usize)
+                            .and_then(|fs| fs.get(f as usize))
+                    })
+                    .is_some_and(|(node, _)| crate::model::node_has_wrong_ref(node))
+            })
+            .collect();
+        Ok(self.workbook.worksheets.len() as u32 - 1)
+    }
+
+    /// GRIDPATH: the value a cell holds, typed. A formula that has not been
+    /// evaluated, an empty cell and a cell that does not exist are `Empty`.
+    pub fn link_value(&self, sheet: u32, row: i32, column: i32) -> LinkValue {
+        let Some(cell) = self
+            .workbook
+            .worksheet(sheet)
+            .ok()
+            .and_then(|ws| ws.cell(row, column))
+        else {
+            return LinkValue::Empty;
+        };
+        match cell {
+            Cell::EmptyCell { .. } => LinkValue::Empty,
+            Cell::BooleanCell { v, .. } => LinkValue::Boolean(*v),
+            Cell::NumberCell { v, .. } => LinkValue::Number(*v),
+            Cell::ErrorCell { ei, .. } => LinkValue::Error(ei.clone()),
+            Cell::SharedString { si, .. } => self
+                .workbook
+                .shared_strings
+                .get(*si as usize)
+                .map_or(LinkValue::Empty, |s| LinkValue::Text(s.clone())),
+            Cell::CellFormula { v, .. } | Cell::ArrayFormula { v, .. } => match v {
+                FormulaValue::Unevaluated => LinkValue::Empty,
+                FormulaValue::Boolean(b) => LinkValue::Boolean(*b),
+                FormulaValue::Number(n) => LinkValue::Number(*n),
+                FormulaValue::Text(s) => LinkValue::Text(s.clone()),
+                FormulaValue::Error { ei, .. } => LinkValue::Error(ei.clone()),
+            },
+            Cell::SpillCell { v, .. } => match v {
+                SpillValue::Boolean(b) => LinkValue::Boolean(*b),
+                SpillValue::Number(n) => LinkValue::Number(*n),
+                SpillValue::Text(s) => LinkValue::Text(s.clone()),
+                SpillValue::Error(ei) => LinkValue::Error(ei.clone()),
+            },
+        }
+    }
+
+    /// GRIDPATH: sets one cell of a link sheet to a value of the other
+    /// workbook. `Empty` removes the cell. Only link sheets take this: their
+    /// cells hold no formula and no style, so nothing else has to be kept.
+    /// It does not evaluate; pass the cell to `evaluate_edited`.
+    pub fn set_link_cell(
+        &mut self,
+        sheet: u32,
+        row: i32,
+        column: i32,
+        value: LinkValue,
+    ) -> Result<(), String> {
+        if !is_link_sheet_name(&self.workbook.worksheet(sheet)?.name) {
+            return Err("Not a link sheet".to_string());
+        }
+        match value {
+            LinkValue::Empty => {
+                let data = &mut self.workbook.worksheet_mut(sheet)?.sheet_data;
+                if let Some(cells) = data.get_mut(&row) {
+                    cells.remove(&column);
+                    if cells.is_empty() {
+                        data.remove(&row);
+                    }
+                }
+                Ok(())
+            }
+            LinkValue::Number(n) => self
+                .workbook
+                .worksheet_mut(sheet)?
+                .set_cell_with_number(row, column, n, 0),
+            LinkValue::Boolean(b) => self
+                .workbook
+                .worksheet_mut(sheet)?
+                .set_cell_with_boolean(row, column, b, 0),
+            LinkValue::Text(s) => self.set_cell_with_string(sheet, row, column, &s, 0),
+            LinkValue::Error(e) => self
+                .workbook
+                .worksheet_mut(sheet)?
+                .set_cell_with_error(row, column, e, 0),
+        }
+    }
+
+    /// GRIDPATH: renames a link sheet, when the sheet it copies was renamed
+    /// in the other workbook. The formulas that read it follow, as for any
+    /// renamed sheet.
+    pub fn rename_link_sheet(&mut self, sheet_index: u32, new_name: &str) -> Result<(), String> {
+        if !is_link_sheet_name(&self.workbook.worksheet(sheet_index)?.name) {
+            return Err("Not a link sheet".to_string());
+        }
+        if !is_valid_link_sheet_name(new_name) {
+            return Err(format!(
+                "Invalid name for a link sheet: '{new_name}' (expected '[book]Sheet')"
+            ));
+        }
+        let taken = self
+            .workbook
+            .get_worksheet_names()
+            .iter()
+            .enumerate()
+            .any(|(i, name)| {
+                i as u32 != sheet_index && name.to_uppercase() == new_name.to_uppercase()
+            });
+        if taken {
+            return Err(format!("Sheet already exists: '{new_name}'."));
+        }
+        self.rename_sheet_unchecked(sheet_index, new_name)
+    }
+
+    /// GRIDPATH: the cells each defined name points at, as
+    /// `(sheet, row1, column1, row2, column2)`. A name that is not a plain
+    /// reference (a constant, a LAMBDA, cells that were deleted) has none.
+    /// Saving a link needs it: a name may be the only thing that reads a
+    /// cell of another workbook.
+    pub fn defined_name_areas(&self) -> Vec<(u32, i32, i32, i32, i32)> {
+        use crate::model::ParsedDefinedName;
+        self.parsed_defined_names
+            .values()
+            .filter_map(|parsed| match parsed {
+                ParsedDefinedName::CellReference(cell) => {
+                    Some((cell.sheet, cell.row, cell.column, cell.row, cell.column))
+                }
+                ParsedDefinedName::RangeReference(range)
+                    if range.left.sheet == range.right.sheet =>
+                {
+                    Some((
+                        range.left.sheet,
+                        range.left.row.min(range.right.row),
+                        range.left.column.min(range.right.column),
+                        range.left.row.max(range.right.row),
+                        range.left.column.max(range.right.column),
+                    ))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// Gets the base name for new sheets
@@ -254,8 +486,6 @@ impl<'a> Model<'a> {
         sheet_index: u32,
         sheet_id: Option<u32>,
     ) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         if !is_valid_sheet_name(sheet_name) {
             return Err(format!("Invalid name for a sheet: '{sheet_name}'"));
         }
@@ -280,8 +510,23 @@ impl<'a> Model<'a> {
         self.workbook
             .worksheets
             .insert(sheet_index as usize, worksheet);
+        // The sheets from here on are one further along.
+        self.reindex_import_frozen(|sheet| Some(if sheet >= sheet_index { sheet + 1 } else { sheet }));
         self.reset_parsed_structures();
         Ok(())
+    }
+
+    /// GRIDPATH: the cells that keep their imported value for an unresolvable
+    /// reference are known by (sheet index, row, column); when sheets are
+    /// inserted, deleted or reordered, the index follows the sheet.
+    /// `new_index` gives a sheet's index after the change, `None` if the
+    /// sheet is gone.
+    fn reindex_import_frozen(&mut self, new_index: impl Fn(u32) -> Option<u32>) {
+        let frozen = std::mem::take(&mut self.import_wrongref_frozen);
+        self.import_wrongref_frozen = frozen
+            .into_iter()
+            .filter_map(|(sheet, row, column)| Some((new_index(sheet)?, row, column)))
+            .collect();
     }
 
     /// Adds a sheet with a specific name
@@ -389,6 +634,16 @@ impl<'a> Model<'a> {
         // Insert the copy right after the source sheet.
         let new_index = source_index as usize + 1;
         self.workbook.worksheets.insert(new_index, new_worksheet);
+        // GRIDPATH: the sheets after the copy are one further along, and the
+        // copy keeps the imported values its original keeps.
+        self.reindex_import_frozen(|sheet| Some(if sheet > source_index { sheet + 1 } else { sheet }));
+        let copied: Vec<(u32, i32, i32)> = self
+            .import_wrongref_frozen
+            .iter()
+            .filter(|key| key.0 == source_index)
+            .map(|&(_, row, column)| (source_index + 1, row, column))
+            .collect();
+        self.import_wrongref_frozen.extend(copied);
 
         // Duplicate the relevant defined names as sheet-local names on the copy.
         // We snapshot first to avoid borrowing the workbook while parsing.
@@ -486,6 +741,11 @@ impl<'a> Model<'a> {
                 return Err(format!("Sheet already exists: '{new_name}'."));
             }
         }
+        self.rename_sheet_unchecked(sheet_index, new_name)
+    }
+
+    /// The renaming itself; the callers check that the name is allowed.
+    fn rename_sheet_unchecked(&mut self, sheet_index: u32, new_name: &str) -> Result<(), String> {
         // Gets the new name and checks that a sheet with that index exists
         let old_name = self.workbook.worksheet(sheet_index)?.get_name();
 
@@ -542,8 +802,6 @@ impl<'a> Model<'a> {
     ///   * The sheet does not exists
     ///   * It is the last sheet
     pub fn delete_sheet(&mut self, sheet_index: u32) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         let worksheets = &self.workbook.worksheets;
         let sheet_count = worksheets.len() as u32;
         if sheet_count == 1 {
@@ -552,9 +810,52 @@ impl<'a> Model<'a> {
         if sheet_index >= sheet_count {
             return Err("Sheet index too large".to_string());
         };
-        self.workbook.worksheets.remove(sheet_index as usize);
-        self.reset_parsed_structures();
+        let removed = self.workbook.worksheets.remove(sheet_index as usize);
+        // The deleted sheet's cells are gone; the sheets after it are one
+        // closer. A reference that this deletion breaks is not in the set,
+        // so it shows #REF!.
+        self.reindex_import_frozen(|sheet| match sheet.cmp(&sheet_index) {
+            std::cmp::Ordering::Less => Some(sheet),
+            std::cmp::Ordering::Equal => None,
+            std::cmp::Ordering::Greater => Some(sheet - 1),
+        });
+        if is_link_sheet_name(&removed.name) {
+            // GRIDPATH: the sheet of the other workbook was deleted there.
+            // Its readers are now spelled like links to a workbook that is
+            // not loaded, which keep the value they have — but this value is
+            // not one the file was saved with, and the sheet it came from no
+            // longer exists. Forget it, so the cells show #REF!.
+            self.reparse_structures();
+            self.forget_values_of_links_to(&removed.name);
+            self.evaluate();
+        } else {
+            self.reset_parsed_structures();
+        }
         Ok(())
+    }
+
+    /// GRIDPATH: formula cells with an unresolvable reference to the sheet
+    /// `sheet_name` lose their value, so the next evaluation gives them the
+    /// error instead of keeping it. Formulas must be parsed.
+    fn forget_values_of_links_to(&mut self, sheet_name: &str) {
+        let upper = sheet_name.to_uppercase();
+        for (sheet, worksheet) in self.workbook.worksheets.iter_mut().enumerate() {
+            let Some(formulas) = self.parsed_formulas.get(sheet) else {
+                continue;
+            };
+            for cell in worksheet.sheet_data.values_mut().flat_map(|row| row.values_mut()) {
+                let (f, v) = match cell {
+                    Cell::CellFormula { f, v, .. } | Cell::ArrayFormula { f, v, .. } => (*f, v),
+                    _ => continue,
+                };
+                if formulas
+                    .get(f as usize)
+                    .is_some_and(|(node, _)| crate::model::node_has_wrong_ref_to_sheet(node, &upper))
+                {
+                    *v = FormulaValue::Unevaluated;
+                }
+            }
+        }
     }
 
     /// Moves the worksheet at `sheet_index` to `new_index`, shifting the other
@@ -582,6 +883,19 @@ impl<'a> Model<'a> {
         self.workbook
             .worksheets
             .insert(new_index as usize, worksheet);
+        // The moved sheet takes its new index; the sheets it passed shift
+        // one place the other way.
+        self.reindex_import_frozen(|sheet| {
+            Some(if sheet == sheet_index {
+                new_index
+            } else if sheet > sheet_index && sheet <= new_index {
+                sheet - 1
+            } else if sheet >= new_index && sheet < sheet_index {
+                sheet + 1
+            } else {
+                sheet
+            })
+        });
         self.reset_parsed_structures();
         Ok(())
     }

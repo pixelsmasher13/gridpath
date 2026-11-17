@@ -23,6 +23,9 @@ export function buildSaveMirror(batches: any[]): SaveMirror {
     // history, or batches consumed by a full-export save). Replaying them
     // would apply structural ops a second time.
     if (b.persisted) continue;
+    // A repeat of another workbook's edit on this one's hidden copy of it:
+    // nothing of this workbook's own sheets, so nothing for its file.
+    if (b.link_origin) continue;
     for (const m of b.mutations ?? []) {
       if (m.type === "set_format") {
         // Save mirror keeps `background` as a sibling field on each cell

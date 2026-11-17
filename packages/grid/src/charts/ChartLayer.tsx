@@ -11,7 +11,7 @@ const noSubscribe = () => () => {};
 
 function ChartView({ chart }: { chart: NativeChart }) {
   const host = useRef<HTMLDivElement>(null);
-  const renderer = useRef<ReturnType<typeof import("./lineRenderer").mount> | null>(null);
+  const renderer = useRef<ReturnType<typeof import("./chartRenderer").mount> | null>(null);
   const latest = useRef(chart);
   latest.current = chart;
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,7 @@ function ChartView({ chart }: { chart: NativeChart }) {
     if (!element || chart.unsupported) return;
     let cancelled = false;
     let resize: ResizeObserver | undefined;
-    import("./lineRenderer").then(({ mount }) => {
+    import("./chartRenderer").then(({ mount }) => {
       if (cancelled) return;
       renderer.current = mount(element, latest.current);
       resize = new ResizeObserver(() => renderer.current?.resize());

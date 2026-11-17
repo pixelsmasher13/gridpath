@@ -28,11 +28,12 @@ import {
   type WorkbookSnapshot,
 } from "./snapshot";
 import { buildWorkbookIndex, type WorkbookIndex } from "../core/workbookIndex";
+import { isLinkSheetName, linkSheetName, numberedPrefix, rewriteLinks, splitLinkSheetName } from "./links";
 
 // ---- engine loading ----
 
 /** What `evaluateEdited` returns: refresh everything, or just these cells. */
-type EngineDelta =
+export type EngineDelta =
   | { full: true }
   | { full: false; cells: Array<EngineCell & { sheet: number }>; styles: Record<string, EngineStyle> };
 
@@ -63,10 +64,28 @@ type EngineWorkbook = {
   workbookIndex?(): string;
   /** query_rows reply JSON for a query whose `sheet` is an index. */
   queryRows?(query: string): string;
+  /**
+   * Workspace: keep a hidden copy of `source`'s sheet in this workbook under
+   * the name formulas use for it (`[NOW.xlsx]Model`). Returns
+   * `{"sheet","created","changed"}`.
+   */
+  attachLink?(name: string, source: EngineWorkbook, sourceSheet: number): string;
+  /** Workspace: carry changed source cells (flat 1-based row, column pairs) into the copy. */
+  pushLinkCells?(linkSheet: number, source: EngineWorkbook, sourceSheet: number, cells: Int32Array): number;
+  /** Workspace: the copied sheet was renamed in its own workbook. */
+  renameLinkSheet?(sheet: number, name: string): void;
+  /** Save: for each hidden copy formulas read, where they read it and the values there (JSON, `LinkCacheSheet[]`). */
+  linkCache?(): string;
+  /** The sheets of other workbooks that formulas name and no copy stands behind (JSON list, `["[1]Model"]`). */
+  unresolvedLinks?(): string;
 };
 type Engine = {
   Workbook: { open(bytes: Uint8Array): EngineWorkbook };
   patch(base: Uint8Array, patchJson: string): Uint8Array;
+  /** Bytes of a new, empty .xlsx with these sheets. */
+  blankXlsx?(sheetNames: string[]): Uint8Array;
+  /** The links to other workbooks an .xlsx was saved with (JSON, `SavedLink[]`). */
+  externalLinks?(bytes: Uint8Array): string;
 };
 
 let engineCache: Engine | null = null;
@@ -147,8 +166,46 @@ export const a1Of = (row: number, col: number) => `${colLetters(col)}${row + 1}`
 
 // ---- session ----
 
+/** One other workbook an .xlsx was saved reading: `[index]Sheet!A1` in its formulas. */
+export type SavedLink = {
+  index: number;
+  /** The other file as the .xlsx names it (`NOW.xlsx`, `file:///…`). Null for a link that is not to a workbook. */
+  target: string | null;
+  /** The other file's sheet names, as the link lists them. */
+  sheets: string[];
+};
+
+/** What the engine reports of one hidden copy for a save: 0-based areas read, and the values in them. */
+type LinkCacheSheet = { sheet: string; areas: Array<[number, number, number, number]>; cells: Array<{ r: number; c: number; v: unknown }> };
+
+/**
+ * What a save needs to know about the workbook's hidden copies, which only
+ * the workspace can tell: the file each one copies.
+ */
+export type LinkSave = {
+  /**
+   * Each copy, by upper-cased name (`[NOW.XLSX]MODEL`): the workbook it
+   * copies, and that workbook's number in the file when the file already
+   * links to it.
+   */
+  copies: Map<string, { source: string; index?: number }>;
+  /** How the file is to name a workbook it does not link to yet (`NOW.xlsx`, `file:///…`). */
+  target: (source: string) => string;
+};
+
+/** A batch to apply: `status` and `created_at` are filled in when left out. */
+export type NewBatch = Omit<ChangeBatch, "status" | "created_at"> & Partial<Pick<ChangeBatch, "status" | "created_at">>;
+
+export type ApplyOptions = {
+  /** Apply only the mutations this accepts; the recorded batch keeps them all. */
+  only?: (m: UniverMutation) => boolean;
+  /** False: leave the evaluation to a later `settle()`. */
+  evaluate?: boolean;
+};
+
 export class WorkbookSession {
   private mapped: MappedSnapshot | null = null;
+  private saved: SavedLink[] | null | undefined;
   private readonly baseline: Map<string, Map<string, BaselineCell>>;
   /** Batches applied this session, in order. Save consumes accepted + pending. */
   readonly batches: ChangeBatch[] = [];
@@ -181,8 +238,24 @@ export class WorkbookSession {
     return this.mapped;
   }
 
+  /** The workbook's own sheets. The hidden copies of other workbooks' sheets are not among them. */
   sheetNames(): string[] {
+    return this.wb.sheetNames().filter((n) => !isLinkSheetName(n));
+  }
+
+  /** Every sheet the engine holds, hidden copies included, in the engine's order (what a delta's sheet number counts). */
+  allSheetNames(): string[] {
     return this.wb.sheetNames();
+  }
+
+  /** Names of the hidden copies this workbook holds (`[NOW.xlsx]Model`). */
+  linkSheetNames(): string[] {
+    return this.wb.sheetNames().filter(isLinkSheetName);
+  }
+
+  /** Whether the engine build can link workbooks. */
+  supportsLinks(): boolean {
+    return typeof this.wb.attachLink === "function" && typeof this.wb.pushLinkCells === "function";
   }
 
   /**
@@ -268,18 +341,106 @@ export class WorkbookSession {
    * a fresh snapshot. Throws on the first mutation the engine rejects; the
    * batch is recorded only if every mutation applied.
    */
-  apply(batch: Omit<ChangeBatch, "status" | "created_at"> & Partial<Pick<ChangeBatch, "status" | "created_at">>): ChangeBatch {
+  apply(batch: NewBatch, opts: ApplyOptions = {}): ChangeBatch {
+    return this.applyTracked(batch, opts).batch;
+  }
+
+  /**
+   * `apply`, also returning what the evaluation changed (null when
+   * `opts.evaluate` is false: the caller evaluates with `settle`).
+   */
+  applyTracked(batch: NewBatch, opts: ApplyOptions = {}): { batch: ChangeBatch; delta: EngineDelta | null } {
     // Capture the pre-edit state on each cell mutation so the review UI can
     // show before/after and a rejected batch is a real record of what it
     // undid. Tool calls arrive with old_* unset (no grid to read from).
     const mutations = batch.mutations.map((m) => this.withOldState(m));
-    for (const m of mutations) this.applyOne(m);
+    for (const m of mutations) if (!opts.only || opts.only(m)) this.applyOne(m);
+    const delta = opts.evaluate === false ? null : this.settle();
+    const rec: ChangeBatch = { status: "pending", created_at: new Date().toISOString(), ...batch, mutations };
+    this.batches.push(rec);
+    return { batch: rec, delta };
+  }
+
+  /** Evaluate what was edited since the last evaluation and refresh the cached snapshot. */
+  settle(): EngineDelta {
     const delta = JSON.parse(this.wb.evaluateEdited()) as EngineDelta;
     if (delta.full || !this.mapped) this.mapped = null;
     else this.patchMapped(delta);
-    const rec: ChangeBatch = { status: "pending", created_at: new Date().toISOString(), ...batch, mutations };
-    this.batches.push(rec);
-    return rec;
+    return delta;
+  }
+
+  // -- links to other workbooks (driven by the workspace) --
+
+  /**
+   * Make this workbook's hidden copy `name` (`[NOW.xlsx]Model`) equal to
+   * `sourceSheet` of `source`, creating it when there is none. The changed
+   * cells recalculate on the next `apply` / `settle`.
+   */
+  syncLink(name: string, source: WorkbookSession, sourceSheet: string): { created: boolean; changed: number } {
+    if (source === this) throw new Error("a workbook does not link to itself");
+    if (!this.wb.attachLink) throw new Error("links between workbooks need a newer engine build — run `npm run build:engine`");
+    const r = JSON.parse(this.wb.attachLink(name, source.wb, source.sheetIndex(sourceSheet))) as { created: boolean; changed: number };
+    return { created: r.created, changed: r.changed };
+  }
+
+  /** Carry the cells `source` just changed (flat 1-based row, column pairs) into the copy `name`. */
+  pushLink(name: string, source: WorkbookSession, sourceSheetIndex: number, cells: Int32Array): number {
+    if (!this.wb.pushLinkCells) throw new Error("links between workbooks need a newer engine build — run `npm run build:engine`");
+    return this.wb.pushLinkCells(this.sheetIndex(name), source.wb, sourceSheetIndex, cells);
+  }
+
+  /** Drop the copy `name`: the formulas that read it show #REF! from the next evaluation. */
+  detachLink(name: string): void {
+    this.wb.deleteSheet(this.sheetIndex(name));
+  }
+
+  /**
+   * The copy `from` gets the name `to`, and the formulas that read it are
+   * respelled. Values do not change.
+   */
+  renameLink(from: string, to: string): void {
+    if (!this.wb.renameLinkSheet) throw new Error("links between workbooks need a newer engine build — run `npm run build:engine`");
+    this.wb.renameLinkSheet(this.sheetIndex(from), to);
+    this.mapped = null;
+  }
+
+  /**
+   * The links to other workbooks the file was saved with, in the order of
+   * their numbers. Null when this engine build cannot tell.
+   */
+  savedLinks(): SavedLink[] | null {
+    if (this.saved === undefined) {
+      const read = loadEngine().externalLinks;
+      if (typeof read !== "function") this.saved = null;
+      else {
+        try {
+          this.saved = JSON.parse(read(this.originalBytes)) as SavedLink[];
+        } catch {
+          // Link parts nobody could read: the formulas keep their saved values.
+          this.saved = [];
+        }
+      }
+    }
+    return this.saved;
+  }
+
+  /**
+   * The sheets of other workbooks that formulas here name and no copy
+   * stands behind (`[1]Model` in a file as it was saved). Such a formula
+   * shows the value the file was saved with.
+   */
+  unresolvedLinks(): string[] {
+    if (typeof this.wb.unresolvedLinks !== "function") return [];
+    return JSON.parse(this.wb.unresolvedLinks()) as string[];
+  }
+
+  /**
+   * The copies something here reads (a formula, a defined name), by
+   * upper-cased name. Null when this engine build cannot tell.
+   */
+  copiesRead(): Set<string> | null {
+    if (typeof this.wb.linkCache !== "function") return null;
+    return new Set((JSON.parse(this.wb.linkCache()) as LinkCacheSheet[]).map((c) => c.sheet.toUpperCase()));
   }
 
   /**
@@ -294,6 +455,7 @@ export class WorkbookSession {
     const cache = newStyleCache();
     for (const ec of delta.cells) {
       const name = names[ec.sheet];
+      if (name !== undefined && isLinkSheetName(name)) continue;
       const sheet = name !== undefined ? mapped.workbook.sheets[sheetIdOf(name)] : undefined;
       if (!sheet) {
         // A sheet the snapshot doesn't know: safer to rebuild than to guess.
@@ -389,7 +551,9 @@ export class WorkbookSession {
         return;
       }
       case "rename_sheet":
-        wb.renameSheet(idx(m.old_name), m.new_name);
+        // The copy of another workbook's sheet follows that sheet's new name.
+        if (isLinkSheetName(m.old_name) && wb.renameLinkSheet && splitLinkSheetName(m.new_name)) wb.renameLinkSheet(idx(m.old_name), m.new_name);
+        else wb.renameSheet(idx(m.old_name), m.new_name);
         return;
       case "delete_sheet":
         wb.deleteSheet(idx(m.name));
@@ -440,11 +604,91 @@ export class WorkbookSession {
   /**
    * Patch the ORIGINAL bytes with everything in accepted + pending batches.
    * Returns the new file bytes, or the reason the surgical path can't be used.
+   *
+   * A workbook that reads others needs `links` (from the workspace): each
+   * other workbook is written into the file the way Excel does it, as a
+   * numbered link with the file's path and the last value of every cell
+   * read there, and the formulas are spelled `[1]Model!B23`.
    */
-  buildSave(): { ok: true; bytes: Uint8Array; patch: unknown } | { ok: false; reason: string } {
+  buildSave(links?: LinkSave | null): { ok: true; bytes: Uint8Array; patch: unknown } | { ok: false; reason: string; links?: true } {
+    const copies = new Set(this.linkSheetNames().map((n) => n.toUpperCase()));
+    if (copies.size > 0 && typeof this.wb.linkCache !== "function") {
+      return { ok: false, links: true, reason: "Writing links between workbooks into an .xlsx needs a newer engine build (run `npm run build:engine`). Nothing was saved." };
+    }
+
+    // Other workbook → its number in the file: the one the file has, or the next free one.
+    const savedCount = this.savedLinks()?.length ?? 0;
+    const fresh = new Map<string, number>();
+    const targets = new Map<number, string>();
+    const unknown = new Set<string>();
+    const numberOf = (name: string): number | null => {
+      const parts = splitLinkSheetName(name);
+      if (parts && /^\d+$/.test(parts.book)) return Number(parts.book);
+      const copy = links?.copies.get(name.toUpperCase());
+      if (!copy) {
+        unknown.add(name);
+        return null;
+      }
+      if (copy.index !== undefined) return copy.index;
+      let n = fresh.get(copy.source);
+      if (n === undefined) {
+        n = savedCount + fresh.size + 1;
+        fresh.set(copy.source, n);
+        targets.set(n, links!.target(copy.source));
+      }
+      return n;
+    };
+    // Number → sheet (upper-cased) → what the file keeps of it.
+    type KeptSheet = { name: string; areas: LinkCacheSheet["areas"]; cells: LinkCacheSheet["cells"] };
+    const kept = new Map<number, Map<string, KeptSheet>>();
+    const keep = (n: number, sheet: string): KeptSheet => {
+      let sheets = kept.get(n);
+      if (!sheets) kept.set(n, (sheets = new Map()));
+      let k = sheets.get(sheet.toUpperCase());
+      if (!k) sheets.set(sheet.toUpperCase(), (k = { name: sheet, areas: [], cells: [] }));
+      return k;
+    };
+    // A link that has no copy behind it is left as it is written.
+    const formulaText = (f: string): string =>
+      f.includes("[")
+        ? rewriteLinks(f, (l) => {
+            const name = linkSheetName(l.book, l.sheet);
+            if (l.dir || !copies.has(name.toUpperCase())) return null;
+            const n = numberOf(name);
+            if (n === null) return null;
+            keep(n, l.sheet);
+            return /^\d+$/.test(l.book) ? null : numberedPrefix(n, l.sheet);
+          })
+        : f;
+
     const mirror = buildSaveMirror(this.batches);
-    const built = buildWorkbookPatch(this.snapshot(), this.baseline, mirror);
+    const built = buildWorkbookPatch(this.snapshot(), this.baseline, mirror, copies.size > 0 ? { formulaText } : undefined);
     if (!built.ok) return { ok: false, reason: built.reason };
+
+    if (copies.size > 0) {
+      for (const c of JSON.parse(this.wb.linkCache!()) as LinkCacheSheet[]) {
+        const parts = splitLinkSheetName(c.sheet);
+        const n = parts ? numberOf(c.sheet) : null;
+        if (!parts || n === null) continue;
+        const k = keep(n, parts.sheet);
+        k.areas = c.areas;
+        k.cells = c.cells;
+      }
+      if (unknown.size > 0) {
+        return {
+          ok: false,
+          links: true,
+          reason:
+            `Formulas here read ${[...unknown].join(", ")}, and the save was not told which ${unknown.size === 1 ? "file that is" : "files those are"}, so nothing was saved. ` +
+            "Save through the workspace (save_workbook), which knows the workbooks that are open together.",
+        };
+      }
+      const externalLinks = [...kept]
+        .sort((a, b) => a[0] - b[0])
+        .map(([index, sheets]) => ({ index, ...(targets.has(index) ? { target: targets.get(index) } : {}), sheets: [...sheets.values()] }));
+      if (externalLinks.length > 0) built.patch.externalLinks = externalLinks;
+    }
+
     const bytes = loadEngine().patch(this.originalBytes, JSON.stringify(built.patch));
     return { ok: true, bytes, patch: built.patch };
   }

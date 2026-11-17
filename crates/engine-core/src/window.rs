@@ -59,6 +59,9 @@ pub fn workbook_layout_json(m: &Model) -> Result<String, String> {
         sheets.push(json!({
             "name": ws.name,
             "hidden": !matches!(ws.state, SheetState::Visible),
+            // The hidden copy of another workbook's sheet (see `links`):
+            // never a tab, never listed.
+            "link": crate::links::is_link_sheet(m, sheet_index as u32),
             "selected": selected_sheet == Some(sheet_index),
             "color": crate::color_json(&ws.color, &theme),
             "frozenRows": ws.frozen_rows,

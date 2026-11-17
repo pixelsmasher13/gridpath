@@ -138,4 +138,34 @@ describe.skipIf(!built)("WorkbookSession", () => {
     const again = WorkbookSession.open(file, saved.bytes);
     expect(again.cell(sheet, 0, 40).value).toBe("probe");
   });
+
+  it("a formula the engine cannot compute keeps its saved value when rows above it move", async () => {
+    // Two add-in formulas, one under the other, with the values Excel saved.
+    const zip = await JSZip.loadAsync(fs.readFileSync(file));
+    const part = "xl/worksheets/sheet1.xml";
+    const xml = await zip.file(part)!.async("string");
+    expect(xml).toContain("</sheetData>");
+    const rows =
+      `<row r="3000"><c r="A3000"><f>_xll.FDS("AAA","PRICE")</f><v>11</v></c></row>` +
+      `<row r="3001"><c r="A3001"><f>_xll.FDS("BBB","PRICE")</f><v>22</v></c></row>`;
+    zip.file(part, xml.replace("</sheetData>", rows + "</sheetData>"));
+    const s = WorkbookSession.open(file, await zip.generateAsync({ type: "uint8array" }));
+    const sheet = s.sheetNames()[0];
+    expect(s.cell(sheet, 2999, 0).value).toBe(11);
+    expect(s.cell(sheet, 3000, 0).value).toBe(22);
+
+    s.apply({ id: "b1", prompt: "t", justification: "t", mutations: [{ type: "insert_rows", sheet, before: 0, count: 1 }] });
+    // Each value went down one row with its formula: no error, and not the
+    // value of the row that is now where the cell used to be.
+    expect(s.cell(sheet, 3000, 0).value).toBe(11);
+    expect(s.cell(sheet, 3001, 0).value).toBe(22);
+
+    const saved = s.buildSave();
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const again = WorkbookSession.open(file, saved.bytes);
+    expect(again.cell(sheet, 3000, 0).value).toBe(11);
+    expect(again.cell(sheet, 3001, 0).value).toBe(22);
+    expect(again.cell(sheet, 3000, 0).formula).toContain("AAA");
+  });
 });

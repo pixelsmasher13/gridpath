@@ -76,9 +76,9 @@ if (command === "mcp") {
   let base: { url: string; token: string } | null = null;
   const review = await startReviewServer(handlers, { port: Number(values(rest, "--port")[0] ?? 0) });
   base = { url: review.url, token: review.token };
-  const s = handlers.session(abs);
+  const pending = handlers.pendingBatches(abs).length;
   const url = handlers.reviewUrlFor(abs)!;
-  process.stdout.write(`${s.batches.length} pending batch(es) for ${abs}\n${url}\n`);
+  process.stdout.write(`${pending} pending batch(es) for ${abs}\n${url}\n`);
   openBrowser(url);
   // Keep serving until the tab is closed and the user hits Ctrl-C.
 } else {

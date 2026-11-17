@@ -1026,6 +1026,42 @@ fn insert_and_delete_columns_renumber_cells() {
 }
 
 #[test]
+fn insert_columns_keeps_what_ends_on_the_last_column() {
+    // Real models carry a column format that runs to the last column and
+    // names like `Model!$C$1510:$XFD$1533`. Inserting a column used to stop
+    // the save with RefOutOfRange; Excel leaves the far end where it is.
+    let plain = structural::fixture();
+    let sheet1 = entry_str(&plain, "xl/worksheets/sheet1.xml").replace(
+        "<sheetData>",
+        r#"<cols><col min="1" max="1" width="20" customWidth="1"/><col min="5" max="16384" width="9" style="0"/></cols><sheetData>"#,
+    );
+    let workbook = entry_str(&plain, "xl/workbook.xml").replace(
+        "<definedName name=\"DATA_RANGE\">Data!$A$2:$A$6</definedName>",
+        "<definedName name=\"DATA_RANGE\">Data!$A$2:$A$6</definedName><definedName name=\"TO_EDGE\">Data!$C$2:$XFD$6</definedName><definedName name=\"ALL_ROWS\">Data!$A$2:$A$1048576</definedName>",
+    );
+    assert!(sheet1.contains("16384") && workbook.contains("TO_EDGE"), "fixture not as expected");
+    let base = structural::fixture_with(&[
+        ("xl/worksheets/sheet1.xml", sheet1.as_bytes()),
+        ("xl/workbook.xml", workbook.as_bytes()),
+    ]);
+
+    let p = patch(r#""rowColOps":[{"op":"insertColumns","sheet":"Data","before":1,"count":1}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let s1 = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(s1.contains(r#"<col min="6" max="16384" width="9" style="0"/>"#), "{s1}");
+    assert!(s1.contains(r#"<c r="D1">"#), "C1 → D1: {s1}");
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains("Data!$D$2:$XFD$6"), "{wb}");
+
+    // Rows: a name that runs to the last row keeps its end.
+    let p = patch(r#""rowColOps":[{"op":"insertRows","sheet":"Data","before":3,"count":2}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains("Data!$A$2:$A$1048576"), "{wb}");
+    assert!(wb.contains("Data!$C$2:$XFD$8"), "{wb}");
+}
+
+#[test]
 fn row_col_op_composes_with_cell_patch() {
     let base = structural::fixture();
     // Insert a row at the top, then write into the (post-shift) new row 1.
@@ -1228,6 +1264,38 @@ fn duplicate_create_in_one_patch_is_one_sheet() {
     assert_eq!(entry_str(&out2, "xl/workbook.xml").matches(r#"name="Notes""#).count(), 1);
 }
 
+/// A workbook that declares the relationships prefix on each `<sheet>`
+/// and not on its root (what openpyxl writes), or binds it to another
+/// prefix: the `r:id` of a new sheet must be a declared prefix there too,
+/// or the file does not open.
+#[test]
+fn a_new_sheet_declares_its_relationship_prefix_where_the_workbook_does_not() {
+    const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let inline = format!(
+        r#"<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet xmlns:r="{REL}" name="Alpha" sheetId="1" r:id="rId1"/><sheet xmlns:r="{REL}" name="Beta &amp; Co" sheetId="2" r:id="rId2"/></sheets><calcPr calcId="1"/></workbook>"#
+    );
+    let p = patch(r#""sheetOps":[{"op":"create","name":"Charts"}]"#);
+    let out = apply_patch_json(&fixture_with(&[("xl/workbook.xml", &inline)], &[]), &p).unwrap();
+    crate::validate::validate_package(&out).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains(&format!(r#"<sheet name="Charts" sheetId="3" xmlns:r="{REL}" r:id="rId5"/>"#)), "{wb}");
+
+    let other = format!(
+        r#"<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:rel="{REL}"><sheets><sheet name="Alpha" sheetId="1" rel:id="rId1"/><sheet name="Beta &amp; Co" sheetId="2" rel:id="rId2"/></sheets><calcPr calcId="1"/></workbook>"#
+    );
+    let out = apply_patch_json(&fixture_with(&[("xl/workbook.xml", &other)], &[]), &p).unwrap();
+    crate::validate::validate_package(&out).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains(r#"<sheet name="Charts" sheetId="3" rel:id="rId5"/>"#), "{wb}");
+
+    // The gate itself: a prefix nobody declared is refused, wherever it is;
+    // one declared on the element or above it is fine.
+    let undeclared = crate::validate::prefixes_declared("p.xml", br#"<a xmlns:x="u"><b><x:c y:id="1"/></b></a>"#).unwrap_err();
+    assert!(undeclared.to_string().contains(r#"namespace prefix "y" on y:id is not declared"#), "{undeclared}");
+    assert!(crate::validate::prefixes_declared("p.xml", br#"<a><b xmlns:x="u"/><x:c/></a>"#).is_err());
+    crate::validate::prefixes_declared("p.xml", br#"<a xmlns:x="u"><b xmlns:y="v" y:id="1"><x:c xml:space="preserve" ref="A1:B2"/></b><d xmlns:z="w" z:k="1"/></a>"#).unwrap();
+}
+
 #[test]
 fn sheet_tab_color_sets_replaces_and_clears() {
     let base = structural::fixture();
@@ -1378,4 +1446,548 @@ fn cache_refresh_on_a_materialized_shared_member() {
     assert!(sheet.contains(r#"<c r="C2"><v>123</v></c>"#), "edited member: {sheet}");
     assert!(sheet.contains(r#"<c r="D2" t="b"><f>C2*2</f><v>1</v></c>"#), "refreshed member: {sheet}");
     assert!(!sheet.contains("t=\"shared\""), "{sheet}");
+}
+
+// ---------------------------------------------------------------------------
+// links to other workbooks
+// ---------------------------------------------------------------------------
+
+/// The fixture with `replace`d entries swapped and `extra` ones added.
+fn fixture_with(replace: &[(&str, &str)], extra: &[(&str, &str)]) -> Vec<u8> {
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, data) in entries(&fixture()) {
+        zip.start_file(&name, SimpleFileOptions::default()).unwrap();
+        match replace.iter().find(|(n, _)| *n == name) {
+            Some((_, with)) => zip.write_all(with.as_bytes()).unwrap(),
+            None => zip.write_all(&data).unwrap(),
+        }
+    }
+    for (name, data) in extra {
+        zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+        zip.write_all(data.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+const LINK_OVERRIDE: &str = r#"<Override PartName="/xl/externalLinks/externalLink1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"/>"#;
+const LINK_REL: &str = r#"<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink" Target="externalLinks/externalLink1.xml"/>"#;
+const LINK_PATH_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" Target="file:///C:\Models\NOW%20FY26.xlsx" TargetMode="External"/></Relationships>"#;
+
+/// A link part the way Excel writes one: an alternate-URL block first, the
+/// source's full list of sheets, a defined name, kept values.
+const EXCEL_LINK_HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14 xxl21" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" xmlns:xxl21="http://schemas.microsoft.com/office/spreadsheetml/2021/extlinks2021"><externalBook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"><mc:AlternateContent><mc:Choice Requires="xxl21"><xxl21:alternateUrls><xxl21:absoluteUrl r:id="rId2"/></xxl21:alternateUrls></mc:Choice></mc:AlternateContent><sheetNames><sheetName val="Cover"/><sheetName val="Model"/><sheetName val="P&amp;L"/>"#;
+const EXCEL_LINK_NAMES_TAIL: &str = r#"</sheetNames><definedNames><definedName name="Rate" refersTo="=Model!$B$2"/></definedNames><sheetDataSet><sheetData sheetId="0"/>"#;
+const EXCEL_LINK_DATA: &str = r#"<sheetData sheetId="1"><row r="2"><cell r="B2"><v>0.25</v></cell><cell r="C2" t="str"><v>FY25</v></cell></row><row r="23"><cell r="B23"><v>100</v></cell><cell r="C23"><v>200</v></cell></row></sheetData><sheetData sheetId="2" refreshError="1"/>"#;
+const EXCEL_LINK_TAIL: &str = "</sheetDataSet></externalBook></externalLink>";
+
+/// The fixture, already linked to one other workbook.
+fn linked_fixture() -> Vec<u8> {
+    let workbook = WORKBOOK.replace(
+        "</sheets>",
+        r#"</sheets><externalReferences><externalReference r:id="rId5"/></externalReferences>"#,
+    );
+    let rels = WORKBOOK_RELS.replace("</Relationships>", &format!("{LINK_REL}</Relationships>"));
+    let types = CONTENT_TYPES.replace("</Types>", &format!("{LINK_OVERRIDE}</Types>"));
+    let link = format!("{EXCEL_LINK_HEAD}{EXCEL_LINK_NAMES_TAIL}{EXCEL_LINK_DATA}{EXCEL_LINK_TAIL}");
+    fixture_with(
+        &[
+            ("xl/workbook.xml", &workbook),
+            ("xl/_rels/workbook.xml.rels", &rels),
+            ("[Content_Types].xml", &types),
+        ],
+        &[
+            ("xl/externalLinks/externalLink1.xml", &link),
+            ("xl/externalLinks/_rels/externalLink1.xml.rels", LINK_PATH_RELS),
+        ],
+    )
+}
+
+#[test]
+fn link_to_another_workbook_is_created() {
+    use super::external_links::{read, ExternalLinkInfo};
+    let base = fixture();
+    assert_eq!(read(&base).unwrap(), vec![]);
+    let p = patch(
+        r##""sheets":[{"name":"Alpha","cells":[{"r":5,"c":0,"f":"[1]Model!B23+'[1]Income Statement'!A1","v":{"t":"n","n":1250.5}}]}],
+        "externalLinks":[{"index":1,"target":"NOW%202026.xlsx","sheets":[
+            {"name":"Model","areas":[[22,1,22,1],[1,0,2,1]],"cells":[
+                {"r":22,"c":1,"v":{"t":"n","n":1250}},
+                {"r":1,"c":0,"v":{"t":"s","s":"R&D <net>"}},
+                {"r":2,"c":1,"v":{"t":"e","e":"#DIV/0!"}},
+                {"r":1,"c":1,"v":{"t":"b","b":false}}]},
+            {"name":"Income Statement","areas":[[0,0,0,0]],"cells":[{"r":0,"c":0,"v":{"t":"n","n":0.5}}]},
+            {"name":"Empty","areas":[[0,0,0,0]]}]}]"##,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+
+    assert_eq!(
+        entry_str(&out, "xl/externalLinks/externalLink1.xml"),
+        concat!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n",
+            r#"<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+            r#"<externalBook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1">"#,
+            r#"<sheetNames><sheetName val="Model"/><sheetName val="Income Statement"/><sheetName val="Empty"/></sheetNames>"#,
+            r#"<sheetDataSet><sheetData sheetId="0">"#,
+            r#"<row r="2"><cell r="A2" t="str"><v>R&amp;D &lt;net&gt;</v></cell><cell r="B2" t="b"><v>0</v></cell></row>"#,
+            r##"<row r="3"><cell r="B3" t="e"><v>#DIV/0!</v></cell></row>"##,
+            r#"<row r="23"><cell r="B23"><v>1250</v></cell></row></sheetData>"#,
+            r#"<sheetData sheetId="1"><row r="1"><cell r="A1"><v>0.5</v></cell></row></sheetData>"#,
+            r#"<sheetData sheetId="2"/></sheetDataSet></externalBook></externalLink>"#,
+        )
+    );
+    let link_rels = entry_str(&out, "xl/externalLinks/_rels/externalLink1.xml.rels");
+    assert!(
+        link_rels.contains(r#"<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" Target="NOW%202026.xlsx" TargetMode="External"/>"#),
+        "{link_rels}"
+    );
+
+    // The workbook lists it where the schema wants the list, and reaches the
+    // part through a relationship of its own.
+    // (rId5 went to the metadata part the formula needs.)
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(
+        wb.contains(r#"</sheets><externalReferences><externalReference r:id="rId6"/></externalReferences><definedNames>"#),
+        "{wb}"
+    );
+    let rels = entry_str(&out, "xl/_rels/workbook.xml.rels");
+    assert!(rels.contains(&LINK_REL.replace("rId5", "rId6")), "{rels}");
+    let types = entry_str(&out, "[Content_Types].xml");
+    assert!(types.contains(LINK_OVERRIDE), "{types}");
+    let sheet = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(sheet.contains("[1]Model!B23+&apos;[1]Income Statement&apos;!A1</f><v>1250.5</v>"), "{sheet}");
+
+    assert_untouched_identical(
+        &base,
+        &out,
+        &["xl/worksheets/sheet1.xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml"],
+        &["xl/calcChain.xml"],
+    );
+    super::validate::validate_package(&out).unwrap();
+    assert_eq!(
+        read(&out).unwrap(),
+        vec![ExternalLinkInfo {
+            index: 1,
+            target: Some("NOW%202026.xlsx".into()),
+            sheets: vec!["Model".into(), "Income Statement".into(), "Empty".into()],
+        }]
+    );
+}
+
+#[test]
+fn links_are_numbered_in_the_order_they_are_added() {
+    use super::external_links::read;
+    let base = fixture();
+    // Given out of order: 1 is still created first.
+    let p = patch(
+        r#""externalLinks":[
+            {"index":2,"target":"/Users/me/Models/ANT.xlsx","sheets":[{"name":"Summary"}]},
+            {"index":1,"target":"NOW.xlsx","sheets":[{"name":"Model"}]}]"#,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(
+        wb.contains(r#"<externalReferences><externalReference r:id="rId5"/><externalReference r:id="rId6"/></externalReferences>"#),
+        "{wb}"
+    );
+    // Nothing else of the workbook part changed: no formula was written.
+    assert!(!wb.contains("fullCalcOnLoad"), "{wb}");
+    let links = read(&out).unwrap();
+    assert_eq!(links.len(), 2);
+    assert_eq!(links[0].target.as_deref(), Some("NOW.xlsx"));
+    assert_eq!(links[1].target.as_deref(), Some("/Users/me/Models/ANT.xlsx"));
+    assert_eq!(links[1].sheets, vec!["Summary".to_string()]);
+    super::validate::validate_package(&out).unwrap();
+
+    // A third on top of the saved two.
+    let p = patch(r#""externalLinks":[{"index":3,"target":"C.xlsx","sheets":[{"name":"S"}]}]"#);
+    let again = apply_patch_json(&out, &p).unwrap();
+    assert_eq!(read(&again).unwrap().len(), 3);
+    assert!(entries(&again).iter().any(|(n, _)| n == "xl/externalLinks/externalLink3.xml"));
+    assert_untouched_identical(
+        &out,
+        &again,
+        &["xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml"],
+        &[],
+    );
+
+    for bad in [
+        // A gap: the workbook has none, so the first is 1.
+        r#""externalLinks":[{"index":2,"target":"NOW.xlsx"}]"#,
+        r#""externalLinks":[{"index":0,"target":"NOW.xlsx"}]"#,
+        // No file named.
+        r#""externalLinks":[{"index":1,"sheets":[{"name":"Model"}]}]"#,
+        // The same link twice, the same sheet twice, a cell off the sheet.
+        r#""externalLinks":[{"index":1,"target":"A.xlsx"},{"index":1,"target":"B.xlsx"}]"#,
+        r#""externalLinks":[{"index":1,"target":"A.xlsx","sheets":[{"name":"Model"},{"name":"MODEL"}]}]"#,
+        r#""externalLinks":[{"index":1,"target":"A.xlsx","sheets":[{"name":"Model","cells":[{"r":1048576,"c":0,"v":{"t":"n","n":1}}]}]}]"#,
+        r#""externalLinks":[{"index":1,"target":"A.xlsx","sheets":[{"name":"Model","areas":[[2,0,1,0]]}]}]"#,
+    ] {
+        let e = apply_patch_json(&base, &patch(bad)).unwrap_err();
+        assert!(matches!(e, super::PatchError::BadValue(_)), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn existing_link_is_brought_up_to_date_in_place() {
+    use super::external_links::read;
+    let base = linked_fixture();
+    super::validate::validate_package(&base).unwrap();
+    let before = read(&base).unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].target.as_deref(), Some(r"file:///C:\Models\NOW%20FY26.xlsx"));
+    assert_eq!(before[0].sheets, vec!["Cover".to_string(), "Model".into(), "P&L".into()]);
+
+    // Only the link: B23 has a new value, C23 is now empty, P&L!A1 is read
+    // for the first time, and so is a sheet the link did not list.
+    let p = patch(
+        r##""externalLinks":[{"index":1,"target":"ignored.xlsx","sheets":[
+            {"name":"model","areas":[[22,1,22,2]],"cells":[{"r":22,"c":1,"v":{"t":"n","n":150}}]},
+            {"name":"P&L","areas":[[0,0,0,0]],"cells":[{"r":0,"c":0,"v":{"t":"s","s":"a<b"}}]},
+            {"name":"New Sheet","areas":[[4,4,5,5]],"cells":[
+                {"r":5,"c":5,"v":{"t":"e","e":"#N/A"}},
+                {"r":4,"c":4,"v":{"t":"b","b":true}}]}]}]"##,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    let expected = [
+        EXCEL_LINK_HEAD,
+        r#"<sheetName val="New Sheet"/>"#,
+        EXCEL_LINK_NAMES_TAIL,
+        // Values outside the patch's areas keep their bytes.
+        r#"<sheetData sheetId="1"><row r="2"><cell r="B2"><v>0.25</v></cell><cell r="C2" t="str"><v>FY25</v></cell></row><row r="23"><cell r="B23"><v>150</v></cell></row></sheetData>"#,
+        r#"<sheetData sheetId="2" refreshError="1"><row r="1"><cell r="A1" t="str"><v>a&lt;b</v></cell></row></sheetData>"#,
+        r##"<sheetData sheetId="3"><row r="5"><cell r="E5" t="b"><v>1</v></cell></row><row r="6"><cell r="F6" t="e"><v>#N/A</v></cell></row></sheetData>"##,
+        EXCEL_LINK_TAIL,
+    ]
+    .concat();
+    assert_eq!(entry_str(&out, "xl/externalLinks/externalLink1.xml"), expected);
+    // The path it was saved with stays, and so does everything else.
+    assert_untouched_identical(&base, &out, &["xl/externalLinks/externalLink1.xml"], &[]);
+    assert_eq!(entries(&base).len(), entries(&out).len());
+    super::validate::validate_package(&out).unwrap();
+    assert_eq!(
+        read(&out).unwrap()[0].sheets,
+        vec!["Cover".to_string(), "Model".into(), "P&L".into(), "New Sheet".into()]
+    );
+
+    // Applying the same patch again changes nothing.
+    let again = apply_patch_json(&out, &p).unwrap();
+    assert_eq!(entry_str(&again, "xl/externalLinks/externalLink1.xml"), expected);
+
+    // A second link goes after the saved one.
+    let p = patch(r#""externalLinks":[{"index":2,"target":"ANT.xlsx","sheets":[{"name":"Summary"}]}]"#);
+    let two = apply_patch_json(&out, &p).unwrap();
+    let wb = entry_str(&two, "xl/workbook.xml");
+    assert!(
+        wb.contains(r#"<externalReferences><externalReference r:id="rId5"/><externalReference r:id="rId6"/></externalReferences>"#),
+        "{wb}"
+    );
+    assert!(entries(&two).iter().any(|(n, _)| n == "xl/externalLinks/externalLink2.xml"));
+    assert_eq!(read(&two).unwrap()[1].target.as_deref(), Some("ANT.xlsx"));
+    super::validate::validate_package(&two).unwrap();
+}
+
+#[test]
+fn link_parts_in_other_shapes() {
+    use super::external_links::read;
+    // A prefixed part whose book has nothing in it yet.
+    let bare = r#"<x:externalLink xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:externalBook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></x:externalLink>"#;
+    let mut base = linked_fixture();
+    base = {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, data) in entries(&base) {
+            zip.start_file(&name, SimpleFileOptions::default()).unwrap();
+            zip.write_all(if name == "xl/externalLinks/externalLink1.xml" { bare.as_bytes() } else { &data }).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    };
+    assert_eq!(read(&base).unwrap()[0].sheets, Vec::<String>::new());
+    let p = patch(
+        r#""externalLinks":[{"index":1,"sheets":[{"name":"Model","areas":[[0,0,0,0]],"cells":[{"r":0,"c":0,"v":{"t":"n","n":7}}]}]}]"#,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    assert_eq!(
+        entry_str(&out, "xl/externalLinks/externalLink1.xml"),
+        r#"<x:externalLink xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:externalBook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"><x:sheetNames><x:sheetName val="Model"/></x:sheetNames><x:sheetDataSet><x:sheetData sheetId="0"><x:row r="1"><x:cell r="A1"><x:v>7</x:v></x:cell></x:row></x:sheetData></x:sheetDataSet></x:externalBook></x:externalLink>"#
+    );
+
+    // Names but no values yet, and the names self-closed.
+    let update = |part: &str| {
+        let sheets: Vec<super::patch::ExternalSheetPatch> = serde_json::from_str(
+            r#"[{"name":"Model","areas":[[0,0,0,0]],"cells":[{"r":0,"c":0,"v":{"t":"n","n":7}}]}]"#,
+        )
+        .unwrap();
+        String::from_utf8(super::external_links::update_part(part.as_bytes(), &sheets).unwrap()).unwrap()
+    };
+    assert_eq!(
+        update(r#"<externalLink><externalBook r:id="rId1"><sheetNames><sheetName val="Model"/></sheetNames></externalBook></externalLink>"#),
+        r#"<externalLink><externalBook r:id="rId1"><sheetNames><sheetName val="Model"/></sheetNames><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>7</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#
+    );
+    assert_eq!(
+        update(r#"<externalLink><externalBook r:id="rId1"><sheetNames/><definedNames/><sheetDataSet/></externalBook></externalLink>"#),
+        r#"<externalLink><externalBook r:id="rId1"><sheetNames><sheetName val="Model"/></sheetNames><definedNames/><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>7</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#
+    );
+    assert_eq!(
+        update(r#"<externalLink><externalBook r:id="rId1"><definedNames/></externalBook></externalLink>"#),
+        r#"<externalLink><externalBook r:id="rId1"><sheetNames><sheetName val="Model"/></sheetNames><definedNames/><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>7</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#
+    );
+    // With a byte-order mark in front, offsets still land.
+    let with_bom = update("\u{feff}<externalLink><externalBook r:id=\"rId1\"><sheetNames><sheetName val=\"Model\"/></sheetNames><sheetDataSet><sheetData sheetId=\"0\"><row r=\"1\"><cell r=\"A1\"><v>1</v></cell><cell r=\"B1\"><v>2</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>");
+    assert_eq!(
+        with_bom,
+        "\u{feff}<externalLink><externalBook r:id=\"rId1\"><sheetNames><sheetName val=\"Model\"/></sheetNames><sheetDataSet><sheetData sheetId=\"0\"><row r=\"1\"><cell r=\"A1\"><v>7</v></cell><cell r=\"B1\"><v>2</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"
+    );
+}
+
+#[test]
+fn a_link_that_is_not_a_workbook_keeps_its_number() {
+    use super::external_links::read;
+    // Index 1 is a DDE link; the workbook link is index 2.
+    let dde = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><ddeLink ddeService="Excel" ddeTopic="Quotes"><ddeItems><ddeItem name="Last" advise="1"/></ddeItems></ddeLink></externalLink>"#;
+    let workbook = WORKBOOK.replace(
+        "</sheets>",
+        r#"</sheets><externalReferences><externalReference r:id="rId6"/><externalReference r:id="rId5"/></externalReferences>"#,
+    );
+    let rels = WORKBOOK_RELS.replace(
+        "</Relationships>",
+        &format!(r#"{LINK_REL}<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink" Target="/xl/externalLinks/externalLink2.xml"/></Relationships>"#),
+    );
+    let types = CONTENT_TYPES.replace(
+        "</Types>",
+        &format!("{LINK_OVERRIDE}{}</Types>", LINK_OVERRIDE.replace("externalLink1", "externalLink2")),
+    );
+    let link = format!("{EXCEL_LINK_HEAD}{EXCEL_LINK_NAMES_TAIL}{EXCEL_LINK_DATA}{EXCEL_LINK_TAIL}");
+    let base = fixture_with(
+        &[
+            ("xl/workbook.xml", &workbook),
+            ("xl/_rels/workbook.xml.rels", &rels),
+            ("[Content_Types].xml", &types),
+        ],
+        &[
+            ("xl/externalLinks/externalLink1.xml", &link),
+            ("xl/externalLinks/_rels/externalLink1.xml.rels", LINK_PATH_RELS),
+            ("xl/externalLinks/externalLink2.xml", dde),
+        ],
+    );
+    let links = read(&base).unwrap();
+    assert_eq!(links.len(), 2);
+    assert_eq!((links[0].index, links[0].target.clone(), links[0].sheets.len()), (1, None, 0));
+    assert_eq!(links[1].index, 2);
+    assert_eq!(links[1].sheets.len(), 3);
+
+    // Values cannot go into the DDE link.
+    let p = patch(r#""externalLinks":[{"index":1,"sheets":[{"name":"Model"}]}]"#);
+    assert!(matches!(apply_patch_json(&base, &p).unwrap_err(), super::PatchError::BadValue(_)));
+    // The workbook link is updated by its own number, and a new link is 3,
+    // in a part whose name is free.
+    let p = patch(
+        r#""externalLinks":[
+            {"index":2,"sheets":[{"name":"Cover","areas":[[0,0,0,0]],"cells":[{"r":0,"c":0,"v":{"t":"s","s":"Draft"}}]}]},
+            {"index":3,"target":"ANT.xlsx","sheets":[{"name":"Summary"}]}]"#,
+    );
+    let out = apply_patch_json(&base, &p).unwrap();
+    let updated = entry_str(&out, "xl/externalLinks/externalLink1.xml");
+    assert!(
+        updated.contains(r#"<sheetData sheetId="0"><row r="1"><cell r="A1" t="str"><v>Draft</v></cell></row></sheetData>"#),
+        "{updated}"
+    );
+    assert_eq!(entry_str(&out, "xl/externalLinks/externalLink2.xml"), dde);
+    let links = read(&out).unwrap();
+    assert_eq!(links.len(), 3);
+    assert_eq!(links[2].target.as_deref(), Some("ANT.xlsx"));
+    assert!(entries(&out).iter().any(|(n, _)| n == "xl/externalLinks/externalLink3.xml"));
+    super::validate::validate_package(&out).unwrap();
+}
+
+#[test]
+fn external_reference_lands_where_the_schema_wants_it() {
+    let add = |xml: &str| {
+        String::from_utf8(super::external_links::add_external_reference(xml.as_bytes(), "rId9").unwrap()).unwrap()
+    };
+    const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    // Prefixed workbook, relationships bound to another prefix.
+    assert_eq!(
+        add(&format!(r#"<x:workbook xmlns:x="main" xmlns:rel="{REL}"><x:sheets/><x:calcPr/></x:workbook>"#)),
+        format!(r#"<x:workbook xmlns:x="main" xmlns:rel="{REL}"><x:sheets/><x:externalReferences><x:externalReference rel:id="rId9"/></x:externalReferences><x:calcPr/></x:workbook>"#)
+    );
+    // No prefix for relationships on the root: the element brings its own.
+    assert_eq!(
+        add(r#"<workbook xmlns="main"><sheets/></workbook>"#),
+        format!(r#"<workbook xmlns="main"><sheets/><externalReferences><externalReference xmlns:r="{REL}" r:id="rId9"/></externalReferences></workbook>"#)
+    );
+    // A list that is there: at its end, also when it is empty.
+    assert_eq!(
+        add(&format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences><externalReference r:id="rId3"/></externalReferences><definedNames><definedName name="a">1</definedName></definedNames></workbook>"#)),
+        format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences><externalReference r:id="rId3"/><externalReference r:id="rId9"/></externalReferences><definedNames><definedName name="a">1</definedName></definedNames></workbook>"#)
+    );
+    assert_eq!(
+        add(&format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences/><extLst/></workbook>"#)),
+        format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences><externalReference r:id="rId9"/></externalReferences><extLst/></workbook>"#)
+    );
+    assert_eq!(
+        add(&format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences></externalReferences><definedNames></definedNames></workbook>"#)),
+        format!(r#"<workbook xmlns:r="{REL}"><sheets/><externalReferences><externalReference r:id="rId9"/></externalReferences><definedNames></definedNames></workbook>"#)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// sheet names that XML escapes
+// ---------------------------------------------------------------------------
+
+/// A sheet named with `&` is written `&amp;` in every part that names it.
+/// Rows inserted on it must still move the formulas of other sheets that
+/// read it, and a defined name that points at it.
+#[test]
+fn rows_inserted_on_a_sheet_with_an_ampersand_move_what_reads_it() {
+    let sheet1 = SHEET1.replace(
+        "</sheetData>",
+        r#"<row r="9"><c r="A9"><f>'Beta &amp; Co'!A2+1</f><v>1</v></c></row></sheetData>"#,
+    );
+    let workbook = WORKBOOK.replace(
+        "</definedNames>",
+        r#"<definedName name="RATE">'Beta &amp; Co'!$B$2</definedName></definedNames>"#,
+    );
+    let base = fixture_with(&[("xl/worksheets/sheet1.xml", &sheet1), ("xl/workbook.xml", &workbook)], &[]);
+    let p = patch(r#""rowColOps":[{"op":"insertRows","sheet":"Beta & Co","before":0,"count":2}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let alpha = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(alpha.contains("<f>'Beta &amp; Co'!A4+1</f>"), "the formula on the other sheet follows: {alpha}");
+    let wb = entry_str(&out, "xl/workbook.xml");
+    assert!(wb.contains("'Beta &amp; Co'!$B$4"), "the defined name follows: {wb}");
+}
+
+/// A sheet that other sheets read cannot be deleted, whatever its name.
+#[test]
+fn a_referenced_sheet_with_an_ampersand_is_not_deleted() {
+    let sheet1 = SHEET1.replace(
+        "</sheetData>",
+        r#"<row r="9"><c r="A9"><f>'Beta &amp; Co'!A2+1</f><v>1</v></c></row></sheetData>"#,
+    );
+    let base = fixture_with(&[("xl/worksheets/sheet1.xml", &sheet1)], &[]);
+    let p = patch(r#""sheetOps":[{"op":"delete","name":"Beta & Co"}]"#);
+    let err = apply_patch_json(&base, &p).unwrap_err();
+    assert!(err.to_string().to_lowercase().contains("referenc"), "{err}");
+    // Not read by anything: it goes.
+    let out = apply_patch_json(&fixture(), &p).unwrap();
+    assert!(!entry_str(&out, "xl/workbook.xml").contains("Beta &amp; Co"));
+}
+
+/// The same for a rename: the formulas that name the sheet are respelled.
+#[test]
+fn renaming_a_sheet_with_an_ampersand_respells_what_reads_it() {
+    let sheet1 = SHEET1.replace(
+        "</sheetData>",
+        r#"<row r="9"><c r="A9"><f>'Beta &amp; Co'!A2+1</f><v>1</v></c></row></sheetData>"#,
+    );
+    let base = fixture_with(&[("xl/worksheets/sheet1.xml", &sheet1)], &[]);
+    let p = patch(r#""sheetOps":[{"op":"rename","oldName":"Beta & Co","newName":"P&L"}]"#);
+    let out = apply_patch_json(&base, &p).unwrap();
+    let alpha = entry_str(&out, "xl/worksheets/sheet1.xml");
+    assert!(alpha.contains("<f>'P&amp;L'!A2+1</f>"), "{alpha}");
+}
+
+
+// ---------------------------------------------------------------------------
+// tables and pivot tables elsewhere in the workbook
+// ---------------------------------------------------------------------------
+
+const CALC_RELS_TABLE: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/></Relationships>"#;
+const CALC_RELS_PIVOT: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable" Target="../pivotTables/pivotTable1.xml"/></Relationships>"#;
+const TABLE_ON_CALC: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Totals" displayName="Totals" ref="A1:A3"><autoFilter ref="A1:A3"/><tableColumns count="1"><tableColumn id="1" name="Total"/></tableColumns></table>"#;
+const PIVOT_ON_CALC: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="PivotTable1" cacheId="1"><location ref="C1:D4" firstHeaderRow="1" firstDataRow="1" firstDataCol="1"/></pivotTableDefinition>"#;
+
+fn pivot_cache(source_sheet: &str) -> Vec<u8> {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" refreshedBy="x"><cacheSource type="worksheet"><worksheetSource ref="A1:D6" sheet="{source_sheet}"/></cacheSource></pivotCacheDefinition>"#
+    )
+    .into_bytes()
+}
+
+const INSERT_ON_DATA: &str = r#""rowColOps":[{"op":"insertRows","sheet":"Data","before":0,"count":1}]"#;
+const INSERT_ON_CALC: &str = r#""rowColOps":[{"op":"insertRows","sheet":"Calc","before":0,"count":1}]"#;
+
+/// A workbook that has a table somewhere is edited like any other: rows
+/// move on the sheets the table is not on, and the table is not touched.
+/// Rows on the table's own sheet are still refused.
+#[test]
+fn a_table_on_another_sheet_does_not_stop_row_edits() {
+    let base = structural::fixture_with(&[
+        ("xl/worksheets/_rels/sheet2.xml.rels", CALC_RELS_TABLE),
+        ("xl/tables/table1.xml", TABLE_ON_CALC),
+    ]);
+    let out = apply_patch_json(&base, &patch(INSERT_ON_DATA)).unwrap();
+    assert_eq!(entry(&out, "xl/tables/table1.xml"), TABLE_ON_CALC, "the table is as it was");
+    // The formula on the table's sheet that reads the edited sheet still follows.
+    assert!(entry_str(&out, "xl/worksheets/sheet2.xml").contains("<f>Data!B4+1</f>"));
+
+    let err = apply_patch_json(&base, &patch(INSERT_ON_CALC)).unwrap_err().to_string();
+    assert!(err.contains("unsupported") && err.contains("tables") && err.contains("Calc"), "{err}");
+}
+
+/// A table's own formulas can read another sheet: rows moving there would
+/// leave them pointing at the wrong cells, so that edit is refused.
+#[test]
+fn a_table_that_reads_the_edited_sheet_stops_the_edit() {
+    let table = String::from_utf8(TABLE_ON_CALC.to_vec())
+        .unwrap()
+        .replace(
+            r#"<tableColumn id="1" name="Total"/>"#,
+            r#"<tableColumn id="1" name="Total"><calculatedColumnFormula>Data!B2*2</calculatedColumnFormula></tableColumn>"#,
+        );
+    let base = structural::fixture_with(&[
+        ("xl/worksheets/_rels/sheet2.xml.rels", CALC_RELS_TABLE),
+        ("xl/tables/table1.xml", table.as_bytes()),
+    ]);
+    let err = apply_patch_json(&base, &patch(INSERT_ON_DATA)).unwrap_err().to_string();
+    assert!(err.contains("unsupported") && err.contains("refers to sheet"), "{err}");
+}
+
+/// A pivot table matters to an edit in two places: the sheet it sits on,
+/// and the sheet its cache reads.
+#[test]
+fn a_pivot_table_stops_edits_only_where_it_sits_and_where_it_reads() {
+    let with_source = |sheet: &str| {
+        structural::fixture_with(&[
+            ("xl/worksheets/_rels/sheet2.xml.rels", CALC_RELS_PIVOT),
+            ("xl/pivotTables/pivotTable1.xml", PIVOT_ON_CALC),
+            ("xl/pivotCache/pivotCacheDefinition1.xml", &pivot_cache(sheet)),
+            // Cached rows that happen to hold the sheet's name are data.
+            ("xl/pivotCache/pivotCacheRecords1.xml", b"<pivotCacheRecords><r><s v=\"Data\"/></r></pivotCacheRecords>"),
+        ])
+    };
+    // Sits on Calc and reads Calc: Data is free.
+    let base = with_source("Calc");
+    let out = apply_patch_json(&base, &patch(INSERT_ON_DATA)).unwrap();
+    assert_eq!(entry(&out, "xl/pivotTables/pivotTable1.xml"), PIVOT_ON_CALC);
+    let err = apply_patch_json(&base, &patch(INSERT_ON_CALC)).unwrap_err().to_string();
+    assert!(err.contains("pivotTables") && err.contains("Calc"), "{err}");
+    // Reads Data: rows there would move its source.
+    let err = apply_patch_json(&with_source("Data"), &patch(INSERT_ON_DATA)).unwrap_err().to_string();
+    assert!(err.contains("pivotCache") && err.contains("refers to sheet"), "{err}");
+    // A rename is about the name alone: the sheet the pivot sits on can be
+    // renamed, the sheet its cache names cannot.
+    let rename = |from: &str| patch(&format!(r#""sheetOps":[{{"op":"rename","oldName":"{from}","newName":"Renamed"}}]"#));
+    apply_patch_json(&with_source("Data"), &rename("Calc")).unwrap();
+    let err = apply_patch_json(&with_source("Data"), &rename("Data")).unwrap_err().to_string();
+    assert!(err.contains("pivotCache"), "{err}");
+}
+
+/// A tab colour or hiding a sheet moves nothing and renames nothing.
+#[test]
+fn tab_colour_and_visibility_work_in_a_workbook_with_a_table() {
+    let base = structural::fixture_with(&[
+        ("xl/worksheets/_rels/sheet2.xml.rels", CALC_RELS_TABLE),
+        ("xl/tables/table1.xml", TABLE_ON_CALC),
+    ]);
+    let out = apply_patch_json(&base, &patch(r##""sheetOps":[{"op":"setTabColor","name":"Calc","color":"#FF0000"}]"##)).unwrap();
+    assert!(entry_str(&out, "xl/worksheets/sheet2.xml").contains("tabColor"));
+    let out = apply_patch_json(&base, &patch(r#""sheetOps":[{"op":"setVisibility","name":"Calc","hidden":true}]"#)).unwrap();
+    assert!(entry_str(&out, "xl/workbook.xml").contains(r#"state="hidden""#));
 }

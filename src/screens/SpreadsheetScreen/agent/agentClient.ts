@@ -74,6 +74,17 @@ export type WorkbookContext = {
    * compact preview; the agent pulls detail on demand via read_reference.
    */
   references?: ReferenceWorkbookContext[];
+  /**
+   * The other workbooks of the workspace shown: live models the agent can
+   * read (the read tools' `workbook`) and link to with formulas. `can_link`
+   * is false when the active workbook has no file yet (a link is between
+   * files), and the agent is then told to bring values.
+   */
+  workspace?: {
+    name?: string;
+    workbooks: Array<{ label: string; path: string }>;
+    can_link: boolean;
+  };
 };
 
 export async function startAgentTurn(args: {

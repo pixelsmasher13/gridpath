@@ -6,8 +6,10 @@
 
 pub mod package;
 pub mod charts;
+pub mod chart_write;
 #[cfg(test)]
 mod charts_tests;
+pub mod external_links;
 pub mod metadata;
 mod patch;
 pub mod refs;
@@ -274,6 +276,18 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
         store.write(&part, rewritten);
     }
 
+    // --- links to other workbooks ---
+    // After the sheets: the formulas that read a link are cell patches like
+    // any other, and the link's parts only have to exist by the time the
+    // validity gate runs.
+    external_links::apply(
+        &mut store,
+        &workbook_path,
+        &wb_dir,
+        &wb_rels_path,
+        &patch.external_links,
+    )?;
+
     // --- calc chain + fullCalcOnLoad ---
     if patch.has_content_changes() {
         // Re-read: the dynamic-array metadata step above may have added a
@@ -320,6 +334,13 @@ pub fn apply_patch(base: &[u8], patch: &Patch) -> Result<Vec<u8>, PatchError> {
             || patch.row_col_ops.iter().any(|op|row_col::op_shift(op).0.eq_ignore_ascii_case(&r.sheet))
             || patch.sheet_ops.iter().any(|op|matches!(op,SheetOp::Rename {new_name,..} if new_name.eq_ignore_ascii_case(&r.sheet)))
         })?;
+    }
+    // --- charts made in this session ---
+    // After the cache refresh: a new chart carries its data as the engine
+    // has it (labels as the sheet shows them), which the worksheet's stored
+    // values could not give back.
+    for chart in &patch.charts {
+        chart_write::add(&mut store, chart)?;
     }
     validate::validate_store(&mut store, &workbook_path, &wb_rels_path)?;
 

@@ -71,9 +71,17 @@ impl Workbook {
         let wb = ironcalc::import::load_from_xlsx_bytes(bytes, "workbook", "en", "UTC")
             .map_err(|e| js_err(format!("{e:?}")))?;
         let model = Model::from_workbook(wb, "en").map_err(js_err)?;
-        let cached = build_cached(&model);
+        let mut cached = build_cached(&model);
         let mut model = UserModel::from_model(model);
         model.evaluate();
+        // A saved value stands in only for a formula this engine cannot
+        // calculate. One it did calculate just now has no use for it, and
+        // must not get it back later: when an edit makes that formula an
+        // error (its input became text, the row it read was deleted), the
+        // error is the answer. Kept, the old number showed instead — and was
+        // what a workbook linked to this one read. The desktop and
+        // `evaluatePending` drop these the same way.
+        gridpath_engine_core::diff::prune_cached(model.get_model(), &mut cached);
         // Every UserModel write would otherwise run a FULL recalculation of
         // its own (5+ minutes on an 878k-formula model). Writes are batched
         // by the caller and evaluated once, incrementally where possible.
@@ -182,11 +190,15 @@ impl Workbook {
         keys.dedup();
         let m = self.model.get_model();
         let sheet_count = m.workbook.worksheets.len() as u32;
+        // The hidden copies of other workbooks' sheets are not this
+        // workbook's cells: their changes drive the recalculation above and
+        // are not reported.
+        let link: Vec<bool> = (0..sheet_count).map(|i| gridpath_engine_core::links::is_link_sheet(m, i)).collect();
         let mut table = StyleTable::new(m);
         let mut out = String::from("{\"full\":false,\"cells\":[");
         let mut first = true;
         for (sheet, r, c) in keys {
-            if sheet >= sheet_count || r < 1 || c < 1 {
+            if sheet >= sheet_count || r < 1 || c < 1 || link[sheet as usize] {
                 continue;
             }
             if !first {
@@ -318,20 +330,7 @@ impl Workbook {
     fn shift_charts(&mut self, sheet: u32, rows: bool, index: i32, count: i32, insert: bool) -> Result<(), JsError> {
         let name = self.sheet_names().get(sheet as usize).cloned().ok_or_else(||js_err("unknown sheet"))?;
         let shift = xlsx_patch::refs::RowColShift { rows, start: (index-1) as u32, count: count as u32, insert };
-        for chart in &mut self.charts {
-            for series in &mut chart.series {
-                for f in [&mut series.name_ref, &mut series.categories_ref, &mut series.values_ref].into_iter().flatten() {
-                    *f = xlsx_patch::refs::adjust_formula(f, &shift, &name, false).map_err(js_err)?;
-                }
-            }
-            if chart.sheet.eq_ignore_ascii_case(&name) && !chart.anchor.absolute {
-                for marker in std::iter::once(&mut chart.anchor.from).chain(chart.anchor.to.iter_mut()) {
-                    let value = if rows { &mut marker.row } else { &mut marker.col };
-                    *value = shift.clamp_index(*value);
-                }
-            }
-        }
-        Ok(())
+        xlsx_patch::charts::shift(&mut self.charts, &name, &shift).map_err(js_err)
     }
 
     /// Sheet-level properties changed (nothing to recalc, but the snapshot's
@@ -410,6 +409,9 @@ impl Workbook {
                     continue;
                 }
             }
+            if gridpath_engine_core::links::is_link_sheet(m, si as u32) {
+                continue;
+            }
             let mut rows: Vec<&i32> = ws.sheet_data.keys().collect();
             rows.sort_unstable();
             for r in rows {
@@ -454,8 +456,7 @@ impl Workbook {
         let mut charts = self.charts.clone();
         if self.pending_eval { return serde_json::to_string(&charts).map_err(js_err); }
         let m = self.model.get_model();
-        let read = |formula: &str, display: bool| -> Option<Vec<serde_json::Value>> {
-            let range = xlsx_patch::charts::range(formula)?;
+        let read = |range: &xlsx_patch::charts::Range, display: bool| -> Option<Vec<serde_json::Value>> {
             let sheet = m.workbook.worksheets.iter().position(|s|s.name.eq_ignore_ascii_case(&range.sheet))? as u32;
             Some(range.cells().map(|(r,c)| {
                 let value = m.get_cell_value_by_index(sheet,r as i32+1,c as i32+1);
@@ -464,17 +465,7 @@ impl Workbook {
                 } else { value.map(gridpath_engine_core::cell_value_json).unwrap_or(serde_json::Value::Null) }
             }).collect())
         };
-        for chart in &mut charts {
-            for series in &mut chart.series {
-                if let Some(f)=&series.name_ref { if let Some(v)=read(f,true) {series.name=v.first().and_then(serde_json::Value::as_str).unwrap_or("").into();} }
-                if let Some(f)=&series.categories_ref {
-                    if let Some(v)=read(f,true) {series.categories=v;} else {chart.unsupported=Some("The category reference cannot be resolved.".into());}
-                }
-                if let Some(f)=&series.values_ref {
-                    if let Some(v)=read(f,false) {series.values=v.iter().map(serde_json::Value::as_f64).collect();} else {chart.unsupported=Some("The value reference cannot be resolved.".into());}
-                }
-            }
-        }
+        xlsx_patch::charts::fill_live(&mut charts, &read);
         serde_json::to_string(&charts).map_err(js_err)
     }
 
@@ -554,6 +545,7 @@ impl Workbook {
     pub fn insert_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.insert_rows(sheet, row, count).map_err(js_err)?;
+        gridpath_engine_core::shift_cached(&mut self.cached, sheet, row, count, true);
         self.shift_charts(sheet, true, row, count, true)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_rows(id, row, count);
@@ -565,6 +557,7 @@ impl Workbook {
     pub fn delete_rows(&mut self, sheet: u32, row: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.delete_rows(sheet, row, count).map_err(js_err)?;
+        gridpath_engine_core::shift_cached(&mut self.cached, sheet, row, -count, true);
         self.shift_charts(sheet, true, row, count, false)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_rows(id, row, -count);
@@ -576,6 +569,7 @@ impl Workbook {
     pub fn insert_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.insert_columns(sheet, col, count).map_err(js_err)?;
+        gridpath_engine_core::shift_cached(&mut self.cached, sheet, col, count, false);
         self.shift_charts(sheet, false, col, count, true)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_columns(id, col, count);
@@ -587,6 +581,7 @@ impl Workbook {
     pub fn delete_columns(&mut self, sheet: u32, col: i32, count: i32) -> Result<(), JsError> {
         self.session.before_structural(self.model.get_model());
         self.model.delete_columns(sheet, col, count).map_err(js_err)?;
+        gridpath_engine_core::shift_cached(&mut self.cached, sheet, col, -count, false);
         self.shift_charts(sheet, false, col, count, false)?;
         if let Some(id) = self.sheet_id(sheet) {
             self.session.shift_columns(id, col, -count);
@@ -608,14 +603,7 @@ impl Workbook {
         self.session.before_structural(self.model.get_model());
         let old = self.model.get_model().workbook.worksheets.get(sheet as usize).map(|s|s.name.clone()).ok_or_else(||js_err("unknown sheet"))?;
         self.model.rename_sheet(sheet, name).map_err(js_err)?;
-        for chart in &mut self.charts {
-            if chart.sheet == old {chart.sheet=name.into();}
-            for series in &mut chart.series {
-                for f in [&mut series.name_ref,&mut series.categories_ref,&mut series.values_ref].into_iter().flatten() {
-                    *f=xlsx_patch::refs::rename_sheet_in_formula(f,&old,name).map_err(js_err)?;
-                }
-            }
-        }
+        xlsx_patch::charts::rename_sheet(&mut self.charts, &old, name).map_err(js_err)?;
         self.mark_structural();
         Ok(())
     }
@@ -627,10 +615,94 @@ impl Workbook {
             self.session.remove_sheet(id);
         }
         self.model.delete_sheet(sheet).map_err(js_err)?;
-        self.charts.retain(|c|c.sheet!=old);
+        gridpath_engine_core::remove_sheet_from_cached(&mut self.cached, sheet);
+        xlsx_patch::charts::remove_sheet(&mut self.charts, &old);
         self.mark_structural();
         Ok(())
     }
+    /// Workspace: makes this workbook hold an up-to-date hidden copy of sheet
+    /// `source_sheet` of `source`, under the name formulas use for it
+    /// (`[NOW.xlsx]Model`), creating the copy if this workbook has none.
+    /// Formulas that spell that prefix then evaluate against it. The changed
+    /// cells of the copy become edited cells: call `evaluateEdited` next.
+    /// A new copy costs one full evaluation and a fresh snapshot.
+    ///
+    /// Returns `{"sheet": index of the copy, "created": bool, "changed": n}`.
+    /// `source` must be another workbook; a workbook's links to itself are
+    /// ordinary references.
+    #[wasm_bindgen(js_name = attachLink)]
+    pub fn attach_link(&mut self, name: &str, source: &Workbook, source_sheet: u32) -> Result<String, JsError> {
+        let existing = gridpath_engine_core::links::link_sheet_index(self.model.get_model(), name);
+        let (sheet, created) = match existing {
+            Some(sheet) => (sheet, false),
+            None => {
+                self.session.before_structural(self.model.get_model());
+                let sheet = self.model.get_model_mut().add_link_sheet(name).map_err(js_err)?;
+                self.mark_structural();
+                (sheet, true)
+            }
+        };
+        let changed = gridpath_engine_core::links::sync_link_sheet(
+            self.model.get_model_mut(),
+            sheet,
+            source.model.get_model(),
+            &source.cached,
+            source_sheet,
+        )
+        .map_err(js_err)?;
+        self.edited.extend(changed.iter().map(|&(row, column)| (sheet, row, column)));
+        Ok(json!({ "sheet": sheet, "created": created, "changed": changed.len() }).to_string())
+    }
+
+    /// Workspace: carries the cells `source` just changed on `source_sheet`
+    /// over to this workbook's copy `link_sheet`. `cells` is a flat list of
+    /// 1-based `row, column` pairs. Returns how many values differed; those
+    /// become edited cells for `evaluateEdited`.
+    #[wasm_bindgen(js_name = pushLinkCells)]
+    pub fn push_link_cells(&mut self, link_sheet: u32, source: &Workbook, source_sheet: u32, cells: &[i32]) -> Result<u32, JsError> {
+        let cells: Vec<(i32, i32)> = cells.chunks_exact(2).map(|pair| (pair[0], pair[1])).collect();
+        let changed = gridpath_engine_core::links::push_link_cells(
+            self.model.get_model_mut(),
+            link_sheet,
+            source.model.get_model(),
+            &source.cached,
+            source_sheet,
+            &cells,
+        )
+        .map_err(js_err)?;
+        self.edited.extend(changed.iter().map(|&(row, column)| (link_sheet, row, column)));
+        Ok(changed.len() as u32)
+    }
+
+    /// Workspace: the sheet a copy mirrors was renamed in its workbook. The
+    /// copy takes the new name (`[NOW.xlsx]Income Statement`) and every link
+    /// to it is respelled.
+    #[wasm_bindgen(js_name = renameLinkSheet)]
+    pub fn rename_link_sheet(&mut self, sheet: u32, name: &str) -> Result<(), JsError> {
+        self.session.before_structural(self.model.get_model());
+        self.model.get_model_mut().rename_link_sheet(sheet, name).map_err(js_err)?;
+        self.mark_structural();
+        Ok(())
+    }
+
+    /// Workspace: what a save writes for this workbook's links. One entry per
+    /// hidden copy that a formula or a defined name still reads:
+    /// `{"sheet": "[NOW.xlsx]Model", "areas": [[r1, c1, r2, c2]], "cells":
+    /// [{"r", "c", "v"}]}`, 0-based, `v` in the patch's value shape. The areas
+    /// are what is read; the cells are the values the copy holds in them.
+    #[wasm_bindgen(js_name = linkCache)]
+    pub fn link_cache(&self) -> Result<String, JsError> {
+        serde_json::to_string(&gridpath_engine_core::links::link_cache(self.model.get_model())).map_err(js_err)
+    }
+
+    /// Workspace: the links formulas spell that no copy stands behind, as the
+    /// sheet names they use (`["[1]Model", "[2]Other"]`). Those cells show the
+    /// value the file was saved with.
+    #[wasm_bindgen(js_name = unresolvedLinks)]
+    pub fn unresolved_links(&self) -> Result<String, JsError> {
+        serde_json::to_string(&gridpath_engine_core::links::unresolved_links(self.model.get_model())).map_err(js_err)
+    }
+
     #[wasm_bindgen(js_name = setSheetColor)]
     pub fn set_sheet_color(&mut self, sheet: u32, rgb: &str) -> Result<(), JsError> {
         let color = if rgb.is_empty() { Color::None } else { Color::Rgb(rgb.to_string()) };
@@ -687,6 +759,16 @@ impl Workbook {
 #[wasm_bindgen]
 pub fn patch(base: &[u8], patch_json: &str) -> Result<Vec<u8>, JsError> {
     xlsx_patch::apply_patch_json(base, patch_json).map_err(|e| js_err(format!("{e:?}")))
+}
+
+/// The other workbooks a file links to, read from the file's bytes: JSON list
+/// of `{"index": 1, "target": "NOW.xlsx" | null, "sheets": ["Model", ...]}`.
+/// `index` is the n of `[n]Sheet!A1`; `target` is the path as the file stores
+/// it (it may be relative to the file's folder, a file: URL, or missing).
+#[wasm_bindgen(js_name = externalLinks)]
+pub fn external_links(bytes: &[u8]) -> Result<String, JsError> {
+    let links = xlsx_patch::external_links::read(bytes).map_err(|e| js_err(format!("{e:?}")))?;
+    serde_json::to_string(&links).map_err(js_err)
 }
 
 /// An empty .xlsx with these sheet names (one "Sheet1" when the list is

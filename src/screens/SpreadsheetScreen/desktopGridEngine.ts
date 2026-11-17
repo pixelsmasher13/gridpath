@@ -6,12 +6,16 @@
  */
 import type { GridEngine } from "../../../packages/grid/src/engine";
 import {
+  ironcalcEngineAddChart,
   ironcalcEngineCalcHealth,
+  ironcalcEngineCharts,
+  subscribeIroncalcCharts,
   ironcalcEngineDefineName,
   ironcalcEngineFetchLayout,
   ironcalcEngineFetchWindow,
   ironcalcEngineFind,
   ironcalcEngineOpenLayout,
+  ironcalcEngineRemoveChart,
   ironcalcEngineSetStyle,
   ironcalcEngineSettled,
   ironcalcEngineSheetNames,
@@ -20,7 +24,9 @@ import {
   ironcalcEngineStructuralDirect,
   ironcalcEngineWriteCells,
   registerIroncalcApplier,
+  registerIroncalcReloader,
   unregisterIroncalcApplier,
+  unregisterIroncalcReloader,
 } from "./ironcalcEngine";
 
 const engines = new Map<string, GridEngine>();
@@ -30,6 +36,11 @@ export function desktopGridEngine(tabId: string): GridEngine {
   let e = engines.get(tabId);
   if (e) return e;
   e = {
+    // The file's native charts, read and kept current by the Tauri side.
+    charts: () => ironcalcEngineCharts(tabId),
+    subscribeCharts: (listener) => subscribeIroncalcCharts(tabId, listener),
+    addChart: (spec) => ironcalcEngineAddChart(tabId, spec),
+    removeChart: (id) => ironcalcEngineRemoveChart(tabId, id),
     // The Tauri side reads the file from `path`; the bytes stay in the webview.
     openLayout: (path) => ironcalcEngineOpenLayout(tabId, path),
     startDeferredSettle: () => ironcalcEngineStartDeferredSettle(tabId),
@@ -46,6 +57,8 @@ export function desktopGridEngine(tabId: string): GridEngine {
     settled: (timeoutMs) => ironcalcEngineSettled(tabId, timeoutMs),
     registerApplier: (fn) => registerIroncalcApplier(tabId, fn),
     unregisterApplier: () => unregisterIroncalcApplier(tabId),
+    registerReloader: (fn) => registerIroncalcReloader(tabId, fn),
+    unregisterReloader: () => unregisterIroncalcReloader(tabId),
   };
   engines.set(tabId, e);
   return e;

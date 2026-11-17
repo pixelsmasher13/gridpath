@@ -220,7 +220,10 @@ impl<'a> Lexer<'a> {
                     '=' => TokenType::Compare(OpCompare::Equal),
                     '{' => TokenType::LeftBrace,
                     '}' => TokenType::RightBrace,
-                    '[' => TokenType::LeftBracket,
+                    '[' => match self.consume_external_sheet_prefix() {
+                        Some(sheet) => self.consume_range(Some(sheet)),
+                        None => TokenType::LeftBracket,
+                    },
                     ']' => TokenType::RightBracket,
                     ':' => TokenType::Colon,
                     ';' => TokenType::Semicolon,
@@ -773,6 +776,38 @@ impl<'a> Lexer<'a> {
         }
         self.position -= 1;
         self.consume_range(None)
+    }
+
+    /// GRIDPATH: the unquoted other-workbook prefix, `[1]Model!` or
+    /// `[NOW.xlsx]Model!` — the spelling Excel stores in the file and the one
+    /// the stringifier prints back (`name_needs_quoting` ignores brackets).
+    /// Called with the opening '[' consumed. On a match it consumes through
+    /// the '!' and returns the whole sheet name (`[1]Model`); otherwise the
+    /// position is untouched and '[' lexes as a structured-reference bracket.
+    ///
+    /// A structured reference cannot match: `[Qty]`, `[@Qty]` and `[#All]`
+    /// are never followed by `Name!`.
+    fn consume_external_sheet_prefix(&mut self) -> Option<String> {
+        let is_name_char = |c: char| c.is_alphanumeric() || c == '_' || c == '.';
+        let start = self.position - 1;
+        let mut position = self.position;
+        while position < self.len && is_name_char(self.chars[position]) {
+            position += 1;
+        }
+        if position == self.position || position >= self.len || self.chars[position] != ']' {
+            return None;
+        }
+        position += 1;
+        let sheet_start = position;
+        while position < self.len && is_name_char(self.chars[position]) {
+            position += 1;
+        }
+        if position == sheet_start || position >= self.len || self.chars[position] != '!' {
+            return None;
+        }
+        let sheet: String = self.chars[start..position].iter().collect();
+        self.position = position + 1;
+        Some(sheet)
     }
 
     fn consume_quoted_sheet_reference(&mut self) -> TokenType {

@@ -17,11 +17,18 @@ export type DeltaApplier = (sheetName: string, cells: { row0: number; col0: numb
 
 export type FindHit = { sheet: number; row: number; column: number; text: string };
 import type { NativeChart } from "./charts/types";
+import type { ChartSpec } from "../../gridpath/src/core/types";
 
 export interface GridEngine {
   /** Native charts, with values from the latest completed calculation. */
   charts?(): NativeChart[];
   subscribeCharts?(listener: () => void): () => void;
+  /** Optional: add a chart made in this session. Resolves with the chart
+   * as it is drawn (its data read from the cells); rejects with the reason
+   * it cannot be made. The same id again replaces the chart. */
+  addChart?(spec: ChartSpec): Promise<NativeChart>;
+  /** Optional: take a chart made in this session away again. */
+  removeChart?(id: string): Promise<boolean>;
   /** Load the workbook and return its layout (geometry, merges, frozen
    * panes, styles); null when the load fails. The first evaluate is
    * deferred until `startDeferredSettle`. `bytes` are the file's bytes; an
@@ -49,4 +56,9 @@ export interface GridEngine {
   settled(timeoutMs?: number): Promise<void>;
   registerApplier(fn: DeltaApplier): void;
   unregisterApplier(): void;
+  /** Optional: an engine whose formulas can be rewritten from outside the
+   * grid (a workbook this one reads moved its rows) calls `fn` when that
+   * happens, and the grid reads its layout and cells again. */
+  registerReloader?(fn: () => void): void;
+  unregisterReloader?(): void;
 }

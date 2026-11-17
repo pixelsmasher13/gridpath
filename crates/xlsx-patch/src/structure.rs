@@ -20,8 +20,9 @@ const WORKSHEET_REL_TYPE: &str =
 const MAIN_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const REL_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-/// Part-name prefixes whose presence means the structural engine cannot
-/// guarantee reference integrity. Fail closed rather than corrupt.
+/// Parts this engine does not rewrite. Each holds positions on a sheet, or
+/// names a sheet: a table's range, a pivot table's place and its cache's
+/// source range, a slicer's anchor.
 const UNSUPPORTED_PART_PREFIXES: &[&str] = &[
     "xl/pivotTables/",
     "xl/pivotCache/",
@@ -33,21 +34,133 @@ const UNSUPPORTED_PART_PREFIXES: &[&str] = &[
     "xl/queryTables/",
 ];
 
-/// Refuse structural edits (rename/delete/row-col shifts) when the package
-/// carries parts with cell/sheet references we don't rewrite.
-pub fn preflight_structure(store: &PartStore) -> Result<(), PatchError> {
-    for name in store.names() {
-        if let Some(prefix) = UNSUPPORTED_PART_PREFIXES
-            .iter()
-            .find(|p| name.starts_with(**p))
-        {
-            let kind = prefix.trim_start_matches("xl/").trim_end_matches('/');
+/// Of those, the ones that sit ON a sheet (the sheet's relationships point
+/// at them, or at the table they belong to). The rest hang off the
+/// workbook and only matter when they name the sheet.
+const SHEET_HOSTED_PREFIXES: &[&str] =
+    &["xl/pivotTables/", "xl/slicers/", "xl/tables/", "xl/timelines/", "xl/queryTables/"];
+
+/// What a structural edit does to the sheet it is about.
+pub enum StructuralEdit<'a> {
+    /// Rows or columns move on the sheet stored at `sheet_part`: every
+    /// position on that sheet changes. `sheet_paths` is (name, part) for
+    /// every sheet of the workbook.
+    Shift { sheet_part: &'a str, sheet_paths: &'a [(String, String)] },
+    /// The sheet is renamed or deleted: what names it changes.
+    Name,
+}
+
+/// Refuse a structural edit of sheet `sheet_name` when it would leave one
+/// of the parts above pointing at the wrong place: a part that sits on the
+/// sheet whose rows or columns move, or one that names the sheet. A
+/// workbook that merely CONTAINS a table or a pivot table somewhere else is
+/// edited like any other.
+pub fn preflight_structure(store: &mut PartStore, sheet_name: &str, edit: StructuralEdit) -> Result<(), PatchError> {
+    let parts: Vec<String> = store
+        .names()
+        .into_iter()
+        .filter(|n| !n.contains("/_rels/") && UNSUPPORTED_PART_PREFIXES.iter().any(|p| n.starts_with(*p)))
+        .collect();
+    if parts.is_empty() {
+        return Ok(());
+    }
+    let kind_of = |name: &str| -> String {
+        let prefix = UNSUPPORTED_PART_PREFIXES.iter().find(|p| name.starts_with(**p)).copied().unwrap_or("");
+        prefix.trim_start_matches("xl/").trim_end_matches('/').to_string()
+    };
+
+    if let StructuralEdit::Shift { sheet_part, sheet_paths } = edit {
+        // Which sheet each hosted part sits on.
+        let mut host: std::collections::HashMap<String, String> = Default::default();
+        for (_, part) in sheet_paths {
+            for target in related_parts(store, part)? {
+                if SHEET_HOSTED_PREFIXES.iter().any(|p| target.starts_with(*p)) {
+                    host.insert(target, part.clone());
+                }
+            }
+        }
+        // A query table can belong to a table instead of to the sheet.
+        for (part, sheet) in host.clone() {
+            if part.starts_with("xl/tables/") {
+                for target in related_parts(store, &part)? {
+                    if target.starts_with("xl/queryTables/") {
+                        host.entry(target).or_insert_with(|| sheet.clone());
+                    }
+                }
+            }
+        }
+        for name in parts.iter().filter(|n| SHEET_HOSTED_PREFIXES.iter().any(|p| n.starts_with(*p))) {
+            match host.get(name) {
+                Some(on) if on != sheet_part => {}
+                Some(_) => {
+                    return Err(PatchError::Unsupported(format!(
+                        "sheet {sheet_name:?} has {} on it ({name})",
+                        kind_of(name)
+                    )))
+                }
+                // Not reachable from any sheet: no telling where it sits.
+                None => {
+                    return Err(PatchError::Unsupported(format!(
+                        "workbook contains {} ({name}) that no sheet refers to",
+                        kind_of(name)
+                    )))
+                }
+            }
+        }
+    }
+
+    for name in &parts {
+        // A pivot cache's records are the cached rows: data, no references.
+        if name.contains("pivotCacheRecords") {
+            continue;
+        }
+        let bytes = store.read(name)?;
+        if names_sheet(&bytes, sheet_name) {
             return Err(PatchError::Unsupported(format!(
-                "workbook contains {kind} ({name})"
+                "{} ({name}) refers to sheet {sheet_name:?}",
+                kind_of(name)
             )));
         }
     }
     Ok(())
+}
+
+/// Does a table / pivot / slicer part name sheet `name`? In these parts a
+/// sheet is named in two ways: as the qualifier of a reference in a
+/// formula (`Data!B2`, in a table's calculated column), and as a `sheet`
+/// attribute (a pivot cache's `<worksheetSource sheet="Data">`). The bare
+/// name is not looked for: a sheet called Data would be "named" by every
+/// `firstDataRow` and `dataDxfId` in the workbook.
+fn names_sheet(bytes: &[u8], name: &str) -> bool {
+    if !name.is_ascii() {
+        return mentions_name(bytes, name);
+    }
+    if mentions_qualifier(bytes, name) {
+        return true;
+    }
+    xml_spellings(name).iter().any(|spelled| {
+        [format!("sheet=\"{spelled}\""), format!("sheet='{spelled}'")]
+            .iter()
+            .any(|attr| contains_ignore_ascii_case(bytes, attr.as_bytes()))
+    })
+}
+
+/// The parts `part`'s own relationships point at (external targets left out).
+fn related_parts(store: &mut PartStore, part: &str) -> Result<Vec<String>, PatchError> {
+    let (dir, file) = match part.rfind('/') {
+        Some(i) => (&part[..=i], &part[i + 1..]),
+        None => ("", part),
+    };
+    let rels_path = format!("{dir}_rels/{file}.rels");
+    if !store.exists(&rels_path) {
+        return Ok(Vec::new());
+    }
+    let rels = store.read(&rels_path)?;
+    Ok(super::row_col::list_relationships(&rels)?
+        .into_iter()
+        .filter(|(_, target)| !target.contains("://"))
+        .map(|(_, target)| super::row_col::resolve_rel_target(dir, &target))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +201,7 @@ fn sheet_names_eq(a: &str, b: &str) -> bool {
 }
 
 /// Max rId number in a rels part ("rId7" → 7).
-fn max_rid(rels_xml: &[u8]) -> Result<u32, PatchError> {
+pub(crate) fn max_rid(rels_xml: &[u8]) -> Result<u32, PatchError> {
     let mut max = 0u32;
     let mut r = reader(rels_xml);
     let mut buf = Vec::new();
@@ -110,6 +223,31 @@ fn max_rid(rels_xml: &[u8]) -> Result<u32, PatchError> {
         buf.clear();
     }
     Ok(max)
+}
+
+/// The prefix a part's root element binds to the relationships namespace
+/// (`r` in `r:id`), if it binds one.
+pub(crate) fn relationships_prefix(xml: &[u8]) -> Result<Option<String>, PatchError> {
+    let mut r = reader(xml);
+    let mut buf = Vec::new();
+    loop {
+        match r.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                for attr in e.attributes().with_checks(false).flatten() {
+                    if let Some(prefix) = attr.key.as_ref().strip_prefix(b"xmlns:") {
+                        if attr.value.as_ref() == REL_NS.as_bytes() {
+                            return Ok(Some(String::from_utf8_lossy(prefix).into_owned()));
+                        }
+                    }
+                }
+                return Ok(None);
+            }
+            Ok(Event::Eof) => return Ok(None),
+            Ok(_) => {}
+            Err(e) => return Err(PatchError::Xml(format!("root: {e}"))),
+        }
+        buf.clear();
+    }
 }
 
 /// Insert `element` (serialized empty element) right before `</container>`.
@@ -216,7 +354,17 @@ pub fn create_sheet(
     let mut sheet_el = BytesStart::new("sheet");
     sheet_el.push_attribute(("name", name));
     sheet_el.push_attribute(("sheetId", sheet_id.to_string().as_str()));
-    sheet_el.push_attribute(("r:id", rid.as_str()));
+    // The relationship id under the prefix the workbook binds to that
+    // namespace. A workbook that binds none on its root (openpyxl declares
+    // it on each `<sheet>` instead) gets the declaration on this element:
+    // an undeclared prefix is a file that does not open at all.
+    match relationships_prefix(&workbook_xml)? {
+        Some(prefix) => sheet_el.push_attribute((format!("{prefix}:id").as_str(), rid.as_str())),
+        None => {
+            sheet_el.push_attribute(("xmlns:r", REL_NS));
+            sheet_el.push_attribute(("r:id", rid.as_str()));
+        }
+    }
     let new_wb = insert_before_container_end(&workbook_xml, b"sheets", sheet_el)?;
     store.write(workbook_path, new_wb);
 
@@ -254,7 +402,7 @@ pub fn rename_sheet(
     old_name: &str,
     new_name: &str,
 ) -> Result<(), PatchError> {
-    preflight_structure(store)?;
+    preflight_structure(store, old_name, StructuralEdit::Name)?;
     let workbook_xml = store.read(workbook_path)?;
     let sheets = list_sheets(&workbook_xml)?;
     if !sheets.iter().any(|(n, _, _)| sheet_names_eq(n, old_name)) {
@@ -305,20 +453,39 @@ pub fn rename_sheet(
     Ok(())
 }
 
+/// The ways `text` can be spelled in a part's bytes: as it is, and as XML
+/// writes it. A sheet called `P&L` is `P&amp;L` in every part that names
+/// it, so a search for the plain name alone finds nothing.
+fn xml_spellings(text: &str) -> Vec<String> {
+    let minimal = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let full = minimal.replace('"', "&quot;").replace('\'', "&apos;");
+    let mut out = vec![text.to_string()];
+    for s in [minimal, full] {
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
+}
+
+fn contains_ignore_ascii_case(bytes: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty()
+        && bytes.len() >= needle.len()
+        && bytes
+            .windows(needle.len())
+            .any(|w| w.iter().zip(needle).all(|(a, b)| a.eq_ignore_ascii_case(b)))
+}
+
 /// Cheap pre-filter: could this part possibly reference `name`? ASCII
-/// case-insensitive substring test; non-ASCII names always pass.
+/// case-insensitive substring test, in each spelling XML gives the name.
+/// A miss here means the part is left alone, so it errs on the side of
+/// passing: non-ASCII names always pass, and so do names with an
+/// apostrophe (formulas double it).
 pub(super) fn mentions_name(bytes: &[u8], name: &str) -> bool {
-    if !name.is_ascii() {
+    if !name.is_ascii() || name.contains('\'') {
         return true;
     }
-    let needle = name.to_ascii_lowercase();
-    let needle = needle.as_bytes();
-    if needle.is_empty() || bytes.len() < needle.len() {
-        return false;
-    }
-    bytes
-        .windows(needle.len())
-        .any(|w| w.iter().zip(needle).all(|(a, b)| a.eq_ignore_ascii_case(b)))
+    xml_spellings(name).iter().any(|s| contains_ignore_ascii_case(bytes, s.as_bytes()))
 }
 
 /// Sets or clears a sheet's tab colour: `<sheetPr><tabColor rgb="FFRRGGBB"/>`
@@ -331,7 +498,6 @@ pub fn set_tab_color(
     name: &str,
     color: Option<&str>,
 ) -> Result<(), PatchError> {
-    preflight_structure(store)?;
     let workbook_xml = store.read(workbook_path)?;
     let rels_xml = store.read(wb_rels_path)?;
     let parts = crate::workbook_xml::sheet_part_paths(&workbook_xml, &rels_xml)?;
@@ -439,7 +605,6 @@ pub fn set_sheet_visibility(
     name: &str,
     hidden: bool,
 ) -> Result<(), PatchError> {
-    preflight_structure(store)?;
     let workbook_xml = store.read(workbook_path)?;
     let sheets = list_sheets(&workbook_xml)?;
     if !sheets.iter().any(|(n, _, _)| sheet_names_eq(n, name)) {
@@ -591,7 +756,9 @@ pub fn delete_sheet(
     wb_rels_path: &str,
     name: &str,
 ) -> Result<(), PatchError> {
-    preflight_structure(store)?;
+    // (A sheet that has a table or a pivot table ON it is refused further
+    // down, with every other sheet that has parts of its own.)
+    preflight_structure(store, name, StructuralEdit::Name)?;
     let workbook_xml = store.read(workbook_path)?;
     let sheets = list_sheets(&workbook_xml)?;
     let Some(pos) = sheets.iter().position(|(n, _, _)| sheet_names_eq(n, name)) else {
@@ -717,15 +884,14 @@ fn mentions_qualifier(bytes: &[u8], name: &str) -> bool {
         // Can't do a cheap scan; be conservative.
         return mentions_name(bytes, name);
     }
-    let plain = format!("{name}!").to_ascii_lowercase();
-    let quoted = format!("'{}'!", name.replace('\'', "''")).to_ascii_lowercase();
-    let hay: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
-    let find = |needle: &[u8]| -> bool {
-        !needle.is_empty()
-            && hay.len() >= needle.len()
-            && hay.windows(needle.len()).any(|w| w == needle)
-    };
-    find(plain.as_bytes()) || find(quoted.as_bytes())
+    // `bytes` is a part as it is on disk (or text already unescaped): the
+    // qualifier is looked for in each spelling XML gives it.
+    let plain = format!("{name}!");
+    let quoted = format!("'{}'!", name.replace('\'', "''"));
+    [plain, quoted]
+        .iter()
+        .flat_map(|q| xml_spellings(q))
+        .any(|q| contains_ignore_ascii_case(bytes, q.as_bytes()))
 }
 
 fn defined_names_mention(workbook_xml: &[u8], name: &str) -> Result<bool, PatchError> {

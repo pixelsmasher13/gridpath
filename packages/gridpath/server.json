@@ -9,12 +9,12 @@
     "source": "github",
     "subfolder": "packages/gridpath"
   },
-  "version": "0.5.2",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "gridpath",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

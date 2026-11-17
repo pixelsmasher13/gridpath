@@ -155,7 +155,16 @@ fn patch_into(source: &Path, target: &Path, patch_json: &str) -> Result<(), Stri
     Ok(())
 }
 
-fn write_atomic(resolved: &Path, bytes: &[u8]) -> Result<(), String> {
+/// The bytes a surgical save of `source` patches: the session baseline
+/// when one is recorded, else the file as it is (see `patch_into`).
+pub(crate) fn patch_base_bytes(source: &Path) -> Result<Vec<u8>, String> {
+    if let Some(base) = WORKBOOK_BASES.lock().unwrap().get(source) {
+        return Ok(base.clone());
+    }
+    std::fs::read(source).map_err(|e| format!("read failed: {}", e))
+}
+
+pub(crate) fn write_atomic(resolved: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = resolved.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create parent dir failed: {}", e))?;

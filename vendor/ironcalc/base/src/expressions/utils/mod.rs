@@ -20,6 +20,13 @@ pub fn column_to_number(column: &str) -> Result<i32, String> {
             return Err("Column identifier can use only A-Z characters".to_string());
         }
         column_number = column_number * 26 + ((character as i32) - 64);
+        // GRIDPATH: a long run of capitals in front of digits (a name such
+        // as REVENUEGROWTH2026) is read here as a column. Stop as soon as
+        // it is past the last column: carrying on overflows, which panics
+        // in a debug build and wraps to an arbitrary column in a release one.
+        if !is_valid_column_number(column_number) {
+            return Err("Column is not valid.".to_string());
+        }
     }
 
     match is_valid_column_number(column_number) {
@@ -256,6 +263,16 @@ pub fn is_valid_identifier(name: &str) -> bool {
 }
 
 fn name_needs_quoting(name: &str) -> bool {
+    // GRIDPATH: a link to another workbook (`[NOW.xlsx]Model`) is printed bare
+    // only in the spelling the lexer reads bare; anything else is quoted.
+    if let Some(rest) = name.strip_prefix('[') {
+        let plain = |part: &str| {
+            !part.is_empty() && part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        };
+        return !rest
+            .split_once(']')
+            .is_some_and(|(book, sheet)| plain(book) && plain(sheet));
+    }
     let chars = name.chars();
     // it contains any of these characters: ()'$,;-+{} or space
     for (i, char) in chars.enumerate() {
@@ -306,6 +323,14 @@ mod tests {
         assert_eq!(quote_name("Data{2024}"), "'Data{2024}'");
 
         assert_eq!(quote_name("2024"), "'2024'");
+
+        // links to other workbooks: bare only when the lexer reads them bare
+        assert_eq!(quote_name("[1]Model"), "[1]Model");
+        assert_eq!(quote_name("[NOW.xlsx]Model"), "[NOW.xlsx]Model");
+        assert_eq!(quote_name("[NOW.xlsx]Income Statement"), "'[NOW.xlsx]Income Statement'");
+        assert_eq!(quote_name("[R&D plan.xlsx]Model"), "'[R&D plan.xlsx]Model'");
+        assert_eq!(quote_name("[Q3&Q4.xlsx]Model"), "'[Q3&Q4.xlsx]Model'");
+        assert_eq!(quote_name("[Bob's.xlsx]Model"), "'[Bob''s.xlsx]Model'");
         assert_eq!(quote_name("1Data"), "'1Data'");
         assert_eq!(quote_name("A1"), "'A1'");
         assert_eq!(quote_name("R1C1"), "'R1C1'");

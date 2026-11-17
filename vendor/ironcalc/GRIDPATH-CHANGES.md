@@ -467,3 +467,280 @@ from 4.1 s to 0.8 s native, 1.2 s in WASM.
 
 Tests: base 2245 pass; `test_to_from_bytes::errors` fails with or without
 this change (the bitcode crate's error text is now "bitcode error").
+
+
+## Workspace-links spike: references to another workbook can be evaluated (2026-11-12)
+
+Branch `workspace-links-spike`. This section is the engine spike; what was
+built on it is in "Workspace links in use" below.
+
+- `Model::add_link_sheet("[1]Model")` (new_empty.rs) appends a very hidden
+  sheet whose name is the other-workbook prefix plus the sheet name, a name
+  `add_sheet` refuses. References such as `[1]Model!B23` then resolve to it
+  by name like any other sheet, so dependency tracking, `evaluate_edited`
+  and reference shifting need no changes. The caller fills the sheet with
+  the other workbook's values (`seed_cell_literal`) and pushes the cells
+  that change. It reparses the stored formulas but does not evaluate
+  (`reset_parsed_structures` was split into `reparse_structures` +
+  `evaluate`), and it drops from `import_wrongref_frozen` only the cells
+  whose formula the new sheet made resolvable.
+- The lexer reads the unquoted prefix, `[1]Model!B23` and
+  `[NOW.xlsx]Model!B23` (`consume_external_sheet_prefix`, lexer/mod.rs).
+  That is the spelling the file stores and the one the engine prints back,
+  so such formulas used to be unparseable after the first reparse. Book and
+  sheet parts take letters, digits, `_` and `.`; a name with spaces goes
+  through the quoted form as before. Path forms (`C:\dir\[Book.xlsx]Sheet`)
+  are not handled. Structured references (`Table1[Qty]`, `[@Qty]`) lex as
+  before.
+- A reference to a workbook that is not loaded keeps the file's saved value
+  by formula, not by coordinate: `node_is_unevaluable` is true for a
+  `WrongReferenceKind`/`WrongRangeKind` whose sheet name contains `[`
+  (model.rs), and `unevaluable_reason` reports it as `ExternalReference`.
+  Without this the lexer change moved those cells from "unparsed" (kept by
+  formula) to the coordinate set that every structural edit clears, and a
+  row insert produced more `#REF!` than before. With it, six real workbooks
+  with links open to identical values, and after a row insert have the same
+  number of formula errors or fewer.
+
+Older than this change, and fixed in the next section: `move_cell` and
+`shift_cell_formula` (actions.rs) re-entered a moved or rewritten formula
+and lost its saved value, so a row inserted above add-in or link cells
+turned them into `#NAME?`/`#REF!`.
+
+Tests: `test_link_sheets.rs` (10). base 2255 pass; `test_to_from_bytes::errors`
+fails as before.
+
+
+## Row and column edits: moved cells stay what they were; defined names follow (2026-11-12)
+
+Inserting, deleting or moving rows and columns went through upstream code
+that typed every moved cell in again from its text, and that left defined
+names where they were. Three visible faults, all in real models:
+
+- A formula the engine cannot calculate (an add-in call such as
+  `_xll.FDS(...)`, a link to a workbook that is not loaded) lost the value
+  the file saved for it and showed `#NAME?`/`#REF!`.
+- Any moved cell could change kind: text such as `007` or `+1 212...`
+  became a number or a formula, numbers were cut to 15 digits, and a
+  formula was decided afresh to be plain or a dynamic array.
+- A formula using a defined name read the wrong cell: after one row was
+  inserted above `Rate = Sheet1!$B$5` the name still said `$B$5`.
+
+What changed (base/src/actions.rs unless noted):
+
+- `move_cell` carries the cell over as it is (`place_moved_cell`): value,
+  style and kind untouched. A formula is read at the source and stored at
+  the target so that it points at the same cells (`moved_formula_index`,
+  `Model::intern_formula` / `intern_parsed_formula` in model.rs).
+- `shift_cell_formula` no longer writes the cell again when only its
+  references change: the cell is pointed at the displaced formula.
+- Moving a row or column past the others lifts its cells and puts them
+  down (`LiftedCell`, `lift_cell`, `place_lifted_cell`). A CSE array is
+  entered again from its anchor (`cse_array_covers`); dynamic spills are
+  deleted by the caller as before and spill again on the next evaluation.
+- `import_wrongref_frozen` (the cells that keep an imported value for an
+  unresolvable reference, known by coordinate) follows the cells:
+  `displace_import_frozen` on row and column edits, `reindex_import_frozen`
+  (new_empty.rs) when a sheet is inserted, duplicated, deleted or moved.
+  `is_import_frozen` / `keeps_import_frozen` (model.rs) hold the rule in
+  one place.
+- `displace_cells` ends with `displace_defined_names`: every name's
+  formula is parsed and printed with the same displacement as cell
+  formulas (names are stored in English whatever the active locale is),
+  only names whose text changes are rewritten, then the names are parsed
+  again. Ranges grow and shrink like ranges in formulas; a LAMBDA name is
+  left alone.
+- A name whose cells were deleted becomes `#REF!`.
+  `ParsedDefinedName::DeletedReference` (model.rs, set in
+  `parse_defined_names` for a name text holding `#REF!`, also when a file
+  has `Sheet1!#REF!`) makes a formula using it `#REF!`, as in Excel. It was
+  `#NAME?`.
+
+Outside the vendored crates, the session's map of saved values
+(`gridpath_engine_core::Cached`, keyed by sheet, row, column) is re-keyed
+with `shift_cached` and `remove_sheet_from_cached`, called from
+crates/engine-wasm and from the desktop's `calc_engine_structural` /
+`calc_engine_sheet_op`. Left as it was, a save wrote the value of the
+neighbouring row into the moved cell.
+
+Measured with one row inserted at the top of every sheet of six real
+workbooks, before -> after: cells that changed kind 3,677 -> 0, text cells
+changed 810 -> 0, number cells changed 8,500 -> 0. Formula values that
+differ from a second plain evaluation: 0 in four of the six; 2,757 and
+1,984 in the two others, every one downstream of a formula that builds an
+address from text or from a row number (`INDIRECT` with a typed row
+number, `ROW()`), which changes in Excel as well.
+
+Known limits:
+
+- A multi-cell dynamic array whose anchor cannot be calculated keeps the
+  anchor's saved value but not the saved values of its spill cells.
+- Cut and paste, and any other path that moves single cells, does not
+  re-key `import_wrongref_frozen`.
+- Undo of a row or column delete does not bring back a name that became
+  `#REF!` (formula references behave the same upstream; the product does
+  not use the engine's undo).
+- An edit that would split a CSE array formula is refused, as before.
+- Cost: one parse per moved formula as before, plus one parse per defined
+  name on each structural edit.
+
+Tests: `test_structural_saved_values.rs` (11),
+`test_structural_defined_names.rs` (6), `cached_follows_cells` in
+crates/engine-core (3), one session test in packages/gridpath. base 2262
+pass; `test_to_from_bytes::errors` fails as before.
+
+
+## Workspace links in use: typed link cells, renamed and deleted sources (2026-11-13)
+
+The spike above is now used by the WASM engine, the headless session and
+the agent tools (packages/gridpath/src/workbook/workspace.ts: several
+workbooks open together, each its own model). Added in the vendored crates
+for that (new_empty.rs unless noted):
+
+- `link_value` / `set_link_cell`: a link sheet's cells are read from the
+  other workbook and written typed (number, text, boolean, error, empty),
+  not as typed-in text, so `007` stays text and an error stays that error.
+  `set_link_cell` does not evaluate; the caller passes the cells to
+  `evaluate_edited`.
+- `rename_link_sheet`: when the sheet is renamed in the other workbook the
+  copy is renamed and the formulas that read it are respelled, as for any
+  renamed sheet.
+- `delete_sheet` on a link sheet (the sheet was deleted in the other
+  workbook): the formulas that read it would then look like links to a
+  workbook that is not loaded, which keep their value. That value was not
+  saved with the file and its sheet is gone, so `forget_values_of_links_to`
+  clears it and the cells show `#REF!` (`node_has_wrong_ref_to_sheet`,
+  model.rs).
+- A link whose file or sheet name is not just letters, digits, `_` and `.`
+  is spelled quoted, `'[NOW 2026.xlsx]Income Statement'!B23`; the link
+  sheet's name is the text between the quotes.
+
+Outside the vendored crates:
+
+- crates/engine-core/src/links.rs keeps a copy in step with its source
+  (`sync_link_sheet` for the whole sheet, `push_link_cells` for the cells
+  an edit changed). Only values cross. A source cell the engine cannot
+  calculate gives the value its file was saved with.
+- crates/engine-wasm: `attachLink`, `pushLinkCells`, `renameLinkSheet`.
+  A new workbook is made with `blankXlsx`, which was there already.
+- crates/engine-wasm `Workbook::open` now drops the saved value of every
+  formula the first evaluation could calculate (`prune_cached`), as the
+  desktop and `evaluatePending` already did. Kept, a formula that an edit
+  later turned into an error (its input became text, the row it read was
+  deleted) showed the error in its own workbook and the old saved number in
+  every workbook that read it. Still open: a formula whose value was
+  already missing at open, and which a later row or column delete breaks,
+  shows its saved value instead of `#REF!`.
+
+Tests: `test_link_sheets.rs` (13); packages/gridpath
+`workbook/workspace.test.ts` (31, skipped on an engine build without
+links) and `workbook/links.test.ts`. base 2275 pass;
+`test_to_from_bytes::errors` fails as before.
+
+
+## Links saved into the file (2026-11-13)
+
+A workbook that reads another one can now be saved. The file holds the
+links the way Excel writes them: formulas spelled `[1]Model!B23`, and one
+`xl/externalLinks/externalLinkN.xml` per workbook read, with the other
+file's path, its sheet names and the last value of every cell read. Excel,
+LibreOffice and openpyxl open the file with the figures in place; opened
+here, the links are attached to the workbooks they name and are live again.
+
+In the vendored crates:
+
+- `rename_sheet_in_node` (stringify.rs) leaves a range on a sheet that is
+  not in the workbook alone. It used to give every such range the new name
+  of whichever sheet was renamed, so renaming any sheet in a file with
+  `[2]Other!A1:B2` in it rewrote that link (a single cell was already left
+  alone). This also affects ordinary sheet renames in files that link to
+  workbooks that are not loaded.
+- `defined_name_areas` (new_empty.rs): the cells each defined name points
+  at. A name may be the only reader of a cell in another workbook.
+
+Outside the vendored crates:
+
+- crates/engine-core/src/links.rs: `link_cache` gives, for each copy, the
+  areas and cells that formulas and defined names read (a whole-sheet
+  range such as `$A$1:$CF$1687` caches that whole range, as Excel does);
+  `unresolved_links` lists the link names formulas use that no copy stands
+  behind (the numbered links of a file just opened).
+- crates/engine-wasm: `linkCache()`, `unresolvedLinks()`, and the free
+  function `externalLinks(bytes)`, which lists the links a file was saved
+  with (number, path, sheet names).
+- crates/xlsx-patch/src/external_links.rs (new): the patch section
+  `externalLinks: [{ index, target?, sheets: [{ name, areas, cells }] }]`.
+  An existing link is brought up to date in place (sheet names added, the
+  values of the named areas replaced, every other byte and the saved path
+  kept); a new one must take the next free number and gets its part, its
+  relationship, its `<externalReference>` and its content type.
+- crates/xlsx-patch/src/refs.rs: an unquoted `[2]Model!A1` was read as a
+  cell of a local sheet named `Model` when rows or columns moved. It is a
+  cell of another workbook and stays as written.
+- packages/gridpath: `session.buildSave(links)` respells the formulas and
+  adds the section; `workspace.savePlan` decides the numbers and paths
+  (relative when the other file is in the reader's folder or below it,
+  else a `file:///` path); `workspace.attachSaved` re-attaches a file's
+  links on open.
+
+The order of saves, which keeps a reader's file in step with the file it
+reads: a reader is not saved while a workbook it reads has unsaved row,
+column or sheet changes on a sheet it reads (`save_source_first`, the
+refusal names the workbook to save first); after such a workbook is saved,
+the readers that followed are listed under `also_save`.
+
+Limits:
+
+- Rows moved in a source by another program, while its readers were not
+  open here, are not followed (as in Excel).
+- Conditional formats, validations and charts that read another workbook
+  are not walked for the kept values.
+- A link whose workbook is not found keeps the value the file was saved
+  with. Of two saved links to files with the same name, only the first is
+  attached.
+- A defined name cannot be made to point into another workbook through the
+  tools, and a file's own names that do are not moved with the source's
+  rows on save.
+- A copy saved into another folder keeps the paths of the links its file
+  already had.
+- Not tested against a file whose links Excel wrote: none was at hand. The
+  Excel-shaped input is covered by the patcher's fixtures and by files
+  saved here.
+
+Tests: `test_link_sheets.rs` (14), crates/engine-core (30),
+crates/xlsx-patch (74), packages/gridpath `workbook/workspace.test.ts`
+(44, skipped on an engine build without link saving; package 89). base
+2276 pass; `test_to_from_bytes::errors` fails as before.
+
+## What-if data tables open; long capital names do not overflow (2026-11-13)
+
+**Data tables.** Upstream refuses a workbook that holds a what-if data
+table (`<f t="dataTable" …>`, `XlsxError::NotImplemented`), so the whole
+file would not open: 16 of 589 analyst models tried, each with one or two
+sensitivity grids. `xlsx/src/import/worksheets.rs` now imports the block:
+
+- The file keeps the table on the first cell of its block
+  (`<f t="dataTable" ref="I18:N23" dt2D="1" dtr="1" r1="C7" r2="C5"/>`);
+  the other cells of `ref` hold only a value. Every cell of the block gets
+  the formula Excel shows for it, `TABLE(row input, column input)`, with
+  the inputs absolute (`=TABLE($C$7,$C$5)`; a one-way table leaves one
+  argument empty, a deleted input reads `#REF!`).
+- `TABLE` is not a function of this engine, so the cells are not
+  computed: they keep the value the file saved, like add-in calls, also
+  after an input changes. They read as formulas, not as typed numbers.
+  Row and column edits move the inputs they name like any reference.
+- `base/src/expressions/parser/stringify.rs` writes that one name in
+  capitals; every other name called as a function keeps upstream's lower
+  case.
+
+Not done: computing the table. The saved file keeps the data table as it
+was as long as its cells are not edited (the patcher leaves untouched
+cells byte-identical), so Excel still recalculates it.
+
+**Overflow.** `column_to_number` multiplied through every capital of a
+name such as `REVENUEGROWTH2026` before checking that it was a column:
+a panic in a debug build, an arbitrary column in a release one. It stops
+at the first step past the last column.
+
+Tests: `xlsx/tests/data_table_import.rs` (2), `expressions/utils/test.rs`
+(`test_column_to_number_long_names`). All 16 models open (scratch copies).

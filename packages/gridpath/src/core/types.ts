@@ -181,6 +181,46 @@ export type DefineNameMutation = {
   old_ref?: string | null;
 };
 
+/** A chart to make: where it sits, what kind it is, the ranges it plots
+ * (see `ChartSpec` in crates/xlsx-patch/src/charts.rs). */
+export type ChartSpec = {
+  /** The chart's id; it is what takes the chart away again. */
+  id: string;
+  /** The sheet the chart sits on. Ranges without a sheet are on it too. */
+  sheet: string;
+  /** Its top-left cell, 0-based. */
+  row: number;
+  col: number;
+  /** Size in pixels (480 x 288 when left out). */
+  width?: number | null;
+  height?: number | null;
+  title?: string;
+  kind: "column" | "bar" | "line";
+  grouping?: "clustered" | "stacked" | "percentStacked";
+  /** The category labels: one row or one column of cells. */
+  categories?: string | null;
+  series: Array<{
+    name?: string | null;
+    /** Instead of `name`: the cell that holds it. */
+    nameRef?: string | null;
+    /** The values: one row or one column of cells. */
+    values: string;
+    /** Drawn differently from the chart's kind (a line over columns). */
+    kind?: "line" | "column" | null;
+    /** A line plotted against a second value axis on the right. */
+    secondary?: boolean;
+    color?: string | null;
+  }>;
+};
+
+/** A chart the agent added. Undone by taking the chart away again. */
+export type ChartMutation = {
+  type: "create_chart";
+  chart: ChartSpec;
+  /** What it plots, for the review list: "columns + line, 3 series". */
+  summary?: string;
+};
+
 export type UniverMutation =
   | CellMutation
   | RangeMutation
@@ -195,7 +235,8 @@ export type UniverMutation =
   | UnfreezeMutation
   | HideShowMutation
   | DefineNameMutation
-  | NoteMutation;
+  | NoteMutation
+  | ChartMutation;
 
 export type BatchStatus = "streaming" | "pending" | "accepted" | "rejected";
 
@@ -232,6 +273,22 @@ export type ChangeBatch = {
    * save (which bakes every batch into the file and resets the baseline).
    */
   persisted?: boolean;
+  /**
+   * Workspace: the sheets of other workbooks this batch's formulas read.
+   * `name` is the link as formulas spell it (`[NOW.xlsx]Model`), `source`
+   * the file it means, `sheet` the sheet there. Lets a reopened session
+   * find the same files again.
+   */
+  links?: Array<{ name: string; source: string; sheet: string }>;
+  /**
+   * Workspace: this batch was not written by anyone. It repeats, on this
+   * workbook's hidden copy of another workbook's sheet, a row, column or
+   * sheet edit made in that workbook (batch `batch_id` of `path`), so the
+   * links here keep pointing at the cells they meant. It never reaches the
+   * file and is dropped when that batch is rejected. `base` is the size and
+   * mtime of the other file at the time, to tell "rejected" from "saved".
+   */
+  link_origin?: { path: string; batch_id: string; created_at: string; base: { size: number; mtimeMs: number } };
 };
 
 export type Workbook = {

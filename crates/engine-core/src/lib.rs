@@ -14,6 +14,7 @@
 
 pub mod diff;
 pub mod index;
+pub mod links;
 pub mod query;
 pub mod session;
 pub mod window;
@@ -54,6 +55,51 @@ pub fn build_cached(model: &Model) -> Cached {
         }
     }
     cached
+}
+
+/// Rows (or columns, when `rows` is false) `at..` of sheet `sheet` moved by
+/// `count`; a negative `count` means `-count` of them were deleted starting
+/// at `at`. The saved values follow their cells and those of deleted cells
+/// are dropped. Left where they were, a cell that falls back on its saved
+/// value showed, and saved to the file, the value of the cell that used to
+/// be at its new position.
+pub fn shift_cached(cached: &mut Cached, sheet: u32, at: i32, count: i32, rows: bool) {
+    if count == 0 || !cached.keys().any(|k| k.0 == sheet) {
+        return;
+    }
+    *cached = std::mem::take(cached)
+        .into_iter()
+        .filter_map(|((s, r, c), value)| {
+            if s != sheet {
+                return Some(((s, r, c), value));
+            }
+            let position = if rows { r } else { c };
+            let position = if position < at {
+                position
+            } else if count < 0 && position < at - count {
+                return None; // deleted
+            } else {
+                position + count
+            };
+            Some((if rows { (s, position, c) } else { (s, r, position) }, value))
+        })
+        .collect();
+}
+
+/// Sheet `sheet` was deleted: its saved values go, and those of the sheets
+/// after it move up one place.
+pub fn remove_sheet_from_cached(cached: &mut Cached, sheet: u32) {
+    if !cached.keys().any(|k| k.0 >= sheet) {
+        return;
+    }
+    *cached = std::mem::take(cached)
+        .into_iter()
+        .filter_map(|((s, r, c), value)| match s.cmp(&sheet) {
+            std::cmp::Ordering::Less => Some(((s, r, c), value)),
+            std::cmp::Ordering::Equal => None,
+            std::cmp::Ordering::Greater => Some(((s - 1, r, c), value)),
+        })
+        .collect();
 }
 
 pub fn cell_value_json(v: CellValue) -> Value {
@@ -376,6 +422,25 @@ fn sheet_header(ws: &ironcalc_base::types::Worksheet, theme: &Theme) -> Value {
     })
 }
 
+/// The snapshot entry of a link sheet (the hidden copy of another workbook's
+/// sheet, see `links`): its place in the sheet list, marked `"link": true`,
+/// and none of its cells. It is not a sheet of this workbook; it stays in
+/// the list only so that position i of the snapshot is sheet index i.
+fn link_sheet_header(ws: &ironcalc_base::types::Worksheet) -> Value {
+    json!({
+        "name": ws.name,
+        "hidden": true,
+        "link": true,
+        "merges": [],
+        "cols": [],
+        "rows": [],
+        "comments": [],
+        "cellCount": 0,
+        "maxRow": 0,
+        "maxCol": 0,
+    })
+}
+
 /// Appends a sheet's cells (all of them, or only the skeleton) as a JSON
 /// array body (no brackets).
 fn write_sheet_cells(
@@ -412,7 +477,13 @@ fn write_sheet_cells(
 
 pub fn snapshot_json_with(m: &Model, cached: &Cached, opts: &SnapshotOptions) -> Result<String, String> {
     let mut table = StyleTable::new(m).with_blank_unevaluated(opts.blank_unevaluated);
-    let total_cells: usize = m.workbook.worksheets.iter().map(sheet_cell_count).sum();
+    let total_cells: usize = m
+        .workbook
+        .worksheets
+        .iter()
+        .filter(|ws| !ironcalc_base::new_empty::is_link_sheet_name(&ws.name))
+        .map(sheet_cell_count)
+        .sum();
     let lazy_mode = opts.lazy_threshold.is_some_and(|t| total_cells > t);
     // Size the buffer up front: a 142 MB snapshot grown by doubling peaked at
     // 284 MB of live heap on top of the model. The measured average is ~60
@@ -424,6 +495,12 @@ pub fn snapshot_json_with(m: &Model, cached: &Cached, opts: &SnapshotOptions) ->
         let sheet = idx as u32;
         if idx > 0 {
             out.push(',');
+        }
+        if ironcalc_base::new_empty::is_link_sheet_name(&ws.name) {
+            let header = serde_json::to_string(&link_sheet_header(ws)).map_err(|e| e.to_string())?;
+            out.push_str(&header[..header.len() - 1]);
+            out.push_str(",\"cells\":[]}");
+            continue;
         }
         let lazy = lazy_mode && !opts.eager_sheets.contains(&sheet) && sheet_cell_count(ws) > opts.lazy_sheet_min_cells;
         let mut header = sheet_header(ws, table.theme());
@@ -522,6 +599,61 @@ mod tests {
         let opts = SnapshotOptions { lazy_threshold: Some(10_000), ..opts };
         let eager: Value = serde_json::from_str(&snapshot_json_with(&m, &Cached::new(), &opts).unwrap()).unwrap();
         assert!(eager["sheets"][1].get("lazy").is_none());
+    }
+}
+
+#[cfg(test)]
+mod cached_follows_cells {
+    use super::*;
+
+    fn cached() -> Cached {
+        let mut cached = Cached::new();
+        cached.insert((0, 5, 4), json!(2.549606));
+        cached.insert((0, 6, 4), json!(2.292617));
+        cached.insert((0, 7, 4), json!(7.1551104));
+        cached.insert((1, 5, 4), json!("other sheet"));
+        cached.insert((2, 1, 1), json!(true));
+        cached
+    }
+
+    #[test]
+    fn rows_inserted_and_deleted() {
+        let mut c = cached();
+        // One row inserted before row 6: row 5 stays, rows 6.. move down.
+        shift_cached(&mut c, 0, 6, 1, true);
+        assert_eq!(c.get(&(0, 5, 4)), Some(&json!(2.549606)));
+        assert_eq!(c.get(&(0, 6, 4)), None);
+        assert_eq!(c.get(&(0, 7, 4)), Some(&json!(2.292617)));
+        assert_eq!(c.get(&(0, 8, 4)), Some(&json!(7.1551104)));
+        assert_eq!(c.get(&(1, 5, 4)), Some(&json!("other sheet")));
+
+        // Rows 5 and 6 deleted: the value of row 5 goes, the rest move up.
+        shift_cached(&mut c, 0, 5, -2, true);
+        assert_eq!(c.get(&(0, 5, 4)), Some(&json!(2.292617)));
+        assert_eq!(c.get(&(0, 6, 4)), Some(&json!(7.1551104)));
+        assert_eq!(c.len(), 4);
+    }
+
+    #[test]
+    fn columns_inserted_and_deleted() {
+        let mut c = cached();
+        shift_cached(&mut c, 0, 1, 2, false);
+        assert_eq!(c.get(&(0, 5, 6)), Some(&json!(2.549606)));
+        assert_eq!(c.get(&(0, 5, 4)), None);
+        assert_eq!(c.get(&(1, 5, 4)), Some(&json!("other sheet")));
+        shift_cached(&mut c, 0, 6, -1, false);
+        assert!(c.keys().all(|k| k.0 != 0), "{c:?}");
+        assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn sheet_deleted() {
+        let mut c = cached();
+        remove_sheet_from_cached(&mut c, 1);
+        assert_eq!(c.get(&(0, 5, 4)), Some(&json!(2.549606)));
+        assert_eq!(c.get(&(1, 1, 1)), Some(&json!(true)));
+        assert_eq!(c.get(&(1, 5, 4)), None);
+        assert_eq!(c.len(), 4);
     }
 }
 

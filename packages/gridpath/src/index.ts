@@ -13,3 +13,4 @@ export { ToolHandlers, toolSchemas } from "./tools/handlers";
 export { createServer } from "./mcp/server";
 export { startReviewServer } from "./review/api";
 export { WorkbookSession } from "./workbook/session";
+export { Workspace, LinkError, type LinkReport, type LinkStatus } from "./workbook/workspace";

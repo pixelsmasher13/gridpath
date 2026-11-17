@@ -750,11 +750,17 @@ interface Props {
   references: ReferenceChipInfo[];
   onAttachReference: () => void;
   onRemoveReference: (path: string) => void;
+  /** The workspace shown, when it has models: with no tab open, the panel
+   * says what to do with them. */
+  workspace?: { name: string; models: number } | null;
+  /** File names of the other workspace models the agent can read and link
+   * to from the open workbook. */
+  linkable?: string[];
 }
 
 export const ChatPanel: React.FC<Props> = ({
   tab, prompt, onPromptChange, onSubmit, onStop, onAccept, onReject, onUndo, onRedo, onOpenReview, selectionLabel, onDismissSelection, autoApply, onSetAutoApply,
-  references, onAttachReference, onRemoveReference,
+  references, onAttachReference, onRemoveReference, workspace, linkable = [],
 }) => {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuWrapRef = useRef<HTMLDivElement>(null);
@@ -828,13 +834,26 @@ export const ChatPanel: React.FC<Props> = ({
       </Header>
 
       <Thread ref={threadRef}>
-        {!tab && (
+        {!tab && !workspace && (
           <Empty>
             Open a workbook with the <strong>+</strong> tab button.<br />
             Then ask the agent to edit it.
           </Empty>
         )}
-        {tab && batches.length === 0 && !running && (
+        {!tab && workspace && (
+          <Empty>
+            <strong>{workspace.name}</strong> has {workspace.models} model{workspace.models === 1 ? "" : "s"}.<br />
+            Open one from the list on the left, or start a new workbook there.<br />
+            The agent works on the workbook in the open tab.
+          </Empty>
+        )}
+        {tab && batches.length === 0 && !running && linkable.length > 0 && (
+          <Empty>
+            The agent can read {linkable.length === 1 ? linkable[0] : `the ${linkable.length} other models in this workspace`} and link to {linkable.length === 1 ? "it" : "them"}.<br />
+            Try: <em>"Add a sheet that compares this with {linkable[0]}"</em>
+          </Empty>
+        )}
+        {tab && batches.length === 0 && !running && linkable.length === 0 && (
           <Empty>
             Ready when you are.<br />
             Try: <em>"Build a simple income model for 2022–2025"</em>
@@ -1194,6 +1213,7 @@ function mutationSheet(m: UniverMutation): string {
   if (m.type === "set_cell") return m.address.sheet;
   if (m.type === "create_sheet" || m.type === "delete_sheet") return m.name;
   if (m.type === "rename_sheet") return m.new_name;
+  if (m.type === "create_chart") return m.chart.sheet;
   if ("sheet" in m) return (m as any).sheet;
   return "";
 }
@@ -1216,6 +1236,7 @@ function addrOf(m: UniverMutation): string {
   if (m.type === "hide_columns" || m.type === "show_columns") return "cols " + m.columns.map((c) => colLetters(c)).join(",");
   if (m.type === "define_name") return m.name;
   if (m.type === "set_note" || m.type === "delete_note") return `${colLetters(m.col)}${m.row + 1}`;
+  if (m.type === "create_chart") return `chart at ${colLetters(m.chart.col)}${m.chart.row + 1}`;
   return "?";
 }
 
@@ -1237,6 +1258,7 @@ function oldOf(m: UniverMutation): any {
   if (m.type === "show_rows" || m.type === "show_columns") return "hidden";
   if (m.type === "define_name") return m.old_ref ?? "—";
   if (m.type === "set_note" || m.type === "delete_note") return m.old_text ?? null;
+  if (m.type === "create_chart") return "—";
   return null;
 }
 
@@ -1262,6 +1284,7 @@ function newOf(m: UniverMutation): any {
   if (m.type === "define_name") return m.ref;
   if (m.type === "set_note") return m.text;
   if (m.type === "delete_note") return "(no note)";
+  if (m.type === "create_chart") return [m.chart.title, m.summary].filter(Boolean).join(": ") || "new chart";
   return "(range)";
 }
 

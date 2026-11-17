@@ -4,17 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>All tools — GridPath Docs</title>
-  <meta name="description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta name="description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.6.0): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <link rel="canonical" href="https://gridpath.dev/docs/tools" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="GridPath" />
   <meta property="og:title" content="All tools — GridPath Docs" />
-  <meta property="og:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta property="og:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.6.0): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <meta property="og:url" content="https://gridpath.dev/docs/tools" />
   <meta property="og:image" content="https://gridpath.dev/og-image.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="All tools — GridPath Docs" />
-  <meta name="twitter:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
+  <meta name="twitter:description" content="Reference for every tool in the GridPath Excel MCP server (gridpath 0.6.0): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions." />
   <meta name="twitter:image" content="https://gridpath.dev/og-image.png" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -26,7 +26,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "All tools",
-    "description": "Reference for every tool in the GridPath Excel MCP server (gridpath 0.5.2): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions.",
+    "description": "Reference for every tool in the GridPath Excel MCP server (gridpath 0.6.0): parameters, types and the descriptions the agent sees. Generated from the server's tool definitions.",
     "url": "https://gridpath.dev/docs/tools",
     "author": { "@type": "Organization", "name": "GridPath" },
     "publisher": { "@type": "Organization", "name": "GridPath", "url": "https://gridpath.dev/" },
@@ -95,13 +95,13 @@
     <li><a href="/docs/tools" aria-current="page">All tools</a></li>
     <li><a href="/docs/options">CLI options and limits</a></li>
   </ul>
-  <p class="docs-nav-version">gridpath 0.5.2</p>
+  <p class="docs-nav-version">gridpath 0.6.0</p>
 </nav>
       </aside>
       <article class="docs-body legal post">
         <p class="docs-crumb"><a href="/docs">Docs</a> / All tools</p>
 <h1 class="legal-title">All tools.</h1>
-<p class="legal-lede">Every tool the GridPath MCP server exposes, generated from the server's own tool definitions for gridpath 0.5.2. The descriptions are the ones the agent sees. 33 tools.</p>
+<p class="legal-lede">Every tool the GridPath MCP server exposes, generated from the server's own tool definitions for gridpath 0.6.0. The descriptions are the ones the agent sees. 35 tools.</p>
 
 <p>Every tool takes <code>path</code>: the <code>.xlsx</code> or <code>.xlsm</code> to operate on, absolute or <code>~/…</code>. It must sit inside an allowed folder (see <a href="/docs/options">CLI options</a>). Cells and ranges are A1 notation; sheet names are case-sensitive.</p>
 <p>Write tools never touch the file. They accumulate as pending batches, each write returns a readback of what landed plus a <code>review_url</code>, and <code>save_workbook</code> is the only call that writes to disk. See <a href="/docs/review">Review before save</a>.</p>
@@ -167,6 +167,14 @@
 <tr><td><a href="#list_batches"><code>list_batches</code></a></td><td>List this workbook's pending (unsaved) change batches with their mutation counts, and the review link.</td></tr>
 <tr><td><a href="#reject_batch"><code>reject_batch</code></a></td><td>Drop one pending batch.</td></tr>
 <tr><td><a href="#save_workbook"><code>save_workbook</code></a></td><td>Write every pending batch into the .xlsx on disk through the surgical patcher: only the parts an edit touched are rewritten, everything else stays byte-identical.</td></tr>
+</tbody>
+</table></div>
+<h2 id="other">Other</h2>
+
+<div class="table-wrap"><table class="docs-index">
+<tbody>
+<tr><td><a href="#list_workbooks"><code>list_workbooks</code></a></td><td>List the Excel workbooks (.xlsx, .xlsm) in a folder: path, size, when it was last modified, whether it is open in this session with unsaved changes, and which other workbooks it reads or is read by.</td></tr>
+<tr><td><a href="#create_workbook"><code>create_workbook</code></a></td><td>Create a new, empty .xlsx file on disk, for example the workbook that will pull figures together from several others.</td></tr>
 </tbody>
 </table></div>
 
@@ -642,6 +650,25 @@
     <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
     <tbody>
 <tr><td><code>as</code></td><td>string</td><td>Optional: write the result to this path instead (a copy), leaving the original untouched. Pending batches stay pending against the original.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section class="docs-tool" id="list_workbooks">
+  <h3><a href="#list_workbooks"><code>list_workbooks</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>List the Excel workbooks (.xlsx, .xlsm) in a folder: path, size, when it was last modified, whether it is open in this session with unsaved changes, and which other workbooks it reads or is read by. Use it to find the files to work across; any of them can then be described, searched and read with the other tools, and a formula written into one can read another (see the server instructions on linking workbooks).</p>
+  </div>
+  <p class="docs-muted">No parameters beyond <code>path</code>.</p>
+</section>
+<section class="docs-tool" id="create_workbook">
+  <h3><a href="#create_workbook"><code>create_workbook</code></a> <span class="docs-badge docs-badge-write">pending batch</span></h3>
+  <div class="docs-tool-desc">
+<p>Create a new, empty .xlsx file on disk, for example the workbook that will pull figures together from several others. Never overwrites: fails when the file already exists. After this, write into it like any other workbook.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+<tr><td><code>sheets</code></td><td>array of string</td><td>Sheet names, in order. Default: one sheet, Sheet1.</td></tr>
     </tbody>
   </table></div>
 </section>

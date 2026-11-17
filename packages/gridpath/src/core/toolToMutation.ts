@@ -1,4 +1,4 @@
-import type { UniverMutation } from "./types";
+import type { ChartSpec, UniverMutation } from "./types";
 
 /**
  * Convert one Claude tool_use call into one or more UniverMutations.
@@ -26,6 +26,25 @@ export type ToolResult =
   | { kind: "find_rows"; query: string; sheet: string | null; max_results: number }
   | { kind: "query_rows"; sheet: string; query: Record<string, unknown> }
   | { kind: "script"; code: string }
+  /** create_summary_table: a pivot-style summary to lay out as formulas. */
+  | {
+      kind: "summary";
+      sourceSheet: string;
+      headerRow: number | null;
+      rows: string;
+      columns: string | null;
+      values: Array<{ field: string; fn: "sum" | "count" | "average" | "min" | "max" }>;
+      destSheet: string;
+      dest: { row: number; col: number };
+      title: string | null;
+      sort: "label" | "value";
+      /** The data rows, 1-based, when the agent bounds them (a totals row
+       * at the bottom of the data must stay out). */
+      firstRow: number | null;
+      lastRow: number | null;
+    }
+  /** create_chart: the chart to make, without the id the app gives it. */
+  | { kind: "chart"; spec: Omit<ChartSpec, "id"> }
   | {
       kind: "stage";
       sheet: string;
@@ -561,6 +580,85 @@ export function interpretToolCall(name: string, input: any): ToolResult {
       return {
         kind: "mutations",
         mutations: [{ type: "define_name", name: nm, ref: normalized, old_ref: null } as any],
+      };
+    }
+    case "create_summary_table": {
+      const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      const sourceSheet = text(input?.source_sheet);
+      const rows = text(input?.rows);
+      const destSheet = text(input?.dest_sheet);
+      const dest = parseA1(String(input?.dest ?? "").trim().replace(/\$/g, ""));
+      if (!sourceSheet) return { kind: "ignored", reason: "create_summary_table: missing source_sheet (the sheet that holds the data, one record per row)" };
+      if (!rows) return { kind: "ignored", reason: "create_summary_table: missing 'rows' (the field to group by: a header text or a column letter)" };
+      if (!destSheet || !dest) return { kind: "ignored", reason: `create_summary_table: 'dest_sheet' and 'dest' (top-left cell, e.g. "A1") are required. Got ${JSON.stringify({ dest_sheet: input?.dest_sheet, dest: input?.dest })}` };
+      const FNS: Record<string, "sum" | "count" | "average" | "min" | "max"> = { sum: "sum", count: "count", average: "average", avg: "average", mean: "average", min: "min", max: "max" };
+      const rawValues = coerceArray(input?.values);
+      if (!Array.isArray(rawValues) || rawValues.length === 0 || rawValues.length > 6) {
+        return { kind: "ignored", reason: "create_summary_table: 'values' must list 1 to 6 entries, each {field, fn}" };
+      }
+      const values: Array<{ field: string; fn: "sum" | "count" | "average" | "min" | "max" }> = [];
+      for (const [i, v] of rawValues.entries()) {
+        const field = text(v?.field);
+        const fn = FNS[String(v?.fn ?? "sum").trim().toLowerCase()];
+        if (!field) return { kind: "ignored", reason: `create_summary_table: values[${i}] has no 'field'` };
+        if (!fn) return { kind: "ignored", reason: `create_summary_table: values[${i}].fn must be one of sum, count, average, min, max. Got ${JSON.stringify(v?.fn)}` };
+        values.push({ field, fn });
+      }
+      const columns = text(input?.columns);
+      if (columns && values.length > 1) {
+        return { kind: "ignored", reason: "create_summary_table: with 'columns' (a field across the top) give ONE value; for several values leave 'columns' out, or make one table per value" };
+      }
+      const header = Number(input?.header_row);
+      const rowNumber = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) >= 1 ? Number(v) : null);
+      return {
+        kind: "summary",
+        firstRow: rowNumber(input?.first_row),
+        lastRow: rowNumber(input?.last_row),
+        sourceSheet,
+        headerRow: Number.isInteger(header) && header >= 1 ? header : null,
+        rows,
+        columns,
+        values,
+        destSheet,
+        dest,
+        title: text(input?.title),
+        sort: String(input?.sort ?? "").trim().toLowerCase() === "value" ? "value" : "label",
+      };
+    }
+    case "create_chart": {
+      const sheet = String(input?.sheet ?? "").trim();
+      if (!sheet) return { kind: "ignored", reason: "create_chart: missing sheet (the sheet the chart is placed on)" };
+      const at = parseA1(String(input?.anchor ?? "").trim().replace(/\$/g, ""));
+      if (!at) return { kind: "ignored", reason: `create_chart: 'anchor' must be the chart's top-left cell, e.g. "H2". Got ${JSON.stringify(input?.anchor)}` };
+      const TYPES: Record<string, Pick<ChartSpec, "kind" | "grouping">> = {
+        column: { kind: "column", grouping: "clustered" },
+        stacked_column: { kind: "column", grouping: "stacked" },
+        percent_stacked_column: { kind: "column", grouping: "percentStacked" },
+        bar: { kind: "bar", grouping: "clustered" },
+        stacked_bar: { kind: "bar", grouping: "stacked" },
+        line: { kind: "line", grouping: "clustered" },
+      };
+      const type = TYPES[String(input?.type ?? "").trim().toLowerCase()];
+      if (!type) return { kind: "ignored", reason: `create_chart: 'type' must be one of ${Object.keys(TYPES).join(", ")}. Got ${JSON.stringify(input?.type)}` };
+      const rawSeries = coerceArray(input?.series);
+      if (!Array.isArray(rawSeries) || rawSeries.length === 0 || rawSeries.length > 24) {
+        return { kind: "ignored", reason: "create_chart: 'series' must list 1 to 24 series, each {name or name_cell, values}" };
+      }
+      const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      const series: ChartSpec["series"] = [];
+      for (const [i, s] of rawSeries.entries()) {
+        const values = text(s?.values);
+        if (!values) return { kind: "ignored", reason: `create_chart: series ${i + 1} has no 'values' range (e.g. "B5:M5")` };
+        const kind = text(s?.type)?.toLowerCase() ?? null;
+        if (kind !== null && kind !== "line" && kind !== "column") {
+          return { kind: "ignored", reason: `create_chart: series ${i + 1}: 'type' must be "line" or "column". Got ${JSON.stringify(s?.type)}` };
+        }
+        series.push({ name: text(s?.name), nameRef: text(s?.name_cell), values, kind, secondary: s?.secondary_axis === true, color: text(s?.color) });
+      }
+      const size = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
+      return {
+        kind: "chart",
+        spec: { sheet, row: at.row, col: at.col, width: size(input?.width), height: size(input?.height), title: text(input?.title) ?? "", ...type, categories: text(input?.categories), series },
       };
     }
     case "done": {

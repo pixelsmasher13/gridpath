@@ -34,6 +34,11 @@ export interface EngineAutoFilter {
 export interface EngineLayoutSheet {
   name: string;
   hidden: boolean;
+  /** The hidden copy of a sheet of another workbook (`[NOW.xlsx]Model`),
+   * kept by the engine so links to it evaluate. Never the user's: it holds
+   * its place in the list (sheet indices are the engine's) and is shown
+   * nowhere. */
+  link?: boolean;
   /** The sheet Excel had selected when the file was saved. */
   selected?: boolean;
   color: string | null;

@@ -351,11 +351,17 @@ function buildSharedFormulaIndex(cellData: any): Map<any, { r: number; c: number
  * Diff the live snapshot against the load-time baseline and fold in the
  * SaveMirror's format/structure ops. Returns the wire-shape patch object,
  * or a typed reason when these edits need the full-export path.
+ *
+ * `opts.formulaText` turns a live formula (no leading `=`) into the text the
+ * file holds for it, where the two differ: a link to another workbook reads
+ * `[NOW.xlsx]Model!B23` in the live model and `[1]Model!B23` in the file.
+ * The baseline is in the file's spelling.
  */
 export function buildWorkbookPatch(
   snapshot: any,
   baseline: Map<string, Map<string, BaselineCell>>,
   mirror?: SaveMirror,
+  opts?: { formulaText?: (formula: string) => string },
 ): PatchBuildResult {
   const { base: shiftedBaseline, sheetOps, rowColOps, deletedSheets } =
     transformBaseline(baseline, mirror);
@@ -415,6 +421,7 @@ export function buildWorkbookPatch(
           raw = { ...raw, f: derived };
         }
         const cur = normalizeCellForDiff(raw);
+        if (cur?.f !== undefined && opts?.formulaText) cur.f = opts.formulaText(cur.f);
         const key = `${rk},${ck}`;
         if (cur) seen.add(key);
         if (!cellChanged(base.get(key), cur)) continue;

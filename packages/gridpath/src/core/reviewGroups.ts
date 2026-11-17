@@ -240,6 +240,8 @@ export function describeMutation(m: UniverMutation): string | null {
       return `Show columns ${m.columns.map(colLetters).join(", ")} (${m.sheet})`;
     case "define_name":
       return `Define name ${m.name} = ${m.ref}`;
+    case "create_chart":
+      return `New chart${m.chart.title ? ` "${m.chart.title}"` : ""} on ${m.chart.sheet}${m.summary ? `: ${m.summary}` : ""}`;
     case "set_range":
       return null; // legacy type, never emitted
     default:

@@ -3,7 +3,7 @@ import { cellRuns } from "./formatRuns";
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import styled from "styled-components";
 import { useToast } from "@chakra-ui/react";
-import { Settings as SettingsIcon, Save, PanelLeftOpen, PanelLeftClose, PanelRightClose, FolderOpen, FilePlus, Maximize2, X } from "lucide-react";
+import { Settings as SettingsIcon, Save, PanelLeftOpen, PanelLeftClose, PanelRightClose, FolderOpen, FilePlus, Layers, Maximize2, X } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { formatBytes, logMemory, startMemoryMonitor } from "./memoryMonitor";
 import { journalSheets } from "./journal";
@@ -28,6 +28,7 @@ import {
   type WorkbookJournal,
 } from "./journal";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { v4 as uuidv4 } from "uuid";
 
@@ -40,6 +41,28 @@ import { UpdateNotification } from "./components/UpdateNotification";
 import { ChatPanel } from "./components/ChatPanel";
 import { TabBar } from "./components/TabBar";
 import { SessionSidebar } from "./components/SessionSidebar";
+import { WorkspacePanel } from "./components/WorkspacePanel";
+import {
+  activeWorkspace,
+  loadWorkspaceStore,
+  saveWorkspaceStore,
+  singleWorkspaceStore,
+  withActiveMembers,
+  withNewWorkspace,
+  withRenamedWorkspace,
+  withoutWorkspace,
+  workbookName,
+  workspaceAddMembers,
+  workspaceCreateWorkbook,
+  workspaceExpandPaths,
+  workspaceRemoveMember,
+  workspaceSetMembers,
+  workspaceStatus,
+  type WorkspaceMember,
+  type WorkspaceStore,
+} from "./workspaceApi";
+import { mergeLinkPlan } from "./workspaceLinks";
+import { WORKSPACE_READ_TOOLS, readWorkspaceWorkbook, workspaceBooks } from "./agent/workspaceRead";
 import { SettingsModal } from "./components/SettingsModal";
 import { ExitGuardModal } from "./components/ExitGuardModal";
 import { RecoverModal } from "./components/RecoverModal";
@@ -101,14 +124,23 @@ function nextFrame(frames = 1, ms = 150): Promise<void> {
     tick();
   });
 }
-import type { ChangeBatch, UniverMutation, FormatMutation, CellFormat } from "./types";
+import type { ChangeBatch, UniverMutation, FormatMutation, CellFormat, ChartSpec } from "./types";
+import { describeNewChart } from "./agent/chartReport";
+import { layoutSummary, summaryResult } from "./agent/summaryLayout";
+import { gatherSummaryFacts } from "./agent/summaryFacts";
 import { ironcalcShadowLoad } from "./ironcalcShadow";
 import {
+  ironcalcEngineLinkSavePlan,
+  ironcalcEngineMarkSaved,
+  ironcalcEngineSessionCharts,
   ironcalcEngineOnBlank,
   ironcalcEngineOnClose,
   ironcalcEngineOnOpen,
   ironcalcEngineOnRestore,
   ironcalcEngineSetActiveTab,
+  onWorkspaceEvent,
+  workspaceLinksEnabled,
+  type LinkSavePlan,
 } from "./ironcalcEngine";
 import {
   initialWorkspace,
@@ -219,6 +251,29 @@ const ChatResizer = styled.div`
 const SidebarArea = styled.div`
   grid-area: sidebar;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+`;
+
+/** The sessions list takes what the workspace panel above it leaves. */
+const SidebarSessions = styled.div`
+  flex: 1;
+  min-height: 0;
+`;
+
+/** Shown over the window while files are dragged onto it. */
+const DropVeil = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(51, 99, 173, 0.14);
+  border: 2px dashed #3363AD;
+  color: #cfe1f8;
+  font-size: 15px;
 `;
 
 const ChatArea = styled.div`
@@ -296,6 +351,8 @@ const EmptyState = styled.div`
 
 const EmptyButtons = styled.div`
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
 `;
 
@@ -909,22 +966,23 @@ export const SpreadsheetScreen: React.FC = () => {
     }, 50);
   }, []);
 
-  const openWorkbookDialog = useCallback(async () => {
+  /**
+   * Open the workbook at `selected` in a tab (or show the tab it has).
+   * Returns the tab's id; the load goes on after that (wait for the tab's
+   * grid to be ready). With `background` the view stays where it is: the
+   * agent opened the workbook to write there.
+   */
+  const openWorkbookPath = useCallback(async (selected: string, opts?: { background?: boolean }): Promise<string | null> => {
     try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "Excel", extensions: ["xlsx"] }],
-      });
-      if (!selected || typeof selected !== "string") return;
-
-      const existing = findTabByPath(workspace, selected);
+      const existing = findTabByPath(workspaceRef.current, selected);
       if (existing) {
-        dispatch({ type: "activate", tabId: existing.id });
-        return;
+        if (!opts?.background) dispatch({ type: "activate", tabId: existing.id });
+        return existing.id;
       }
 
       const tab = newTab(selected);
-      dispatch({ type: "open", tab });
+      const viewed = workspaceRef.current.activeTabId;
+      dispatch({ type: "open", tab, background: opts?.background });
 
       // The new GridLayer mounts on the next React commit, and the
       // useImperativeHandle ref attaches in the commit's layout phase.
@@ -956,6 +1014,8 @@ export const SpreadsheetScreen: React.FC = () => {
           const journal = await recoverJournal(tab, grid, selected);
           for (const b of journal?.batches ?? []) dispatch({ type: "batch_add", tabId: tab.id, batch: { ...b, persisted: false } });
           void logMemory(`after open ${selected.split("/").pop()}`);
+          // The engine bridge took the new tab for the one in view.
+          if (opts?.background && viewed) ironcalcEngineSetActiveTab(viewed);
         } catch (err) {
           toast({ title: "Open failed", description: String(err), status: "error", duration: 4000 });
           dispatch({ type: "close", tabId: tab.id });
@@ -972,10 +1032,314 @@ export const SpreadsheetScreen: React.FC = () => {
         // prompt so we don't fill the sidebar with untitled entries for
         // files the user just browsed and closed.
       })();
+      return tab.id;
+    } catch (err) {
+      toast({ title: "Open failed", description: String(err), status: "error", duration: 4000 });
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]);
+
+  const openWorkbookDialog = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Excel", extensions: ["xlsx"] }],
+      });
+      if (!selected || typeof selected !== "string") return;
+      await openWorkbookPath(selected);
     } catch (err) {
       toast({ title: "Open failed", description: String(err), status: "error", duration: 4000 });
     }
-  }, [workspace, toast]);
+  }, [openWorkbookPath, toast]);
+
+  // --- workspace ------------------------------------------------------------
+
+  /**
+   * The workbooks worked on together (see workspaceApi.ts). The list of the
+   * workspace shown lives on the Tauri side; `workspaceMembers` is its last
+   * reported state, for the panel. `workspaceStore` is every saved
+   * workspace (name + list) and which one is shown.
+   */
+  const [workspaceMembers, setWorkspaceMembers] = React.useState<WorkspaceMember[]>([]);
+  const [workspaceDropping, setWorkspaceDropping] = React.useState(false);
+  const [workspaceStore, setWorkspaceStore] = React.useState<WorkspaceStore | null>(null);
+  const workspaceStoreRef = useRef<WorkspaceStore | null>(null);
+  /** The list as last reported, for the agent's event handlers (which
+   * outlive the render they were made in). */
+  const workspaceMembersRef = useRef<WorkspaceMember[]>([]);
+  workspaceMembersRef.current = workspaceMembers;
+  /** Links an agent write spelled that were left as typed, per tab, until
+   * that write's result takes them: the agent has to hear why a formula
+   * of its own reads #REF!. */
+  const linkNotesByTab = useRef<Record<string, string[]>>({});
+  /** The batches an agent turn made in OTHER tabs than the one it runs in:
+   * the turn's own batch id → tab id → that tab's batch id. Each workbook
+   * the turn changes gets its own batch, reviewed in its own tab. */
+  const companionBatches = useRef<Record<string, Record<string, string>>>({});
+  /** Workbooks the agent created this session, by lower-cased file name:
+   * the workspace list is a render behind right after a creation. */
+  const agentCreatedBooks = useRef<Map<string, string>>(new Map());
+  /** True once the saved workspaces were read: only then is anything
+   * written, so a failed read never replaces what is saved. */
+  const workspacePersistRef = useRef(false);
+  /** Bumped when another workspace is shown: an answer that was asked for
+   * the one before is dropped. */
+  const workspaceGenRef = useRef(0);
+  /** Requests about the list run one after another, so their answers
+   * arrive in the order they were asked. */
+  const workspaceQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  const commitWorkspaceStore = useCallback((next: WorkspaceStore) => {
+    if (next === workspaceStoreRef.current) return;
+    workspaceStoreRef.current = next;
+    setWorkspaceStore(next);
+    if (workspacePersistRef.current) {
+      saveWorkspaceStore(next).catch((e) => console.warn("[workspace] saving the workspaces failed:", e));
+    }
+  }, []);
+
+  /** Runs a request that answers with the list, and takes the answer: the
+   * panel shows it, and the workspace shown is saved with those models. */
+  const runWorkspace = useCallback(
+    (request: () => Promise<WorkspaceMember[]>): Promise<void> => {
+      const gen = workspaceGenRef.current;
+      const answer = workspaceQueueRef.current.then(request);
+      workspaceQueueRef.current = answer.catch(() => {});
+      return answer.then((list) => {
+        if (gen !== workspaceGenRef.current) return;
+        setWorkspaceMembers(list);
+        const store = workspaceStoreRef.current;
+        if (store) commitWorkspaceStore(withActiveMembers(store, list.filter((m) => m.member).map((m) => m.path)));
+      });
+    },
+    [commitWorkspaceStore],
+  );
+
+  const refreshWorkspace = useCallback(async () => {
+    try {
+      await runWorkspace(workspaceStatus);
+    } catch (e) {
+      console.warn("[workspace] status failed:", e);
+    }
+  }, [runWorkspace]);
+  const addWorkspaceMembers = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0) return;
+      try {
+        await runWorkspace(() => workspaceAddMembers(paths));
+      } catch (e) {
+        toast({ title: "Could not add to the workspace", description: String(e), status: "error", duration: 4000 });
+      }
+    },
+    [runWorkspace, toast],
+  );
+
+  /** Shows the workspace that `store` marks as shown. */
+  const showWorkspace = useCallback(
+    async (store: WorkspaceStore) => {
+      workspaceGenRef.current++;
+      commitWorkspaceStore(store);
+      const members = activeWorkspace(store).members;
+      try {
+        await runWorkspace(() => workspaceSetMembers(members));
+      } catch (e) {
+        toast({ title: "Could not switch workspace", description: String(e), status: "error", duration: 4000 });
+      }
+    },
+    [commitWorkspaceStore, runWorkspace, toast],
+  );
+
+  // The saved workspaces, and the one that was shown last.
+  useEffect(() => {
+    (async () => {
+      let store: WorkspaceStore;
+      try {
+        const loaded = await loadWorkspaceStore(uuidv4());
+        store = loaded.store;
+        workspacePersistRef.current = true;
+        if (!loaded.saved) saveWorkspaceStore(store).catch((e) => console.warn("[workspace] saving the workspaces failed:", e));
+      } catch (e) {
+        console.warn("[workspace] the saved workspaces could not be read; this session's changes to them are not kept:", e);
+        store = singleWorkspaceStore(uuidv4());
+      }
+      workspaceStoreRef.current = store;
+      setWorkspaceStore(store);
+      await showWorkspace(store);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const switchWorkspace = useCallback(
+    (id: string) => {
+      const store = workspaceStoreRef.current;
+      if (!store || store.active === id || !store.list.some((w) => w.id === id)) return;
+      void showWorkspace({ ...store, active: id });
+    },
+    [showWorkspace],
+  );
+  /** A new, empty workspace, shown at once; returns its name (the panel
+   * puts it straight into rename). */
+  const createWorkspace = useCallback((): string => {
+    const store = workspaceStoreRef.current;
+    if (!store) return "";
+    const next = withNewWorkspace(store, uuidv4());
+    setWorkspaceMembers([]);
+    void showWorkspace(next);
+    return activeWorkspace(next).name;
+  }, [showWorkspace]);
+  const renameWorkspace = useCallback(
+    (name: string) => {
+      const store = workspaceStoreRef.current;
+      if (store) commitWorkspaceStore(withRenamedWorkspace(store, store.active, name));
+    },
+    [commitWorkspaceStore],
+  );
+  const deleteWorkspace = useCallback(() => {
+    const store = workspaceStoreRef.current;
+    if (store) void showWorkspace(withoutWorkspace(store, store.active, uuidv4()));
+  }, [showWorkspace]);
+
+  // What the engine reports about the links between open workbooks.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const nameOf = (tabId: string) => workspaceRef.current.tabs.find((x) => x.id === tabId)?.filename ?? "a workbook";
+    const off = onWorkspaceEvent((e) => {
+      if (e.kind === "changed") {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void refreshWorkspace(), 120);
+      } else if (e.kind === "moved") {
+        for (const id of e.tabs) dispatch({ type: "mark_dirty", tabId: id, dirty: true });
+        const readers = e.tabs.map(nameOf).join(", ");
+        toast({
+          title: "Links followed the change",
+          description: `${readers} read${e.tabs.length === 1 ? "s" : ""} ${nameOf(e.by)}, where rows, columns or a sheet name just changed. The formulas were updated to match; save ${e.tabs.length === 1 ? "it" : "them"} as well as ${nameOf(e.by)}.`,
+          status: "info",
+          duration: 7000,
+          isClosable: true,
+        });
+      } else if (e.kind === "needs_saving") {
+        dispatch({ type: "mark_dirty", tabId: e.tab, dirty: true });
+        toast({
+          title: "Links moved while this workbook was closed",
+          description: `${nameOf(e.tab)} reads a workbook whose rows, columns or sheet names changed. Its formulas were brought along; save it to keep that.`,
+          status: "info",
+          duration: 7000,
+          isClosable: true,
+        });
+      } else if (e.kind === "notes") {
+        (linkNotesByTab.current[e.tab] ??= []).push(...e.notes);
+        // The agent wrote it (a turn of this tab, or one of another tab
+        // writing here): the note goes back in its tool result.
+        const written = workspaceRef.current.tabs.find((t) => t.id === e.tab);
+        if (written?.agentRunning || written?.batches.some((b) => b.status === "streaming")) return;
+        toast({
+          title: "A link to another workbook was left as typed",
+          description: e.notes.join("; "),
+          status: "warning",
+          duration: 9000,
+          isClosable: true,
+        });
+      }
+    });
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
+  }, [refreshWorkspace, toast]);
+
+  // Files and folders dropped on the window join the workspace.
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let gone = false;
+    (async () => {
+      try {
+        const un = await getCurrentWebview().onDragDropEvent((event) => {
+          const p = event.payload;
+          if (p.type === "enter" || p.type === "over") setWorkspaceDropping(true);
+          else if (p.type === "leave") setWorkspaceDropping(false);
+          else if (p.type === "drop") {
+            setWorkspaceDropping(false);
+            const dropped = p.paths;
+            void (async () => {
+              try {
+                const found = await workspaceExpandPaths(dropped);
+                if (found.length === 0) {
+                  toast({ title: "No workbooks there", description: "Drop .xlsx files, or a folder that holds some.", status: "info", duration: 3000 });
+                  return;
+                }
+                setSidebarOpen(true);
+                await addWorkspaceMembers(found);
+              } catch (e) {
+                toast({ title: "Could not add to the workspace", description: String(e), status: "error", duration: 4000 });
+              }
+            })();
+          }
+        });
+        if (gone) un();
+        else off = un;
+      } catch (e) {
+        console.warn("[workspace] drop target unavailable:", e);
+      }
+    })();
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, [addWorkspaceMembers, toast]);
+
+  const addModelsDialog = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{ name: "Excel", extensions: ["xlsx", "xlsm"] }],
+      });
+      if (!selected) return;
+      // The list is in the sidebar: show it, or the models seem to go nowhere.
+      setSidebarOpen(true);
+      await addWorkspaceMembers((Array.isArray(selected) ? selected : [selected]).filter((p): p is string => typeof p === "string"));
+    } catch (err) {
+      toast({ title: "Could not add to the workspace", description: String(err), status: "error", duration: 4000 });
+    }
+  }, [addWorkspaceMembers, toast]);
+
+  /**
+   * A new workbook that can read the others: it is written to a file first
+   * (links are between files), then opened like any other.
+   */
+  const newWorkspaceWorkbook = useCallback(async () => {
+    try {
+      const beside = workspaceMembers.find((m) => m.member)?.path;
+      const dir = beside ? beside.slice(0, Math.max(beside.lastIndexOf("/"), beside.lastIndexOf("\\")) + 1) : "";
+      const chosen = await save({
+        defaultPath: `${dir}Comps.xlsx`,
+        filters: [{ name: "Excel", extensions: ["xlsx"] }],
+      });
+      if (!chosen) return;
+      const path = /\.xlsx$/i.test(chosen) ? chosen : `${chosen}.xlsx`;
+      if (findTabByPath(workspaceRef.current, path)) {
+        toast({ title: `${workbookName(path)} is open`, description: "Close it first, or pick another name.", status: "info", duration: 4000 });
+        return;
+      }
+      await workspaceCreateWorkbook(path);
+      setSidebarOpen(true);
+      await addWorkspaceMembers([path]);
+      await openWorkbookPath(path);
+    } catch (err) {
+      toast({ title: "Could not create the workbook", description: String(err), status: "error", duration: 4000 });
+    }
+  }, [workspaceMembers, addWorkspaceMembers, openWorkbookPath, toast]);
+
+  const removeWorkspaceMember = useCallback(
+    async (path: string) => {
+      try {
+        await runWorkspace(() => workspaceRemoveMember(path));
+      } catch (e) {
+        console.warn("[workspace] remove failed:", e);
+      }
+    },
+    [runWorkspace],
+  );
 
   /**
    * Parse (or re-validate) reference workbooks in the background, updating
@@ -1033,10 +1397,12 @@ export const SpreadsheetScreen: React.FC = () => {
         console.warn("[reference] persist failed:", e),
       );
       void warmLoadReferences(next);
+      // A workbook the agent reads from is one worked on with this one.
+      void addWorkspaceMembers(next.filter((p) => !current.includes(p)));
     } catch (err) {
       toast({ title: "Attach failed", description: String(err), status: "error", duration: 4000 });
     }
-  }, [activeTab, toast, warmLoadReferences]);
+  }, [activeTab, toast, warmLoadReferences, addWorkspaceMembers]);
 
   const removeReference = useCallback(
     (path: string) => {
@@ -1248,7 +1614,9 @@ export const SpreadsheetScreen: React.FC = () => {
     formats: manualFormatsRef.current[tabId] ?? [],
     borders: manualBordersRef.current[tabId] ?? [],
     merges: manualMergesRef.current[tabId] ?? [],
-    rowCol: manualRowColRef.current[tabId] ?? [],
+    // What a restore replayed (kept here), then what the grid has recorded
+    // since: the viewport grid keeps the user's own row and column ops.
+    rowCol: [...(manualRowColRef.current[tabId] ?? []), ...(gridRefs.current[tabId]?.getManualRowColOps?.() ?? [])],
     freeze: manualFreezeRef.current[tabId] ?? null,
     visibility: manualVisibilityRef.current[tabId] ?? [],
     sheetOps: manualSheetOpsRef.current[tabId] ?? [],
@@ -1367,7 +1735,9 @@ export const SpreadsheetScreen: React.FC = () => {
       userEditCallbacks.current.delete(tabId);
       manualSheetOpCallbacks.current.delete(tabId);
       delete manualSheetOpsRef.current[tabId];
-      ironcalcEngineOnClose(tabId);
+      // Unsaved changes go with the tab: workbooks that read this one fall
+      // back to the file as it is on disk.
+      ironcalcEngineOnClose(tabId, !!tab?.dirty);
       forgetDesktopGridEngine(tabId);
       dispatch({ type: "close", tabId });
     },
@@ -1480,6 +1850,8 @@ export const SpreadsheetScreen: React.FC = () => {
         const isSaveAs = target !== tab.path;
         // Why the surgical path wasn't used — shown verbatim to the user.
         let fallbackNote: string | null = null;
+        // The saver refused one particular change (undoing it gets the rest saved).
+        let refusedChange = false;
         if (isUntitled) {
           // Fresh workbook: the full export IS the high-fidelity path.
         } else if (!surgicalSaveEnabled()) {
@@ -1498,6 +1870,45 @@ export const SpreadsheetScreen: React.FC = () => {
               (result as any).detail ?? "",
             );
           } else {
+            // Links to other workbooks: the file spells them `[1]Model!B23`
+            // and keeps, per workbook read, where it is and the values last
+            // read. Without that part a formula naming another file would
+            // be written as text Excel cannot open, so a failure here stops
+            // the save.
+            let linkPlan: LinkSavePlan | null = null;
+            try {
+              linkPlan = await ironcalcEngineLinkSavePlan(tab.id, target);
+            } catch (err) {
+              toast({
+                title: "Save failed",
+                description: `The links to other workbooks could not be prepared, so nothing was written. ${String(err)}`,
+                status: "error",
+                duration: 8000,
+              });
+              return false;
+            }
+            // Charts made in this session: the engine holds them as they
+            // are now (their ranges followed every row and column change),
+            // and the save writes them into the file.
+            try {
+              const sessionCharts = await ironcalcEngineSessionCharts(tab.id);
+              if (sessionCharts.length > 0) (result.patch as { charts?: unknown[] }).charts = sessionCharts;
+            } catch (err) {
+              toast({
+                title: "Save failed",
+                description: `The charts made in this session could not be read, so nothing was written. ${String(err)}`,
+                status: "error",
+                duration: 8000,
+              });
+              return false;
+            }
+            const linked = mergeLinkPlan(result.patch, linkPlan);
+            if (linked.respelled || linked.added || linked.parts) {
+              console.info(
+                `[save] links: ${linked.respelled} formulas respelled, ${linked.added} more written, ` +
+                  `${linked.parts} workbook${linked.parts === 1 ? "" : "s"} read (${(linkPlan?.reads ?? []).map(workbookName).join(", ")})`,
+              );
+            }
             try {
               if (isSaveAs) {
                 await saveWorkbookPatchedAs(tab.path, target, JSON.stringify(result.patch));
@@ -1505,6 +1916,8 @@ export const SpreadsheetScreen: React.FC = () => {
                 await saveWorkbookPatched(target, JSON.stringify(result.patch));
               }
               saved = true;
+              // The engine's model is this file now (its name, for a Save As).
+              await ironcalcEngineMarkSaved(tab.id, target);
             } catch (err) {
               const msg = String(err);
               if (msg.includes("BASE_CHANGED") && !isSaveAs) {
@@ -1521,13 +1934,37 @@ export const SpreadsheetScreen: React.FC = () => {
               // Save As with a changed-on-disk source can't clone safely;
               // that and patcher failures reach the gated fallback below.
               console.warn("[save] surgical save failed:", msg);
-              fallbackNote = msg.toLowerCase().includes("unsupported")
+              // The saver says what it cannot write, e.g. `sheet "Comps"
+              // has tables on it (xl/tables/table2.xml)`: rows or columns
+              // moved on a sheet that holds a table, a pivot table or a
+              // what-if data table, or a sheet such a part reads.
+              const refused = /unsupported for surgical save: (.*)$/i.exec(msg)?.[1]?.replace(/\s*\(xl\/[^)]*\)/, "");
+              refusedChange = !!refused;
+              fallbackNote = refused
+                ? `The in-place saver cannot write one of the changes: ${refused}. Rows, columns and sheet names cannot be changed there yet`
+                : msg.toLowerCase().includes("unsupported")
                 ? "The workbook contains features (pivot tables, Excel tables, slicers…) the in-place saver can't restructure yet"
                 : msg.toLowerCase().includes("failed validation")
                   ? "The in-place saver produced output that failed its safety check, so nothing was written"
                   : "The in-place save failed unexpectedly";
             }
           }
+        }
+
+        // The viewport grid has no full export to fall back on: say why the
+        // file was not written and what gets it saved, instead of failing
+        // on the export that is not there.
+        if (!saved && !isUntitled && !evalSaveRef.current.active && viewportGridEnabled() && /\.xls[xm]$/i.test(tab.path)) {
+          toast({
+            title: "Not saved",
+            description:
+              `${fallbackNote ?? "The in-place save is unavailable"}. Nothing was written and the file is as it was.` +
+              (refusedChange ? " Undo that change (⌘Z) and save again; your other edits are kept." : ""),
+            status: "error",
+            duration: 14000,
+            isClosable: true,
+          });
+          return false;
         }
 
         if (!saved) {
@@ -2100,26 +2537,31 @@ export const SpreadsheetScreen: React.FC = () => {
         toast({ title: "Select cells first", status: "info", duration: 1800 });
         return;
       }
-      const store = (manualRowColRef.current[activeTab.id] ??= []);
+      // The save replays these ops. The viewport grid records them itself
+      // (`log`), so that undoing one takes it back out of the record; the
+      // Univer grid has no such record and the op is noted here.
+      const gridRecords = !!grid.getManualRowColOps;
+      const store = gridRecords ? [] : (manualRowColRef.current[activeTab.id] ??= []);
+      const log = { log: gridRecords };
       const rowCount = sel.endRow - sel.startRow + 1;
       const colCount = sel.endCol - sel.startCol + 1;
       if (action === "rowAbove") {
-        grid.insertRows(sel.sheet, sel.startRow, rowCount);
+        grid.insertRows(sel.sheet, sel.startRow, rowCount, log);
         store.push({ kind: "insertRows", sheet: sel.sheet, before: sel.startRow, count: rowCount });
       } else if (action === "rowBelow") {
-        grid.insertRows(sel.sheet, sel.endRow + 1, rowCount);
+        grid.insertRows(sel.sheet, sel.endRow + 1, rowCount, log);
         store.push({ kind: "insertRows", sheet: sel.sheet, before: sel.endRow + 1, count: rowCount });
       } else if (action === "colLeft") {
-        grid.insertColumns(sel.sheet, sel.startCol, colCount);
+        grid.insertColumns(sel.sheet, sel.startCol, colCount, log);
         store.push({ kind: "insertColumns", sheet: sel.sheet, before: sel.startCol, count: colCount });
       } else if (action === "colRight") {
-        grid.insertColumns(sel.sheet, sel.endCol + 1, colCount);
+        grid.insertColumns(sel.sheet, sel.endCol + 1, colCount, log);
         store.push({ kind: "insertColumns", sheet: sel.sheet, before: sel.endCol + 1, count: colCount });
       } else if (action === "deleteRows") {
-        grid.deleteRows(sel.sheet, sel.startRow, rowCount);
+        grid.deleteRows(sel.sheet, sel.startRow, rowCount, log);
         store.push({ kind: "deleteRows", sheet: sel.sheet, start: sel.startRow, count: rowCount });
       } else if (action === "deleteColumns") {
-        grid.deleteColumns(sel.sheet, sel.startCol, colCount);
+        grid.deleteColumns(sel.sheet, sel.startCol, colCount, log);
         store.push({ kind: "deleteColumns", sheet: sel.sheet, start: sel.startCol, count: colCount });
       }
       userEditedSinceBatchRef.current[activeTab.id] = true;
@@ -2276,6 +2718,27 @@ export const SpreadsheetScreen: React.FC = () => {
       // selection gave the agent no idea which of the N sheets is on screen.
       const activeSheetName = grid?.getActiveSheetName?.() ?? null;
       const focusParts: string[] = [];
+      // The workspace: the other models the agent can read and link to. The
+      // list rides the cached context block; a one-line reminder sits next
+      // to the request, where it is not buried under the sheet previews.
+      const books = workspaceBooks(workspaceMembersRef.current, activeTab.path);
+      if (books.length > 0) {
+        const canLink = workspaceLinksEnabled() && viewportGridEnabled() && /\.xls[xm]$/i.test(activeTab.path);
+        const shown = workspaceStoreRef.current;
+        workbookContext.workspace = {
+          ...(shown ? { name: activeWorkspace(shown).name } : {}),
+          workbooks: books,
+          can_link: canLink,
+        };
+        focusParts.push(
+          `# Workspace\nOther workbooks in this workspace: ${books.map((b) => b.label).join(", ")}. ` +
+            "Read them with the read tools' `workbook`" +
+            (canLink
+              ? "; bring their figures into this workbook as links ('[File name]Sheet name'!Cell), not typed numbers, and do not fetch from the web what they hold. " +
+                "To change one of them pass `workbook` to the write tool; for a new workbook call create_workbook (rule 20a)."
+              : "; this workbook has no file yet, so bring figures in as values and say where each came from (rule 20a)."),
+        );
+      }
       if (activeSheetName) {
         focusParts.push(`# User view\nThe user is currently viewing sheet "${activeSheetName}".`);
       }
@@ -2317,6 +2780,210 @@ export const SpreadsheetScreen: React.FC = () => {
 
   // Listen for agent events from Rust and dispatch into the right tab.
   useEffect(() => {
+    type ToolCallEvent = Extract<AgentEvent, { kind: "tool_call" }>;
+    const reportResult = async (toolUseId: string, payload: object | string) => {
+      try {
+        await reportToolResult(toolUseId, typeof payload === "string" ? payload : JSON.stringify(payload));
+      } catch (e) {
+        console.warn("[agent] reportToolResult failed:", e);
+      }
+    };
+
+    /** The tab that has `path` open, loaded and ready to be written to. It
+     * is opened in the background when no tab has it (the user stays where
+     * they are). Null when it cannot be opened. */
+    const ensureWorkbookTab = async (path: string): Promise<string | null> => {
+      const tabId = findTabByPath(workspaceRef.current, path)?.id ?? (await openWorkbookPath(path, { background: true }));
+      if (!tabId) return null;
+      const started = Date.now();
+      const deadline = started + 75_000;
+      while (Date.now() < deadline) {
+        const grid = gridRefs.current[tabId];
+        if (grid) {
+          const left = Math.max(0, deadline - Date.now());
+          return (await Promise.race([grid.whenReady(), new Promise<boolean>((r) => setTimeout(() => r(false), left))])) ? tabId : null;
+        }
+        // A failed open takes its tab away again (the first moments, the
+        // tab is not in the state yet).
+        if (Date.now() - started > 2_000 && !workspaceRef.current.tabs.some((t) => t.id === tabId)) return null;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return null;
+    };
+
+    /** The batch that holds what turn `mainBatchId` changes in tab `tabId`,
+     * a tab other than the one the turn runs in. Made on the first change. */
+    const companionBatchFor = (mainBatchId: string, tabId: string, mainTabId: string): string => {
+      const byTab = (companionBatches.current[mainBatchId] ??= {});
+      if (byTab[tabId]) return byTab[tabId];
+      const mainTab = workspaceRef.current.tabs.find((t) => t.id === mainTabId);
+      const prompt = mainTab?.batches.find((b) => b.id === mainBatchId)?.prompt ?? "";
+      const id = uuidv4();
+      byTab[tabId] = id;
+      tintedCellsByBatch.current[id] = [];
+      oldValuesByBatch.current[id] = [];
+      userEditedSinceBatchRef.current[tabId] = false;
+      dispatch({
+        type: "batch_add",
+        tabId,
+        batch: {
+          id,
+          prompt: `Asked in ${mainTab?.filename ?? "another workbook"}: ${prompt}`,
+          justification: "",
+          mutations: [],
+          status: "streaming",
+          created_at: new Date().toISOString(),
+        },
+      });
+      return id;
+    };
+
+    /** `create_workbook`: a new, empty workbook file next to the turn's
+     * workbook, put in the workspace and opened in a background tab. */
+    const createWorkbookForAgent = async (ev: ToolCallEvent) => {
+      const own = workspaceRef.current.tabs.find((t) => t.id === ev.tab_id)?.path ?? "";
+      const sep = (p: string) => Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+      const beside = [own, ...workspaceMembersRef.current.filter((m) => m.member).map((m) => m.path)].find((p) => sep(p) >= 0 && /\.xls[xm]$/i.test(p));
+      const base = String(ev.input?.name ?? "").trim().replace(/\.xlsx$/i, "").trim();
+      const sheetsIn: unknown[] = Array.isArray(ev.input?.sheets) ? ev.input.sheets : [];
+      const sheets = sheetsIn.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim());
+      const badSheet = sheets.find((n) => n.length > 31 || /[\[\]:*?/\\]/.test(n));
+      if (!base || /[\\/:*?"<>|\[\]]/.test(base) || base.startsWith(".") || base.startsWith("~$")) {
+        return reportResult(ev.tool_use_id, { ok: false, error: "bad_name", message: "Give a plain file name such as \"Comps\": no folder, and none of / \\ : * ? \" < > | [ ]." });
+      }
+      if (badSheet !== undefined || new Set(sheets.map((n) => n.toLowerCase())).size !== sheets.length) {
+        return reportResult(ev.tool_use_id, { ok: false, error: "bad_sheet_name", message: "Sheet names are at most 31 characters, distinct, and have none of [ ] : * ? / \\." });
+      }
+      if (!beside) {
+        return reportResult(ev.tool_use_id, {
+          ok: false,
+          error: "no_folder",
+          message: "There is no folder to create it in: the active workbook has no file yet and the workspace is empty. Tell the user to save the active workbook first, or to add models to the workspace.",
+        });
+      }
+      const label = `${base}.xlsx`;
+      const path = `${beside.slice(0, sep(beside) + 1)}${label}`;
+      const taken = await invoke("workbook_file_stamp", { path }).then(() => true, () => false);
+      if (taken || findTabByPath(workspaceRef.current, path)) {
+        return reportResult(ev.tool_use_id, {
+          ok: false,
+          error: "name_taken",
+          message: `${label} already exists in that folder; nothing was created. Pick another name, or, if the user means that workbook, write to it with workbook: "${label}".`,
+        });
+      }
+      try {
+        await workspaceCreateWorkbook(path, sheets.length > 0 ? sheets : undefined);
+      } catch (e) {
+        return reportResult(ev.tool_use_id, { ok: false, error: "create_failed", message: `The file could not be created: ${String(e)}` });
+      }
+      agentCreatedBooks.current.set(label.toLowerCase(), path);
+      await addWorkspaceMembers([path]);
+      const tabId = await ensureWorkbookTab(path);
+      if (!tabId) {
+        return reportResult(ev.tool_use_id, { ok: false, error: "open_failed", message: `${label} was created but could not be opened; tell the user.` });
+      }
+      toast({ title: `${label} created`, description: `The agent made a new workbook next to ${workbookName(beside)}. It is open in its own tab.`, status: "info", duration: 6000, isClosable: true });
+      return reportResult(ev.tool_use_id, {
+        ok: true,
+        workbook: label,
+        path,
+        sheets: sheets.length > 0 ? sheets : ["Sheet1"],
+        note:
+          `Empty workbook created and opened in a tab. Fill it by passing workbook: "${label}" to the write tools. ` +
+          "Bring figures in as links to the other workbooks ('[File name]Sheet name'!Cell), not typed numbers.",
+      });
+    };
+
+    /**
+     * Where a tool call goes. Most are for the workbook the turn runs in and
+     * come back unchanged. A call that names ANOTHER workbook of the
+     * workspace is answered here when it is a read (from that workbook's
+     * engine model) and re-addressed when it is a write: the same event,
+     * for that workbook's tab and that tab's own batch, so everything
+     * downstream (apply, tint, review, undo, save) is that tab's. Null
+     * means the call has been answered.
+     */
+    const routeToolCall = async (ev: ToolCallEvent): Promise<ToolCallEvent | null> => {
+      if (ev.name === "create_workbook") {
+        await createWorkbookForAgent(ev);
+        return null;
+      }
+      const named = ev.name !== "read_reference" && typeof ev.input?.workbook === "string" ? ev.input.workbook.trim() : "";
+      if (!named) return ev;
+      const { workbook: _named, ...rest } = ev.input;
+      const ownPath = workspaceRef.current.tabs.find((t) => t.id === ev.tab_id)?.path ?? null;
+      if (ownPath && workbookName(ownPath).toLowerCase() === named.toLowerCase()) return { ...ev, input: rest };
+      // What can be named: the workspace's other models, a workbook the
+      // agent just made, and any workbook that is open in a tab.
+      const books = workspaceBooks(workspaceMembersRef.current, ownPath);
+      const known = new Set(books.map((b) => b.label.toLowerCase()));
+      const offer = (path: string) => {
+        const label = workbookName(path);
+        if (path !== ownPath && /\.xls[xm]$/i.test(path) && !known.has(label.toLowerCase())) {
+          known.add(label.toLowerCase());
+          books.push({ label, path });
+        }
+      };
+      for (const path of agentCreatedBooks.current.values()) offer(path);
+      for (const t of workspaceRef.current.tabs) offer(t.path);
+      if (WORKSPACE_READ_TOOLS.has(ev.name)) {
+        await reportResult(ev.tool_use_id, await readWorkspaceWorkbook(ev.name, ev.input, books));
+        return null;
+      }
+      const book = books.find((b) => b.label.toLowerCase() === named.toLowerCase());
+      if (!book) {
+        await reportResult(ev.tool_use_id, {
+          ok: false,
+          error: "unknown_workbook",
+          workbook: named,
+          available: books.map((b) => b.label),
+          message: "Nothing was written. No workbook of that name is in the workspace: use a name from `available`, exactly, leave `workbook` out for the active workbook, or create_workbook a new one.",
+        });
+        return null;
+      }
+      const tabId = await ensureWorkbookTab(book.path);
+      if (!tabId) {
+        await reportResult(ev.tool_use_id, {
+          ok: false,
+          error: "workbook_unavailable",
+          workbook: book.label,
+          message: `Nothing was written: ${book.label} could not be opened in a tab.`,
+        });
+        return null;
+      }
+      return { ...ev, tab_id: tabId, batch_id: companionBatchFor(ev.batch_id, tabId, ev.tab_id), input: rest };
+    };
+
+    /** The turn is over: what it changed in other tabs becomes reviewable
+     * there. Returns the file names of those workbooks. */
+    const finishCompanions = (mainBatchId: string, completed: boolean): string[] => {
+      const byTab = companionBatches.current[mainBatchId] ?? {};
+      delete companionBatches.current[mainBatchId];
+      const changed: string[] = [];
+      for (const [tabId, batchId] of Object.entries(byTab)) {
+        const tab = workspaceRef.current.tabs.find((t) => t.id === tabId);
+        const edits = Math.max(tintedCellsByBatch.current[batchId]?.length ?? 0, tab?.batches.find((b) => b.id === batchId)?.mutations.length ?? 0);
+        dispatch({ type: "batch_finalize", tabId, batchId });
+        if (edits === 0) continue;
+        const accepted = completed && autoApplyRef.current;
+        dispatch({ type: "mark_dirty", tabId, dirty: true });
+        dispatch({
+          type: "set_status",
+          tabId,
+          phase: "done",
+          message: `Done · ${edits} change${edits === 1 ? "" : "s"} ${accepted ? "applied" : "pending review"}`,
+        });
+        if (tab) changed.push(tab.filename);
+        // Auto-apply accepts here what it accepts in the turn's own tab.
+        if (accepted) {
+          delete tintedCellsByBatch.current[batchId];
+          delete oldValuesByBatch.current[batchId];
+          dispatch({ type: "batch_accept", tabId, batchId });
+        }
+      }
+      return changed;
+    };
+
     const unsub = subscribeAgentEvents((ev: AgentEvent) => {
       // Verbose during v1 dev — flip to a debug flag once the loop is stable.
       console.log("[agent] event:", ev);
@@ -2352,12 +3019,17 @@ export const SpreadsheetScreen: React.FC = () => {
           if (ev.name === "keep_pages" || ev.name === "read_source" || ev.name === "edgar_lookup") return;
           // Whole tool_call cycle (interpret → mutate → settle → report)
           // serialized per-tab. Rationale: see toolCallQueueByTab declaration.
-          const runToolTask = async () => {
+          // `ev` in the task is the call as routed (see routeToolCall): for
+          // a write to another workbook its tab_id / batch_id are that
+          // workbook's tab and that tab's batch.
+          const called = ev;
+          const runToolTask = async (ev: ToolCallEvent) => {
           // First thing in the task, before any await that could delay it:
           // this is the moment the tool stops waiting in line and starts
           // costing execution time, which is what Rust's readback budget is
           // actually sized for.
           void reportToolStarted(ev.tool_use_id);
+          linkNotesByTab.current[ev.tab_id] = [];
           let result = interpretToolCall(ev.name, ev.input);
           // Populated by the run_script branch; merged into the final tool
           // result so the model sees its own log() output for debugging.
@@ -2366,6 +3038,9 @@ export const SpreadsheetScreen: React.FC = () => {
           // Populated by the stage_data branch; merged into the final tool
           // result so the model gets the staged block's address map.
           let stageReport: import("./agent/stageLayout").StageReport | null = null;
+          // Populated by the create_summary_table branch: where the table
+          // landed and what it reads.
+          let summaryReport: (import("./agent/summaryLayout").SummaryReport & { rows_without_a_key?: number }) | null = null;
           const perfT0 = performance.now();
           if (result.kind === "ignored") {
             console.warn("agent: ignored tool call:", result.reason);
@@ -2388,9 +3063,19 @@ export const SpreadsheetScreen: React.FC = () => {
             const batchSnap = tabSnap?.batches.find((b) => b.id === ev.batch_id);
             // Let formula engine settle before scanning.
             await nextFrame(2);
-            const errors = validateBatchLayout(grid, batchSnap?.mutations ?? []);
+            const errors: Array<ReturnType<typeof validateBatchLayout>[number] & { workbook?: string }> = validateBatchLayout(grid, batchSnap?.mutations ?? []);
+            // And what the turn changed in other workbooks.
+            const companions = Object.entries(companionBatches.current[ev.batch_id] ?? {});
+            for (const [otherTabId, otherBatchId] of companions) {
+              const otherTab = workspaceRef.current.tabs.find((t) => t.id === otherTabId);
+              const otherBatch = otherTab?.batches.find((b) => b.id === otherBatchId);
+              if (!otherTab || !otherBatch) continue;
+              await gridRefs.current[otherTabId]?.whenCalculated?.();
+              for (const e of validateBatchLayout(gridRefs.current[otherTabId], otherBatch.mutations)) errors.push({ ...e, workbook: otherTab.filename });
+            }
             if (errors.length > 0) {
               const sample = errors.slice(0, 25).map((e) => ({
+                ...(e.workbook ? { workbook: e.workbook } : {}),
                 sheet: e.sheet,
                 cell: e.cell,
                 kind: e.kind,
@@ -2438,6 +3123,9 @@ export const SpreadsheetScreen: React.FC = () => {
               justification: result.justification,
               turnSummary: result.turn_summary,
             });
+            for (const [otherTabId, otherBatchId] of companions) {
+              dispatch({ type: "batch_set_justification", tabId: otherTabId, batchId: otherBatchId, justification: result.justification });
+            }
             return;
           }
           if (result.kind === "read") {
@@ -2909,6 +3597,76 @@ export const SpreadsheetScreen: React.FC = () => {
             // Rust handles the actual fetch + tool_result — we just show the chip.
             return;
           }
+          if (result.kind === "summary") {
+            // create_summary_table: the app reads the data's distinct keys
+            // from the engine and lays the table out as formulas (see
+            // summaryLayout.ts). It then falls through the standard apply
+            // path, so review, undo, auto-create-sheet and readback are
+            // those of any write.
+            const summaryGrid = gridRefs.current[ev.tab_id];
+            const summaryReady = summaryGrid ? await summaryGrid.whenReady() : false;
+            if (!summaryReady) {
+              await reportResult(ev.tool_use_id, { ok: false, error: "grid_not_ready", message: "The spreadsheet is still initializing — nothing was written. Retry this exact tool call." });
+              return;
+            }
+            await summaryGrid?.whenCalculated();
+            const gathered = await gatherSummaryFacts(result, {
+              query: (sheet, query) => ironcalcEngineQueryRows(ev.tab_id, sheet, query),
+              numberFormat: (sheet, row, col) => summaryGrid?.getCellFormat(sheet, row, col)?.number_format ?? null,
+              prefetch: async (sheet, row, col) => { await summaryGrid?.prefetchRange?.(sheet, row, col, row, col); },
+            });
+            if (!gathered.ok) {
+              await reportResult(ev.tool_use_id, { ok: false, error: gathered.error, message: `Nothing was written. ${gathered.message}` });
+              return;
+            }
+            const laid = layoutSummary(result, gathered.facts);
+            summaryReport = { ...laid.report, ...(gathered.skippedBlank > 0 ? { rows_without_a_key: gathered.skippedBlank } : {}) };
+            result = { kind: "mutations", mutations: laid.mutations };
+          }
+          if (result.kind === "chart") {
+            // A chart is added through the engine (it plots the cells as
+            // they are computed) and recorded in the batch as one change,
+            // so review, reject and undo take it away again.
+            const chartGrid = gridRefs.current[ev.tab_id];
+            const chartReady = chartGrid ? await chartGrid.whenReady() : false;
+            if (!chartReady) {
+              await reportResult(ev.tool_use_id, {
+                ok: false,
+                error: "grid_not_ready",
+                message: "The spreadsheet is still initializing — nothing was added. Retry this exact tool call.",
+              });
+              return;
+            }
+            if (!chartGrid?.addChart) {
+              await reportResult(ev.tool_use_id, {
+                ok: false,
+                error: "charts_unavailable",
+                message:
+                  "Nothing was added. A chart can only be added to a workbook that has a file, and this one has not been saved yet. " +
+                  "Finish the data the chart would plot and tell the user to save the workbook, then ask for the chart again.",
+              });
+              return;
+            }
+            // The chart reads computed cells: let the engine finish first.
+            await chartGrid.whenCalculated?.();
+            const spec: ChartSpec = { ...result.spec, id: `new:${crypto.randomUUID()}` };
+            const added = await chartGrid.addChart(spec);
+            if (!added.ok) {
+              await reportResult(ev.tool_use_id, { ok: false, error: "chart_not_created", message: `Nothing was added: ${added.error}.` });
+              return;
+            }
+            const report = describeNewChart(added.chart);
+            dispatch({
+              type: "batch_append_mutations",
+              tabId: ev.tab_id,
+              batchId: ev.batch_id,
+              mutations: [{ type: "create_chart", chart: spec, summary: report.summary }],
+            });
+            dispatch({ type: "mark_dirty", tabId: ev.tab_id, dirty: true });
+            dispatch({ type: "set_status", tabId: ev.tab_id, phase: "writing", message: "Chart added" });
+            await reportResult(ev.tool_use_id, { ok: true, ...report.result });
+            return;
+          }
           // Apply mutations live: capture old state, write new.
           const grid = gridRefs.current[ev.tab_id];
           // GATE: never mutate a grid that isn't ready. On a fresh tab the
@@ -3085,6 +3843,9 @@ export const SpreadsheetScreen: React.FC = () => {
               // A pathologically sparse batch (A1 + ZZ9999) would sweep a
               // huge rectangle for a handful of cells — per-cell is cheaper.
               if ((b.r1 - b.r0 + 1) * (b.c1 - b.c0 + 1) > 50_000) continue;
+              // Loaded first: a cell in a tile the grid never fetched reads as
+              // empty, and "empty" would be what Reject puts back.
+              await grid?.prefetchRange?.(sheet, b.r0, b.c0, b.r1, b.c1);
               const data = grid?.getRangeData(sheet, b.r0, b.c0, b.r1, b.c1);
               if (!data) continue;
               for (const raw of result.mutations) {
@@ -3387,6 +4148,13 @@ export const SpreadsheetScreen: React.FC = () => {
             }
             for (const [sheet, b] of boxes) {
               if ((b.r1 - b.r0 + 1) * (b.c1 - b.c0 + 1) > 50_000) continue;
+              // The viewport grid holds only the tiles it has fetched. A
+              // sheet this call created has none, and is not in the grid's
+              // layout until the engine settles; on a large sheet the cells
+              // written may lie outside what was loaded. Read without this,
+              // they came back empty, and the agent was told to repeat a
+              // write that had landed (it then wrote everything twice).
+              await live?.prefetchRange?.(sheet, b.r0, b.c0, b.r1, b.c1);
               const data = live?.getRangeData(sheet, b.r0, b.c0, b.r1, b.c1);
               if (!data) continue;
               for (const { sheet: s, row, col } of evalCells) {
@@ -3458,6 +4226,7 @@ export const SpreadsheetScreen: React.FC = () => {
             }
             for (const [sheet, s] of rowSpans) {
               if (s.max - s.min + 1 > 10_000) continue;
+              await live?.prefetchRange?.(sheet, s.min, 0, s.max, 3);
               const data = live?.getRangeData(sheet, s.min, 0, s.max, 3);
               if (data) labelBands.set(sheet, { r0: s.min, values: data.values });
             }
@@ -3534,6 +4303,7 @@ export const SpreadsheetScreen: React.FC = () => {
                 }
               : {}),
             ...(stageReport ? { staged: stageReport } : {}),
+            ...(summaryReport ? { summary_table: summaryResult(summaryReport, (sheet, row, col) => live?.getCell(sheet, row, col)?.value) } : {}),
             // Scripts ALWAYS get a script_logs field: a bare success on a
             // script that never called log() reads as "my logs were dropped"
             // and erodes the model's trust in the whole tool channel.
@@ -3563,9 +4333,13 @@ export const SpreadsheetScreen: React.FC = () => {
             console.warn("[agent] reportToolResult failed:", e);
           }
           }; // end runToolTask
-          enqueueToolCallTask(ev.tab_id, async () => {
+          // Every call of a turn runs on the queue of the turn's own tab,
+          // whichever workbook it is for: the turn's calls stay in order.
+          enqueueToolCallTask(called.tab_id, async () => {
             try {
-              await runToolTask();
+              void reportToolStarted(called.tool_use_id);
+              const routed = await routeToolCall(called);
+              if (routed) await runToolTask(routed);
             } catch (err) {
               // An uncaught exception here previously reported NOTHING —
               // the Rust loop burned its full readback timeout, substituted
@@ -3591,7 +4365,25 @@ export const SpreadsheetScreen: React.FC = () => {
         case "done": {
           dispatch({ type: "batch_finalize", tabId: ev.tab_id, batchId: ev.batch_id });
           dispatch({ type: "set_agent_running", tabId: ev.tab_id, running: false });
+          const alsoChanged = finishCompanions(ev.batch_id, true);
+          if (alsoChanged.length > 0) {
+            toast({
+              title: `Also changed: ${alsoChanged.join(", ")}`,
+              description: autoApplyRef.current
+                ? "Each has its changes in its own tab, and is not saved yet."
+                : "Open each one's tab to review its changes; they are accepted or rejected there.",
+              status: "info",
+              duration: 9000,
+              isClosable: true,
+            });
+          }
           const editedCells = tintedCellsByBatch.current[ev.batch_id]?.length ?? 0;
+          // A turn that changed no cell may still have added a chart.
+          const chartsAdded =
+            workspaceRef.current.tabs
+              .find((t) => t.id === ev.tab_id)
+              ?.batches.find((b) => b.id === ev.batch_id)
+              ?.mutations.filter((m) => m.type === "create_chart").length ?? 0;
           dispatch({
             type: "set_status",
             tabId: ev.tab_id,
@@ -3600,7 +4392,9 @@ export const SpreadsheetScreen: React.FC = () => {
             // the user with "0 cells pending review" copy.
             message: editedCells > 0
               ? `Done · ${editedCells} cell${editedCells === 1 ? "" : "s"} pending review`
-              : "Replied",
+              : chartsAdded > 0
+                ? `Done · ${chartsAdded} chart${chartsAdded === 1 ? "" : "s"} pending review`
+                : "Replied",
           });
           dispatch({
             type: "set_tokens",
@@ -3703,8 +4497,8 @@ export const SpreadsheetScreen: React.FC = () => {
             // Auto-mode: accept the batch immediately if the user has it on,
             // and the batch actually has edits (no point auto-"accepting"
             // a pure chat-reply turn which has 0 mutations).
-            if (autoApplyRef.current && editedCells > 0) {
-              acceptBatchRef.current?.(ev.batch_id);
+            if (autoApplyRef.current && (editedCells > 0 || chartsAdded > 0)) {
+              acceptBatchRef.current?.(ev.batch_id, ev.tab_id);
             }
           })();
           return;
@@ -3712,6 +4506,7 @@ export const SpreadsheetScreen: React.FC = () => {
         case "error":
           dispatch({ type: "batch_finalize", tabId: ev.tab_id, batchId: ev.batch_id });
           dispatch({ type: "set_agent_running", tabId: ev.tab_id, running: false });
+          finishCompanions(ev.batch_id, false);
           dispatch({
             type: "set_status",
             tabId: ev.tab_id,
@@ -3728,35 +4523,40 @@ export const SpreadsheetScreen: React.FC = () => {
   // --- accept / reject ----------------------------------------------------
 
   const acceptBatch = useCallback(
-    async (batchId: string) => {
-      if (!activeTab) return;
+    async (batchId: string, tabId?: string) => {
+      // Auto-apply names the tab its turn ran in. A turn can end while
+      // another workbook is in front, and accepting "in the tab in front"
+      // found no such batch there: the turn's changes stayed pending in
+      // their own tab, with auto-apply on and nothing said.
+      const target = tabId ?? activeTab?.id;
+      if (!target) return;
       delete tintedCellsByBatch.current[batchId];
       delete oldValuesByBatch.current[batchId];
 
       // The accepted batch is now the most recent action → ⌘Z reverts it.
-      userEditedSinceBatchRef.current[activeTab.id] = false;
+      userEditedSinceBatchRef.current[target] = false;
 
-      dispatch({ type: "batch_accept", tabId: activeTab.id, batchId });
-      dispatch({ type: "stream_text_clear", tabId: activeTab.id });
+      dispatch({ type: "batch_accept", tabId: target, batchId });
+      dispatch({ type: "stream_text_clear", tabId: target });
 
-      const batch = findTab(workspace, activeTab.id)?.batches.find((b) => b.id === batchId);
+      const batch = findTab(workspaceRef.current, target)?.batches.find((b) => b.id === batchId);
       if (batch) {
         const accepted = { ...batch, status: "accepted" as const };
         // Record acceptance as a separate message so the session timeline
         // shows the full lifecycle (the prior `agent_batch` row captured the
         // mutations as pending; this row records the user's decision).
-        appendMessage(activeTab.id, "agent_batch", { batch: accepted }).catch((e) =>
+        appendMessage(target, "agent_batch", { batch: accepted }).catch((e) =>
           console.warn("[session] persist accept failed:", e),
         );
       }
     },
-    [activeTab, workspace, toast],
+    [activeTab, toast],
   );
 
   // Mirror acceptBatch into a ref so the agent-event handler (which is
   // declared earlier in this file and would otherwise close over an
   // undefined value) can call the latest version on auto-mode `done` events.
-  const acceptBatchRef = useRef<((batchId: string) => void) | null>(null);
+  const acceptBatchRef = useRef<((batchId: string, tabId?: string) => void) | null>(null);
   useEffect(() => { acceptBatchRef.current = acceptBatch; }, [acceptBatch]);
 
   // --- eval driver ---------------------------------------------------------
@@ -4330,6 +5130,18 @@ export const SpreadsheetScreen: React.FC = () => {
 
   const batches = activeTab?.batches ?? [];
 
+  /** The workspace shown, when it has models: what the empty screen and
+   * the chat panel say to do next is about them. */
+  const shownWorkspace = useMemo(() => {
+    const listed = workspaceMembers.filter((m) => m.member);
+    if (listed.length === 0) return null;
+    return {
+      name: workspaceStore ? activeWorkspace(workspaceStore).name : "this workspace",
+      models: listed.length,
+      example: `='[${listed[0].name}]Sheet name'!B2`,
+    };
+  }, [workspaceMembers, workspaceStore]);
+
   const statusInfo = useMemo(() => {
     if (!activeTab) return { phase: "idle" as const, message: "Open a workbook to start (⌘T)" };
     return { phase: activeTab.statusPhase, message: activeTab.statusMessage };
@@ -4343,8 +5155,27 @@ export const SpreadsheetScreen: React.FC = () => {
       $hasTabs={workspace.tabs.length > 0}
       $hasActiveTab={!!activeTab}
     >
+      {workspaceDropping && <DropVeil>Drop to add to the workspace</DropVeil>}
       <SidebarArea>
         {sidebarOpen && (
+          <WorkspacePanel
+            workspaces={(workspaceStore?.list ?? []).map((w) => ({ id: w.id, name: w.name, count: w.members.length }))}
+            activeId={workspaceStore?.active ?? null}
+            onSwitch={switchWorkspace}
+            onCreate={createWorkspace}
+            onRename={renameWorkspace}
+            onDelete={deleteWorkspace}
+            members={workspaceMembers}
+            activePath={activeTab?.path ?? null}
+            dropping={workspaceDropping}
+            onOpen={(p) => void openWorkbookPath(p)}
+            onAdd={addModelsDialog}
+            onNew={newWorkspaceWorkbook}
+            onRemove={removeWorkspaceMember}
+          />
+        )}
+        {sidebarOpen && (
+          <SidebarSessions>
           <SessionSidebar
             sessions={recentSessions}
             activePath={activeTab?.path ?? null}
@@ -4364,15 +5195,21 @@ export const SpreadsheetScreen: React.FC = () => {
               if (open) dispatch({ type: "close", tabId: id });
             }}
           />
+          </SidebarSessions>
         )}
       </SidebarArea>
       <Header>
         <HeaderButton
           onClick={() => setSidebarOpen((v) => !v)}
-          title={sidebarOpen ? "Hide sessions sidebar" : "Show sessions sidebar"}
+          title={sidebarOpen ? "Hide the workspace and recent sessions" : "Show the workspace (models worked on together) and recent sessions"}
           style={{ padding: "4px 8px" }}
         >
           {sidebarOpen ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />}
+          {!sidebarOpen && (
+            <span style={{ marginLeft: 6 }}>
+              Workspace{workspaceMembers.length > 0 ? ` (${workspaceMembers.filter((m) => m.member).length})` : ""}
+            </span>
+          )}
         </HeaderButton>
         <span style={{ fontWeight: 600, color: "#e4e4e4", letterSpacing: 0.2 }}>
           GridPath
@@ -4462,7 +5299,29 @@ export const SpreadsheetScreen: React.FC = () => {
       </TabsArea>
 
       <GridArea>
-        {workspace.tabs.length === 0 && (
+        {workspace.tabs.length === 0 && shownWorkspace && (
+          <EmptyState>
+            <div style={{ fontSize: 15, color: "#9b9b9b" }}>
+              {shownWorkspace.models} model{shownWorkspace.models === 1 ? "" : "s"} in {shownWorkspace.name}
+            </div>
+            <EmptyButtons>
+              <EmptyPrimaryBtn onClick={newWorkspaceWorkbook}>
+                <FilePlus size={14} /> New workbook in this workspace
+              </EmptyPrimaryBtn>
+              <EmptySecondaryBtn onClick={addModelsDialog}>
+                <Layers size={14} /> Add more models
+              </EmptySecondaryBtn>
+            </EmptyButtons>
+            <div style={{ fontSize: 12, color: "#7c7c7c", maxWidth: 480, textAlign: "center", lineHeight: 1.6 }}>
+              A workbook made here can read the models. In a cell, type a formula that names one:
+              <br />
+              <code style={{ color: "#b3b3b3" }}>{shownWorkspace.example}</code>
+              <br />
+              To look at a model, click it in the list on the left.
+            </div>
+          </EmptyState>
+        )}
+        {workspace.tabs.length === 0 && !shownWorkspace && (
           <EmptyState>
             <div style={{ fontSize: 15, color: "#9b9b9b" }}>No workbook open</div>
             <EmptyButtons>
@@ -4472,9 +5331,15 @@ export const SpreadsheetScreen: React.FC = () => {
               <EmptySecondaryBtn onClick={openWorkbookDialog}>
                 <FolderOpen size={14} /> Open existing (⌘T)
               </EmptySecondaryBtn>
+              <EmptySecondaryBtn onClick={addModelsDialog} title="Pick several models to work on together: formulas in one can read another">
+                <Layers size={14} /> Add models to workspace
+              </EmptySecondaryBtn>
             </EmptyButtons>
             <div style={{ fontSize: 11, color: "#555" }}>
               or pick one from <strong style={{ color: "#7c7c7c" }}>Recent sessions</strong> on the left
+            </div>
+            <div style={{ fontSize: 12, color: "#7c7c7c", maxWidth: 460, textAlign: "center", lineHeight: 1.5 }}>
+              To work on several models together, drop them (or a folder of them) anywhere on this window.
             </div>
           </EmptyState>
         )}
@@ -4518,7 +5383,10 @@ export const SpreadsheetScreen: React.FC = () => {
           onSubmit={submitPrompt}
           onStop={() => {
             const running = activeTab?.batches.find((b) => b.status === "streaming");
-            if (running) stopAgentTurn(running.id).catch(console.warn);
+            if (!running) return;
+            // A batch made here by a turn running in another tab: stop that turn.
+            const turn = Object.entries(companionBatches.current).find(([, byTab]) => Object.values(byTab).includes(running.id))?.[0];
+            stopAgentTurn(turn ?? running.id).catch(console.warn);
           }}
           onAccept={acceptBatch}
           onReject={rejectBatch}
@@ -4529,6 +5397,8 @@ export const SpreadsheetScreen: React.FC = () => {
           onDismissSelection={() => setFocusDismissedFor(liveSelection)}
           autoApply={autoApply}
           onSetAutoApply={(next) => setAutoApply(next)}
+          workspace={shownWorkspace}
+          linkable={activeTab ? workspaceBooks(workspaceMembers, activeTab.path).map((b) => b.label) : []}
           references={(activeTab?.referencePaths ?? []).map((p) => ({
             path: p,
             label: referenceLabelFromPath(p),

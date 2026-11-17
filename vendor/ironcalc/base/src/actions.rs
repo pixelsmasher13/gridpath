@@ -269,6 +269,20 @@ fn displace_cf_rule_formulas(
     }
 }
 
+/// GRIDPATH: a cell taken off the sheet while a row or column is moved past
+/// the others, to be put down at its new position.
+enum LiftedCell {
+    /// Anything but a CSE array: put down as it is.
+    Cell(Cell),
+    /// The anchor of a CSE array: entered again as an array formula, which
+    /// creates the rest of the array.
+    CseArray {
+        formula: String,
+        style: i32,
+        range: (i32, i32),
+    },
+}
+
 impl<'a> Model<'a> {
     fn shift_cell_formula(
         &mut self,
@@ -302,10 +316,41 @@ impl<'a> Model<'a> {
                 self.language,
             );
             if formula != formula_displaced {
-                self.update_cell_with_formula(sheet, row, column, format!("={formula_displaced}"))?;
+                // GRIDPATH: only the references change. The cell is not
+                // written again (that reset its value and decided afresh
+                // whether it is an array formula), it is pointed at the
+                // displaced formula.
+                let (index, _) = self.intern_formula(sheet, row, column, &formula_displaced)?;
+                if let Some(Cell::CellFormula { f, .. } | Cell::ArrayFormula { f, .. }) =
+                    self.workbook.worksheet_mut(sheet)?.cell_mut(row, column)
+                {
+                    *f = index;
+                }
             };
         }
         Ok(())
+    }
+
+    /// GRIDPATH: the cells that keep their imported value for an unresolvable
+    /// reference are known by coordinate (`import_wrongref_frozen`); when
+    /// rows or columns of `sheet` are inserted, deleted or moved, the
+    /// coordinates follow the cells. Entries of deleted cells are dropped.
+    fn displace_import_frozen(&mut self, sheet: u32, displace_data: &DisplaceData) {
+        if self.import_wrongref_frozen.is_empty() {
+            return;
+        }
+        let frozen = std::mem::take(&mut self.import_wrongref_frozen);
+        self.import_wrongref_frozen = frozen
+            .into_iter()
+            .filter_map(|(s, row, column)| {
+                if s != sheet {
+                    return Some((s, row, column));
+                }
+                let row = displace_cf_row(row, displace_data, sheet)?;
+                let column = displace_cf_col(column, displace_data, sheet)?;
+                Some((s, row, column))
+            })
+            .collect();
     }
     /// This function iterates over all cells in the model and shifts their formulas according to the displacement data.
     ///
@@ -317,7 +362,58 @@ impl<'a> Model<'a> {
         for cell in cells {
             self.shift_cell_formula(cell.index, cell.row, cell.column, displace_data)?;
         }
+        self.displace_defined_names(displace_data);
         Ok(())
+    }
+
+    /// GRIDPATH: a defined name points at cells and follows them, like a
+    /// reference in a formula does. Upstream left the names where they were:
+    /// after a row was inserted above `Rate = Sheet1!$B$5`, every formula
+    /// using `Rate` read whatever had moved into B5.
+    ///
+    /// A name whose text does not change is not touched, so the others keep
+    /// the spelling they were imported with.
+    fn displace_defined_names(&mut self, displace_data: &DisplaceData) {
+        if self.workbook.defined_names.is_empty() {
+            return;
+        }
+        // Defined-name formulas are stored in English (see
+        // `new_defined_name`), whatever the active locale and language are.
+        let context = self.defined_name_context();
+        let english_locale = get_default_locale();
+        let english = get_default_language();
+        let locale = self.locale;
+        let language = self.language;
+        self.parser.set_locale(english_locale);
+        self.parser.set_language(english);
+        let mut changed = false;
+        for index in 0..self.workbook.defined_names.len() {
+            let formula = &self.workbook.defined_names[index].formula;
+            let trimmed = formula.trim();
+            let (prefix, body) = match trimmed.strip_prefix('=') {
+                Some(body) => ("=", body),
+                None => ("", trimmed),
+            };
+            let node = self.parser.parse(body, &context);
+            let unmoved = to_localized_string(&node, &context, english_locale, english);
+            let displaced =
+                to_string_displaced(&node, &context, displace_data, english_locale, english);
+            if unmoved != displaced {
+                self.workbook.defined_names[index].formula = format!("{prefix}{displaced}");
+                changed = true;
+            }
+        }
+        self.parser.set_locale(locale);
+        self.parser.set_language(language);
+        if changed {
+            // The evaluator reads names from `parsed_defined_names`, and the
+            // parser keeps their text to tell a range from a single cell.
+            self.parser.set_worksheets_and_names(
+                self.workbook.get_worksheet_names(),
+                self.workbook.get_defined_names_with_scope(),
+            );
+            self.parse_defined_names();
+        }
     }
 
     /// Updates the `range` field and formula fields of every CF rule on `sheet` according to `displace_data`.
@@ -399,6 +495,12 @@ impl<'a> Model<'a> {
     /// It assumes that the caller has already checked that the move is valid
     /// (e.g. it does not split an array formula). And that dynamic array spills have been reset.
     ///
+    /// GRIDPATH: the cell is carried over as it is. It used to be typed in
+    /// again at the target from its text, which lost the value a file saved
+    /// for a formula the engine cannot calculate, read text such as "007" or
+    /// "+1 212…" as a number or a formula, kept 15 digits of a number, and
+    /// decided again whether a formula is an array formula.
+    ///
     /// # Arguments
     ///
     /// * `sheet` - The sheet number to retrieve columns from.
@@ -419,79 +521,134 @@ impl<'a> Model<'a> {
             .worksheet(sheet)?
             .cell(source_row, source_column)
         {
-            Some(c) => c,
+            Some(c) => c.clone(),
             None => return Ok(()),
         };
-        let style = source_cell.get_style();
-
-        let mut array = None;
-
-        match source_cell {
-            Cell::EmptyCell { .. }
-            | Cell::BooleanCell { .. }
-            | Cell::NumberCell { .. }
-            | Cell::ErrorCell { .. }
-            | Cell::SharedString { .. }
-            | Cell::CellFormula { .. } => {
-                // This is a regular cell, we can just move it.
-            }
-            Cell::SpillCell { .. } => {
-                // This the spill of an array formula. Because dynamic arrays spills have been deleted
-                // We delete the spill
+        if let Cell::SpillCell { a, .. } = &source_cell {
+            // The spills of dynamic arrays were deleted by the caller, so
+            // this is a cell of a CSE array. The array moves as a block (the
+            // caller checked it is not split): its cells all go the same
+            // distance, the anchor before or after this one.
+            let moved_anchor = (
+                a.0 + target_row - source_row,
+                a.1 + target_column - source_column,
+            );
+            let in_cse_array = self.cse_array_covers(sheet, *a, source_row, source_column)
+                || self.cse_array_covers(sheet, moved_anchor, target_row, target_column);
+            if !in_cse_array {
+                // A spill without its array: nothing to carry over.
                 let worksheet = self.workbook.worksheet_mut(sheet)?;
                 worksheet.remove_cell(source_row, source_column)?;
                 return Ok(());
             }
-            Cell::ArrayFormula {
-                r,
-                kind: ArrayKind::Dynamic,
-                ..
-            } => {
-                // We are moving the anchor of a dynamic formula.
-                // We assume the spill has been taken care of by the caller
-                debug_assert_eq!(*r, (1, 1));
-            }
-            Cell::ArrayFormula {
-                r,
+        }
+        self.place_moved_cell(
+            sheet,
+            source_cell,
+            (source_row, source_column),
+            (target_row, target_column),
+        )?;
+        // delete source cell content and style
+        self.workbook
+            .worksheet_mut(sheet)?
+            .remove_cell(source_row, source_column)?;
+        Ok(())
+    }
+
+    /// GRIDPATH: true when the cell at `anchor` is the anchor of a CSE array
+    /// formula whose range includes (`row`, `column`).
+    fn cse_array_covers(&self, sheet: u32, anchor: (i32, i32), row: i32, column: i32) -> bool {
+        let cell = self
+            .workbook
+            .worksheet(sheet)
+            .ok()
+            .and_then(|worksheet| worksheet.cell(anchor.0, anchor.1));
+        match cell {
+            Some(Cell::ArrayFormula {
+                r: (width, height),
                 kind: ArrayKind::Cse,
                 ..
-            } => {
-                // This is an array formula, we need to move the whole range
-                // We rely on the calling function to check that the move is valid and does not split the array formula
-                array = Some(*r);
+            }) => {
+                (anchor.0..anchor.0 + height).contains(&row)
+                    && (anchor.1..anchor.1 + width).contains(&column)
             }
+            _ => false,
         }
-        let formula_or_value = self
-            .get_cell_formula(sheet, source_row, source_column)?
-            .unwrap_or_else(|| {
-                source_cell.get_localized_text(
-                    &self.workbook.shared_strings,
-                    self.locale,
-                    self.language,
-                )
-            });
+    }
 
-        if let Some((width, height)) = array {
-            // We are moving an array formula, we need to move the whole range
-            self.set_user_array_formula(
-                sheet,
-                target_row,
-                target_column,
-                width,
-                height,
-                &formula_or_value,
-            )?;
-        } else {
-            self.set_user_input(sheet, target_row, target_column, formula_or_value)?;
-        }
+    /// GRIDPATH: writes `cell`, which stood at `source` (row, column), at
+    /// `target` with its value, style and kind untouched.
+    ///
+    /// A formula is stored relative to its cell, so it is read at the source
+    /// and written at the target to go on pointing at the SAME cells; the
+    /// caller then shifts the references into whatever else moved
+    /// (`displace_cells`). A spill cell's pointer to its anchor moves by the
+    /// same distance as the cell.
+    fn place_moved_cell(
+        &mut self,
+        sheet: u32,
+        cell: Cell,
+        source: (i32, i32),
+        target: (i32, i32),
+    ) -> Result<(), String> {
+        let moved = match cell {
+            Cell::EmptyCell { .. }
+            | Cell::BooleanCell { .. }
+            | Cell::NumberCell { .. }
+            | Cell::ErrorCell { .. }
+            | Cell::SharedString { .. } => cell,
+            Cell::CellFormula { f, s, v } => Cell::CellFormula {
+                f: self.moved_formula_index(sheet, f, source, target)?,
+                s,
+                v,
+            },
+            Cell::ArrayFormula { f, s, r, kind, v } => {
+                // A dynamic array comes here as a single cell (the caller
+                // deleted its spill); a CSE array keeps its declared range.
+                debug_assert!(kind == ArrayKind::Cse || r == (1, 1));
+                Cell::ArrayFormula {
+                    f: self.moved_formula_index(sheet, f, source, target)?,
+                    s,
+                    r,
+                    kind,
+                    v,
+                }
+            }
+            Cell::SpillCell { s, a, v } => Cell::SpillCell {
+                s,
+                a: (a.0 + target.0 - source.0, a.1 + target.1 - source.1),
+                v,
+            },
+        };
+        self.workbook
+            .worksheet_mut(sheet)?
+            .update_cell(target.0, target.1, moved)
+    }
 
-        let worksheet = self.workbook.worksheet_mut(sheet)?;
-        // copy style
-        worksheet.set_cell_style(target_row, target_column, style)?;
-
-        // delete source cell content and style
-        worksheet.remove_cell(source_row, source_column)?;
-        Ok(())
+    /// GRIDPATH: the index, in the sheet's formula list, of formula `f` of a
+    /// cell at `source` once that cell stands at `target` and refers to the
+    /// same cells as before.
+    fn moved_formula_index(
+        &mut self,
+        sheet: u32,
+        f: i32,
+        source: (i32, i32),
+        target: (i32, i32),
+    ) -> Result<i32, String> {
+        let (node, _) = self
+            .parsed_formulas
+            .get(sheet as usize)
+            .ok_or("missing sheet")?
+            .get(f as usize)
+            .ok_or("missing formula")?;
+        let cell_reference = CellReferenceRC {
+            sheet: self.workbook.worksheet(sheet)?.get_name(),
+            row: source.0,
+            column: source.1,
+        };
+        let formula = to_localized_string(node, &cell_reference, self.locale, self.language);
+        let (index, _) = self.intern_formula(sheet, target.0, target.1, &formula)?;
+        Ok(index)
     }
 
     /// Inserts one or more new columns into the model at the specified index.
@@ -509,8 +666,6 @@ impl<'a> Model<'a> {
         column: i32,
         column_count: i32,
     ) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         if column_count <= 0 {
             return Err("Cannot add a negative number of cells :)".to_string());
         }
@@ -551,6 +706,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
 
         // In the list of columns:
         // * Keep all the columns to the left
@@ -600,8 +756,6 @@ impl<'a> Model<'a> {
         column: i32,
         column_count: i32,
     ) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         if column_count <= 0 {
             return Err("Please use insert columns instead".to_string());
         }
@@ -649,6 +803,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
         let worksheet = &mut self.workbook.worksheet_mut(sheet)?;
 
         // deletes all the column styles
@@ -840,8 +995,6 @@ impl<'a> Model<'a> {
     /// * `row` - The index at which the new rows should be inserted.
     /// * `row_count` - The number of rows to insert.
     pub fn insert_rows(&mut self, sheet: u32, row: i32, row_count: i32) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         if row_count <= 0 {
             return Err("Cannot add a negative number of cells :)".to_string());
         }
@@ -906,6 +1059,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
 
         Ok(())
     }
@@ -918,8 +1072,6 @@ impl<'a> Model<'a> {
     /// * `row` - The index of the first row to delete.
     /// * `row_count` - The number of rows to delete.
     pub fn delete_rows(&mut self, sheet: u32, row: i32, row_count: i32) -> Result<(), String> {
-        // Structural change: import-time frozen coordinates are stale.
-        self.import_wrongref_frozen.clear();
         if row_count <= 0 {
             return Err("Please use insert rows instead".to_string());
         }
@@ -984,7 +1136,67 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
         Ok(())
+    }
+
+    /// GRIDPATH: takes the cell at (`row`, `column`) off the sheet, for the
+    /// row or column that a move carries past the others. `None` for a spill
+    /// cell: dynamic spills were deleted by the caller, and a CSE array is
+    /// entered again from its anchor.
+    fn lift_cell(&mut self, sheet: u32, row: i32, column: i32) -> Result<Option<LiftedCell>, String> {
+        let cell = self
+            .workbook
+            .worksheet(sheet)?
+            .cell(row, column)
+            .ok_or("Expected Cell to exist")?
+            .clone();
+        let lifted = match cell {
+            Cell::SpillCell { .. } => None,
+            Cell::ArrayFormula {
+                s,
+                r,
+                kind: ArrayKind::Cse,
+                ..
+            } => {
+                // This is an array formula, we need to move the whole range
+                // We rely on the calling function to check that the move is valid and does not split the array formula
+                let formula = self
+                    .get_cell_formula(sheet, row, column)?
+                    .ok_or("Expected a formula")?;
+                Some(LiftedCell::CseArray {
+                    formula,
+                    style: s,
+                    range: r,
+                })
+            }
+            cell => Some(LiftedCell::Cell(cell)),
+        };
+        self.workbook.worksheet_mut(sheet)?.remove_cell(row, column)?;
+        Ok(lifted)
+    }
+
+    /// GRIDPATH: puts a lifted cell, which stood at `source`, down at `target`.
+    fn place_lifted_cell(
+        &mut self,
+        sheet: u32,
+        lifted: LiftedCell,
+        source: (i32, i32),
+        target: (i32, i32),
+    ) -> Result<(), String> {
+        match lifted {
+            LiftedCell::Cell(cell) => self.place_moved_cell(sheet, cell, source, target),
+            LiftedCell::CseArray {
+                formula,
+                style,
+                range: (width, height),
+            } => {
+                self.set_user_array_formula(sheet, target.0, target.1, width, height, &formula)?;
+                self.workbook
+                    .worksheet_mut(sheet)?
+                    .set_cell_style(target.0, target.1, style)
+            }
+        }
     }
 
     // Inner column move: no boundary/can check, no spill reset.
@@ -997,63 +1209,9 @@ impl<'a> Model<'a> {
             .column_cell_references(column)?;
         let mut original_cells = Vec::new();
         for r in &original_refs {
-            let cell = self
-                .workbook
-                .worksheet(sheet)?
-                .cell(r.row, column)
-                .ok_or("Expected Cell to exist")?;
-            let style_idx = cell.get_style();
-            let formula_or_value =
-                self.get_cell_formula(sheet, r.row, column)?
-                    .unwrap_or_else(|| {
-                        cell.get_localized_text(
-                            &self.workbook.shared_strings,
-                            self.locale,
-                            self.language,
-                        )
-                    });
-
-            let mut array = None;
-
-            match cell {
-                Cell::EmptyCell { .. }
-                | Cell::BooleanCell { .. }
-                | Cell::NumberCell { .. }
-                | Cell::ErrorCell { .. }
-                | Cell::SharedString { .. }
-                | Cell::CellFormula { .. } => {
-                    // This is a regular cell, we can just move it.
-                }
-                Cell::SpillCell { .. } => {
-                    // This the spill of an array formula. Because dynamic arrays spills have been deleted
-                    // We delete the spill
-                    let worksheet = self.workbook.worksheet_mut(sheet)?;
-                    worksheet.remove_cell(r.row, column)?;
-                    continue;
-                }
-                Cell::ArrayFormula {
-                    r,
-                    kind: ArrayKind::Dynamic,
-                    ..
-                } => {
-                    // We are moving the anchor of a dynamic formula.
-                    // We assume the spill has been taken care of by the caller
-                    debug_assert_eq!(*r, (1, 1));
-                }
-                Cell::ArrayFormula {
-                    r,
-                    kind: ArrayKind::Cse,
-                    ..
-                } => {
-                    // This is an array formula, we need to move the whole range
-                    // We rely on the calling function to check that the move is valid and does not split the array formula
-                    array = Some(*r);
-                }
+            if let Some(lifted) = self.lift_cell(sheet, r.row, column)? {
+                original_cells.push((r.row, lifted));
             }
-
-            original_cells.push((r.row, formula_or_value, style_idx, array));
-            let ws = self.workbook.worksheet_mut(sheet)?;
-            ws.remove_cell(r.row, column)?;
         }
         let width = self
             .workbook
@@ -1088,15 +1246,8 @@ impl<'a> Model<'a> {
                     .set_column_width_and_style(c + 1, w, h, s)?;
             }
         }
-        for (r, value, style_idx, array) in original_cells {
-            if let Some(a) = array {
-                self.set_user_array_formula(sheet, r, target_column, a.0, a.1, &value)?;
-            } else {
-                self.set_user_input(sheet, r, target_column, value)?;
-            }
-            self.workbook
-                .worksheet_mut(sheet)?
-                .set_cell_style(r, target_column, style_idx)?;
+        for (r, lifted) in original_cells {
+            self.place_lifted_cell(sheet, lifted, (r, column), (r, target_column))?;
         }
         self.workbook
             .worksheet_mut(sheet)?
@@ -1108,6 +1259,7 @@ impl<'a> Model<'a> {
         };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
         Ok(())
     }
 
@@ -1117,55 +1269,9 @@ impl<'a> Model<'a> {
         let original_cols = self.get_columns_for_row(sheet, row, false)?;
         let mut original_cells = Vec::new();
         for c in &original_cols {
-            let cell = self
-                .workbook
-                .worksheet(sheet)?
-                .cell(row, *c)
-                .ok_or("Expected Cell to exist")?;
-            let style_idx = cell.get_style();
-            let formula_or_value = self.get_cell_formula(sheet, row, *c)?.unwrap_or_else(|| {
-                cell.get_localized_text(&self.workbook.shared_strings, self.locale, self.language)
-            });
-            let mut array = None;
-
-            match cell {
-                Cell::EmptyCell { .. }
-                | Cell::BooleanCell { .. }
-                | Cell::NumberCell { .. }
-                | Cell::ErrorCell { .. }
-                | Cell::SharedString { .. }
-                | Cell::CellFormula { .. } => {
-                    // This is a regular cell, we can just move it.
-                }
-                Cell::SpillCell { .. } => {
-                    // This the spill of an array formula. Because dynamic arrays spills have been deleted
-                    // We delete the spill
-                    let worksheet = self.workbook.worksheet_mut(sheet)?;
-                    worksheet.remove_cell(row, *c)?;
-                    continue;
-                }
-                Cell::ArrayFormula {
-                    r,
-                    kind: ArrayKind::Dynamic,
-                    ..
-                } => {
-                    // We are moving the anchor of a dynamic formula.
-                    // We assume the spill has been taken care of by the caller
-                    debug_assert_eq!(*r, (1, 1));
-                }
-                Cell::ArrayFormula {
-                    r,
-                    kind: ArrayKind::Cse,
-                    ..
-                } => {
-                    // This is an array formula, we need to move the whole range
-                    // We rely on the calling function to check that the move is valid and does not split the array formula
-                    array = Some(*r);
-                }
+            if let Some(lifted) = self.lift_cell(sheet, row, *c)? {
+                original_cells.push((*c, lifted));
             }
-            original_cells.push((*c, formula_or_value, style_idx, array));
-            let ws = self.workbook.worksheet_mut(sheet)?;
-            ws.remove_cell(row, *c)?;
         }
         if delta > 0 {
             for r in row + 1..=target_row {
@@ -1182,22 +1288,8 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        for (c, value, style_idx, array) in original_cells {
-            if let Some(array_range) = array {
-                self.set_user_array_formula(
-                    sheet,
-                    target_row,
-                    c,
-                    array_range.0,
-                    array_range.1,
-                    &value,
-                )?;
-            } else {
-                self.set_user_input(sheet, target_row, c, value)?;
-            }
-            self.workbook
-                .worksheet_mut(sheet)?
-                .set_cell_style(target_row, c, style_idx)?;
+        for (c, lifted) in original_cells {
+            self.place_lifted_cell(sheet, lifted, (row, c), (target_row, c))?;
         }
         let worksheet = &mut self.workbook.worksheet_mut(sheet)?;
         let mut new_rows = Vec::new();
@@ -1222,6 +1314,7 @@ impl<'a> Model<'a> {
         let disp = DisplaceData::RowMove { sheet, row, delta };
         self.displace_cells(&disp)?;
         self.displace_cf_ranges(sheet, &disp);
+        self.displace_import_frozen(sheet, &disp);
         Ok(())
     }
 

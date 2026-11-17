@@ -8,9 +8,11 @@
 //!   - chart parts (series `c:f` formulas),
 //!   - the target sheet's comments, VML anchors, and drawing anchors.
 //!
-//! Everything else stays byte-identical. When the package contains carriers
-//! we can't rewrite (pivots, tables, slicers, OLE objects, data tables) the
-//! op fails closed and the caller falls back to the visible copy flow.
+//! Everything else stays byte-identical. Some carriers of positions are not
+//! rewritten: tables, pivot tables and their caches, slicers, query tables,
+//! OLE objects, what-if data tables. The op fails closed when one of them
+//! sits on the target sheet or names it (`preflight_structure`); a workbook
+//! that only has them elsewhere is edited like any other.
 
 use std::collections::HashMap;
 
@@ -24,7 +26,7 @@ use super::refs::{
     RowColShift, MAX_COL, MAX_ROW,
 };
 use super::sheet_xml::scan_sheet;
-use super::structure::{mentions_name, preflight_structure, rewrite_formula_texts};
+use super::structure::{mentions_name, preflight_structure, rewrite_formula_texts, StructuralEdit};
 use super::workbook_xml::{self, attr_value, local_name, reader, text_minimal, xml_err};
 use super::PatchError;
 
@@ -67,8 +69,6 @@ pub fn apply_row_col_op(
     if shift.count == 0 {
         return Ok(());
     }
-    preflight_structure(store)?;
-
     let workbook_xml = store.read(workbook_path)?;
     let wb_rels = store.read(wb_rels_path)?;
     let sheet_paths = workbook_xml::sheet_part_paths(&workbook_xml, &wb_rels)?;
@@ -77,6 +77,7 @@ pub fn apply_row_col_op(
         .find(|(n, _)| names_eq(n, sheet_name))
         .map(|(_, p)| p.clone())
         .ok_or_else(|| PatchError::SheetNotFound(sheet_name.to_string()))?;
+    preflight_structure(store, sheet_name, StructuralEdit::Shift { sheet_part: &target_part, sheet_paths: &sheet_paths })?;
 
     // --- 1. the target worksheet ---
     let bytes = store.read(&target_part)?;
@@ -163,7 +164,7 @@ pub fn apply_row_col_op(
 // rels helpers
 // ---------------------------------------------------------------------------
 
-fn list_relationships(rels_xml: &[u8]) -> Result<Vec<(String, String)>, PatchError> {
+pub(super) fn list_relationships(rels_xml: &[u8]) -> Result<Vec<(String, String)>, PatchError> {
     let mut out = Vec::new();
     let mut r = reader(rels_xml);
     let mut buf = Vec::new();

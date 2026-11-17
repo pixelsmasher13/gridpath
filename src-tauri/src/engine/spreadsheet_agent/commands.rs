@@ -15,7 +15,7 @@ use crate::engine::llm_providers::claude::{
     stream_claude_with_tools, StreamEvent, StreamMessage,
 };
 use crate::engine::llm_providers::openai_codex::stream_codex_with_tools;
-use crate::engine::spreadsheet_agent::tools::{agent_tools, system_prompt};
+use crate::engine::spreadsheet_agent::tools::{desktop_agent_tools, system_prompt};
 use crate::repository::settings_repository::get_setting;
 
 /// Workbook context shipped from the webview each turn. Kept minimal so this
@@ -48,6 +48,30 @@ pub struct WorkbookContext {
     /// compact preview; detail is pulled on demand via `read_reference`.
     #[serde(default)]
     pub references: Vec<ReferenceWorkbookContext>,
+    /// The other workbooks of the workspace the active one is worked on
+    /// with: live models the agent can read (the read tools' `workbook`)
+    /// and link to with formulas.
+    #[serde(default)]
+    pub workspace: Option<WorkspaceContext>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceContext {
+    /// The workspace's name, as the user named it.
+    #[serde(default)]
+    pub name: Option<String>,
+    pub workbooks: Vec<WorkspaceWorkbookContext>,
+    /// The active workbook can hold links to them: it has a file, and the
+    /// engine resolves links for it.
+    #[serde(default)]
+    pub can_link: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceWorkbookContext {
+    /// The name the agent passes as `workbook`: the file name.
+    pub label: String,
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -493,6 +517,11 @@ fn format_context_block(ctx: &WorkbookContext) -> String {
         }
     }
 
+    // The workspace: other workbooks, read through the read tools'
+    // `workbook` and linked to with formulas. No previews: the list is
+    // stable bytes, and the agent maps a workbook when it needs it.
+    let workspace_block = ctx.workspace.as_ref().filter(|w| !w.workbooks.is_empty()).map(format_workspace_block).unwrap_or_default();
+
     // Reference workbooks — read-only context the user attached (other xlsx
     // files, e.g. analyst models). Previews are deliberately small; the
     // agent pulls detail on demand with the `read_reference` tool.
@@ -535,7 +564,7 @@ to pull any range in full (address the workbook by its label).\n\n",
     let today = chrono::Local::now().format("%A, %B %-d, %Y").to_string();
 
     format!(
-        "Today is {}.\n\nWorkbook: {}\n\n\
+        "Today is {}.\n\nWorkbook: {}\n\n{}\
 Preview notation: `A5:Z5 = <formula>, then <second formula>, …  (filled right ×N)` \
 means the formula is FILLED across the range — each column's copy shifts relative \
 references by one (the second column's exact formula is shown; it is NOT the same \
@@ -543,8 +572,46 @@ formula repeated). Sampled values follow after →. Numbers are rounded for disp
 and long text is clipped; read the real cells before precision-sensitive work. \
 Truncated sheets end with an index of the remaining row labels — those rows exist; \
 read them by range when relevant.\n\n{}{}{}",
-        today, ctx.path, sheets_block, calc_health_block, references_block
+        today, ctx.path, workspace_block, sheets_block, calc_health_block, references_block
     )
+}
+
+/// The "Workspace" block of the context: which other workbooks there are,
+/// how to read them, and that figures from them come in as links.
+fn format_workspace_block(ws: &WorkspaceContext) -> String {
+    let title = match ws.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => format!("# Workspace \"{name}\": other workbooks you can read and link to\n"),
+        None => "# Workspace: other workbooks you can read and link to\n".to_string(),
+    };
+    let mut out = title;
+    out.push_str("The user works on these workbooks together with the active one. They are live models, not attachments:\n");
+    for w in &ws.workbooks {
+        out.push_str(&format!("- {} ({})\n", w.label, w.path));
+    }
+    let example = ws.workbooks.first().map(|w| w.label.as_str()).unwrap_or("Other.xlsx");
+    out.push_str(&format!(
+        "READ them with describe_workbook, find_rows, read_range and query_rows by passing `workbook: \"{example}\"` \
+(leave `workbook` out for the active workbook). For any figure about a company or model in this list the workbook \
+is the source: do not fetch filings or the web for what it already holds.\n"
+    ));
+    if ws.can_link {
+        out.push_str(&format!(
+            "LINK, do not copy: to bring a figure into the active workbook, write a formula that names the other file, \
+in the quoted form '[File name]Sheet name'!Cell, e.g. ='[{example}]Sheet name'!B23 or =SUM('[{example}]Sheet name'!B23:D23). \
+The engine evaluates the link, it follows changes in that workbook, and it is saved the way Excel saves links between \
+workbooks. Locate the exact cell first (find_rows, then read_range on that workbook), write the link, and check that \
+the readback value equals the value you read there.\n\
+WRITE tools change the active workbook; pass `workbook` to change one of the others instead, and use `create_workbook` \
+when the user asks for a new one. See rule 20a.\n\n"
+        ));
+    } else {
+        out.push_str(
+            "The active workbook has no file yet, so it cannot hold links to them: bring figures in as values, say which \
+workbook and cell each came from, and tell the user that saving this workbook first lets you link instead \
+(or `create_workbook` a new one, which has a file and can link). See rule 20a.\n\n",
+        );
+    }
+    out
 }
 
 /// The PER-TURN tail: prior conversation, workbook delta, focus hint, and
@@ -608,6 +675,7 @@ mod tests {
             delta: None,
             calc_health: None,
             references: vec![],
+            workspace: None,
         };
         let out = format_context_block(&ctx);
         assert!(!out.contains("Reference workbooks"));
@@ -630,6 +698,7 @@ mod tests {
                 label: "AAPL-GS.xlsx".to_string(),
                 sheets: vec![sheet("Estimates", "B2 = 394328")],
             }],
+            workspace: None,
         };
         let out = format_context_block(&ctx);
         assert!(out.contains("# Reference workbooks (READ-ONLY)"));
@@ -640,6 +709,61 @@ mod tests {
         let sheets_pos = out.find("## Sheet: Model").unwrap();
         let refs_pos = out.find("# Reference workbooks").unwrap();
         assert!(sheets_pos < refs_pos);
+    }
+
+    #[test]
+    fn context_block_names_the_workspace_workbooks_before_the_sheets() {
+        let mut ctx = WorkbookContext {
+            path: "/m/SNPS.xlsx".to_string(),
+            sheets: vec![sheet("Model", "A1 = \"Revenue\"")],
+            focus: None,
+            delta: None,
+            calc_health: None,
+            references: vec![],
+            workspace: Some(WorkspaceContext {
+                name: Some("Software comps".to_string()),
+                workbooks: vec![WorkspaceWorkbookContext { label: "SNOW.xlsx".to_string(), path: "/m/SNOW.xlsx".to_string() }],
+                can_link: true,
+            }),
+        };
+        let out = format_context_block(&ctx);
+        assert!(out.contains("# Workspace \"Software comps\": other workbooks you can read and link to"));
+        assert!(out.contains("- SNOW.xlsx (/m/SNOW.xlsx)"));
+        assert!(out.contains("`workbook: \"SNOW.xlsx\"`"));
+        assert!(out.contains("='[SNOW.xlsx]Sheet name'!B23"));
+        assert!(out.contains("do not fetch filings or the web"));
+        assert!(out.find("# Workspace").unwrap() < out.find("## Sheet: Model").unwrap());
+
+        // A workbook without a file is told to bring values, not links.
+        ctx.workspace.as_mut().unwrap().can_link = false;
+        let out = format_context_block(&ctx);
+        assert!(out.contains("cannot hold links"));
+        assert!(!out.contains("LINK, do not copy"));
+
+        // No other workbooks: no block.
+        ctx.workspace.as_mut().unwrap().workbooks.clear();
+        assert!(!format_context_block(&ctx).contains("# Workspace"));
+    }
+
+    #[test]
+    fn a_read_of_another_workbook_gets_time_to_load_it() {
+        let other = serde_json::json!({ "workbook": "SNOW.xlsx", "query": "revenue" });
+        let own = serde_json::json!({ "query": "revenue" });
+        assert_eq!(readback_timeout_secs("find_rows", &other), 90);
+        assert_eq!(readback_timeout_secs("find_rows", &own), 10);
+        assert_eq!(readback_timeout_secs("describe_workbook", &serde_json::json!({ "workbook": "  " })), 10);
+        assert_eq!(readback_timeout_secs("create_workbook", &serde_json::json!({ "name": "Comps" })), 90);
+        assert_eq!(readback_timeout_secs("set_cell", &serde_json::json!({ "workbook": "Comps.xlsx", "sheet": "S", "cell": "A1" })), 90);
+    }
+
+    #[test]
+    fn a_format_call_for_another_workbook_waits_for_its_result() {
+        let own = serde_json::json!({ "sheet": "Model", "range": "A1" });
+        let other = serde_json::json!({ "workbook": "Comps.xlsx", "sheet": "Comps", "range": "A1" });
+        assert!(tool_skips_readback("set_format", &own));
+        assert!(!tool_skips_readback("set_format", &other));
+        assert!(!tool_skips_readback("set_range", &own));
+        assert!(!tool_skips_readback("create_workbook", &own));
     }
 
     #[test]
@@ -670,6 +794,7 @@ mod tests {
             delta: None,
             calc_health: None,
             references: vec![],
+            workspace: None,
         };
         assert_eq!(format_context_block(&ctx), format_context_block(&ctx));
     }
@@ -687,6 +812,7 @@ mod tests {
                 label: "AAPL-GS.xlsx".to_string(),
                 sheets: vec![sheet("Estimates", "B2 = 394328")],
             }],
+            workspace: None,
         };
         let out = format_context_block(&ctx);
         let sheets_pos = out.find("## Sheet: Model").unwrap();
@@ -761,7 +887,7 @@ pub async fn spreadsheet_agent_turn(
             { "type": "text", "text": turn_block },
         ]),
     }];
-    let tools = agent_tools();
+    let tools = desktop_agent_tools();
     // Claude's claude.rs injects a hosted web_search server tool; Codex
     // doesn't (ChatGPT-sub rejects it). Teach the agent about web_search
     // in the system prompt only when it can actually call it.
@@ -1075,7 +1201,12 @@ const TURN_MAX_TOKENS: usize = 48_000;
 /// instead of waiting up to 8s for a frontend round-trip that has nothing to
 /// say. Was a major source of wasted turns: each set_format burned a full
 /// timeout window before the loop could continue.
-fn tool_skips_readback(name: &str) -> bool {
+fn tool_skips_readback(name: &str, input: &Value) -> bool {
+    // A call that names ANOTHER workbook of the workspace has something to
+    // say: the workbook may not be there, or may not open.
+    if names_a_workbook(input) {
+        return false;
+    }
     matches!(
         name,
         "set_format"
@@ -1137,10 +1268,22 @@ fn a1_range_cell_count(range: &str) -> usize {
     }
 }
 
+/// The call carries `workbook`: it is for a workbook of the workspace other
+/// than the one the turn runs in (or names that one, which costs nothing).
+fn names_a_workbook(input: &Value) -> bool {
+    input.get("workbook").and_then(|v| v.as_str()).is_some_and(|w| !w.trim().is_empty())
+}
+
 fn readback_timeout_secs(name: &str, input: &Value) -> u64 {
     // Index lookups are served from a memoized in-memory structure on the
     // frontend — near-instant, no Univer apply/recalc involved. A short
     // window keeps a hung webview from stalling the loop for 25s.
+    // A call for ANOTHER workbook of the workspace may have to load that
+    // workbook first, or open it in a tab (seconds on a large model), and a
+    // new workbook is written to disk and opened.
+    if names_a_workbook(input) || name == "create_workbook" {
+        return 90;
+    }
     if matches!(name, "describe_workbook" | "find_rows") {
         return 10;
     }
@@ -1518,7 +1661,7 @@ async fn run_agent_loop(
                         && name != "keep_pages"
                         && name != "read_source"
                         && name != "edgar_lookup"
-                        && (name == "done" || !tool_skips_readback(&name))
+                        && (name == "done" || !tool_skips_readback(&name, &input))
                     {
                         let rx = register_tool_result(&tool_use_id);
                         if let Ok(mut map) = rxs_cb.lock() {
@@ -1829,7 +1972,7 @@ async fn run_agent_loop(
                         || name == "read_source"
                         || name == "edgar_lookup";
                     let needs_rx = name == "done"
-                        || (!rust_handled && !tool_skips_readback(name));
+                        || (!rust_handled && !tool_skips_readback(name, input));
                     let rx = if needs_rx { rxs.remove(id) } else { None };
                     (i, id, name, input, rx)
                 })
@@ -2000,7 +2143,7 @@ async fn run_agent_loop(
                     "note": "Pages outside `kept_pages` are now evicted from context. Treat `extracted_notes` as the durable record of figures from this source — page text may not be available next turn.",
                 })
                 .to_string()
-            } else if tool_skips_readback(name) {
+            } else if tool_skips_readback(name, input) {
                 // Format/dimension/merge tools never had a receiver registered
                 // (see ToolCall handler above) — they succeed-or-not, "ok".
                 "ok".to_string()

@@ -137,6 +137,9 @@ export function applyMutationForward(
     case "define_name":
       grid.defineName(m.name, m.ref);
       break;
+    case "create_chart":
+      void grid.addChart?.(m.chart);
+      break;
   }
 }
 
@@ -249,6 +252,9 @@ export function reverseMutation(
     case "define_name":
       if (m.old_ref) grid.defineName(m.name, m.old_ref);
       else grid.deleteName(m.name);
+      break;
+    case "create_chart":
+      void grid.removeChart?.(m.chart.id);
       break;
   }
 }

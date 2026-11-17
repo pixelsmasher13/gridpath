@@ -412,6 +412,15 @@ impl RowColShift {
         if self.insert {
             let na = if a >= self.start { a + self.count } else { a };
             let nb = if b >= self.start { b + self.count } else { b };
+            // A span that already ends on the sheet's last row or column
+            // keeps ending there, as in Excel: `$C$10:$XFD$20` stays put
+            // when a column is inserted before it, and so does the
+            // `<col min="36" max="16384">` most sheets carry. Only what
+            // was at the edge falls off; a span pushed off whole is gone.
+            let max = self.max_index();
+            if b == max && nb > max {
+                return if na > max { None } else { Some((na, max)) };
+            }
             return Some((na, nb));
         }
         let end = self.start + self.count; // exclusive
@@ -784,6 +793,20 @@ fn walk_formula(formula: &str, action: &QualifierAction) -> Result<String, Patch
             p.is_ascii_alphanumeric() || p == b'_' || p == b'.'
         };
 
+        // `[1]Model!B23`: a sheet of another workbook. The whole of
+        // `[1]Model` is the qualifier, so it is never this workbook's
+        // sheet "Model": the reference stays where it is and keeps its
+        // name. (`Table1[Column]` has an identifier before the bracket.)
+        if b == b'[' && !prev_is_ident {
+            if let Some(len) = external_qualifier_len(&formula[i..]) {
+                out.push_str(&formula[i..i + len]);
+                qualifier = Some(formula[i..i + len].to_string());
+                three_d_head = None;
+                i += len;
+                continue;
+            }
+        }
+
         if !prev_is_ident && (b == b'$' || b.is_ascii_alphabetic() || b.is_ascii_digit()) {
             // Try a reference token first.
             if let Some(tok) = parse_ref_token(&formula[i..]) {
@@ -878,6 +901,26 @@ fn walk_formula(formula: &str, action: &QualifierAction) -> Result<String, Patch
     }
 
     Ok(out)
+}
+
+/// Length of an unquoted qualifier of another workbook at the start of
+/// `text` (`[1]Model` in `[1]Model!B23`, `[Book.xlsx]Model` likewise), if
+/// that is what `text` starts with. The `!` is not counted.
+fn external_qualifier_len(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix('[')?;
+    let book = rest.find(']')?;
+    if book == 0 || rest[..book].contains(['[', '\'', '"', '!']) {
+        return None;
+    }
+    let sheet = &rest[book + 1..];
+    let sheet_len = sheet
+        .char_indices()
+        .find(|(_, ch)| !(ch.is_alphanumeric() || *ch == '_' || *ch == '.'))
+        .map_or(sheet.len(), |(at, _)| at);
+    if sheet_len == 0 || !sheet[sheet_len..].starts_with('!') {
+        return None;
+    }
+    Some(1 + book + 1 + sheet_len)
 }
 
 /// Shared tail for quoted and unquoted potential sheet qualifiers. The
@@ -1055,6 +1098,84 @@ mod tests {
             shift_formula("XFD1", 0, 1),
             Err(PatchError::RefOutOfRange)
         ));
+    }
+
+    #[test]
+    fn insert_keeps_a_span_that_ends_on_the_sheet_edge() {
+        let cols = RowColShift { rows: false, start: 3, count: 1, insert: true };
+        let rows = RowColShift { rows: true, start: 3, count: 2, insert: true };
+        let last_col = MAX_COL - 1;
+        let last_row = MAX_ROW - 1;
+        // Straddling the insert: the far end stays on the edge.
+        assert_eq!(cols.adjust_span(2, last_col), Some((2, last_col)));
+        assert_eq!(rows.adjust_span(0, last_row), Some((0, last_row)));
+        // Wholly after it: the near end moves, the far end stays.
+        assert_eq!(cols.adjust_span(35, last_col), Some((36, last_col)));
+        // Pushed off whole.
+        assert_eq!(cols.adjust_span(last_col, last_col), None);
+        // A span that ends short of the edge still moves past it, for the
+        // caller to refuse.
+        assert_eq!(cols.adjust_span(5, last_col - 1), Some((6, last_col)));
+        let far = RowColShift { rows: false, start: 3, count: 2, insert: true };
+        assert_eq!(far.adjust_span(5, last_col - 1), Some((7, last_col + 1)));
+
+        // A defined name that runs to the last column, as models carry.
+        assert_eq!(
+            adjust_formula("Model!$C$1510:$XFD$1533", &cols, "Model", false).unwrap(),
+            "Model!$C$1510:$XFD$1533"
+        );
+        assert_eq!(
+            adjust_formula("SUM(Model!$E$5:$XFD$5)", &cols, "Model", false).unwrap(),
+            "SUM(Model!$F$5:$XFD$5)"
+        );
+        assert_eq!(
+            adjust_formula("SUM($A$2:$A$1048576)", &rows, "Model", true).unwrap(),
+            "SUM($A$2:$A$1048576)"
+        );
+        // One that ends short of the edge and would cross it is still refused.
+        assert!(matches!(
+            adjust_formula("Model!$C$1:$XFC$2", &far, "Model", false),
+            Err(PatchError::RefOutOfRange)
+        ));
+        // A single cell on the edge has nowhere to go.
+        assert!(matches!(
+            adjust_formula("Model!$XFD$1", &cols, "Model", false),
+            Err(PatchError::RefOutOfRange)
+        ));
+
+        assert_eq!(
+            adjust_sqref_list("A1:XFD1 E3:F3", &cols).unwrap().as_deref(),
+            Some("A1:XFD1 F3:G3")
+        );
+    }
+
+    #[test]
+    fn another_workbooks_sheet_is_not_ours() {
+        // `[1]Model` is a sheet of another workbook: a row inserted in this
+        // workbook's own sheet "Model" moves `Model!B23` and nothing else.
+        let rows = RowColShift { rows: true, start: 9, count: 1, insert: true };
+        assert_eq!(
+            adjust_formula("[1]Model!B23+Model!B23", &rows, "Model", false).unwrap(),
+            "[1]Model!B23+Model!B24"
+        );
+        assert_eq!(
+            adjust_formula("SUM([NOW.xlsx]Model!B2:B30)*B23", &rows, "Model", true).unwrap(),
+            "SUM([NOW.xlsx]Model!B2:B30)*B24"
+        );
+        assert_eq!(
+            adjust_formula("'[1]Income Statement'!B23+B23", &rows, "Income Statement", true).unwrap(),
+            "'[1]Income Statement'!B23+B24"
+        );
+        // A rename of our "Model" leaves theirs alone.
+        assert_eq!(
+            rename_sheet_in_formula("[1]Model!B2+Model!B2", "Model", "Summary").unwrap(),
+            "[1]Model!B2+Summary!B2"
+        );
+        // A structured reference is not a link.
+        assert_eq!(
+            adjust_formula("SUM(Table1[Sales])+Model!B23", &rows, "Model", false).unwrap(),
+            "SUM(Table1[Sales])+Model!B24"
+        );
     }
 
     #[test]

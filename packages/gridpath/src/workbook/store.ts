@@ -63,3 +63,34 @@ export function saveStored(workbookPath: string, batches: ChangeBatch[]): void {
 export function clearStored(workbookPath: string): void {
   fs.rmSync(storePathFor(workbookPath), { force: true });
 }
+
+/**
+ * The workbooks whose formulas read this one, as far as this machine has
+ * seen: `<dir>/.gridpath/<file>.readers.json`. Read before a save, so that
+ * readers that are not open can take up moved rows while the record of the
+ * move still exists.
+ */
+export function readersPathFor(workbookPath: string): string {
+  return path.join(path.dirname(workbookPath), ".gridpath", `${path.basename(workbookPath)}.readers.json`);
+}
+
+export function loadReaders(workbookPath: string): string[] {
+  try {
+    const list = JSON.parse(fs.readFileSync(readersPathFor(workbookPath), "utf8"))?.readers;
+    return Array.isArray(list) ? list.filter((r): r is string => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveReaders(workbookPath: string, readers: string[]): void {
+  const p = readersPathFor(workbookPath);
+  if (readers.length === 0) {
+    fs.rmSync(p, { force: true });
+    return;
+  }
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ path: workbookPath, readers }));
+  fs.renameSync(tmp, p);
+}

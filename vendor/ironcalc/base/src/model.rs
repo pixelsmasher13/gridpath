@@ -112,6 +112,9 @@ pub(crate) enum ParsedDefinedName {
     RangeReference(Range),
     /// `=LAMBDA(params..., body)`
     LambdaDefinition(Vec<NamedVariable>, Node),
+    /// GRIDPATH: the cells it pointed at were deleted (`=Sheet1!#REF!`). A
+    /// formula using the name is `#REF!`, as in Excel, not `#NAME?`.
+    DeletedReference,
     /// `=SomethingElse`
     InvalidDefinedNameFormula,
 }
@@ -497,8 +500,11 @@ pub struct Model<'a> {
     /// Cells whose IMPORTED formula contains an unresolvable reference
     /// ('[2]Workbook'! externals): they keep their cached value. Import-time
     /// only — a reference that becomes wrong through an in-session edit
-    /// (deleting a sheet) must show #REF!, and structural edits shift
-    /// coordinates — so this set is CLEARED on any structural change.
+    /// (deleting a sheet) must show #REF!. The set is keyed by coordinate,
+    /// so every edit that moves cells or sheets moves its entries with them
+    /// (`displace_import_frozen`, `reindex_import_frozen`), and an entry
+    /// only counts while the cell there still holds such a formula
+    /// (`is_import_frozen`).
     pub(crate) import_wrongref_frozen: std::collections::HashSet<(u32, i32, i32)>,
 }
 
@@ -533,7 +539,12 @@ fn node_is_unevaluable(node: &Node) -> bool {
     use Node::*;
     match node {
         NamedFunctionKind { .. } | ParseErrorKind { .. } => true,
-        WrongReferenceKind { .. } | WrongRangeKind { .. } => false,
+        // A reference into another workbook that is not loaded. Decided from
+        // the formula alone, so it holds through structural edits (the
+        // coordinate set `import_wrongref_frozen` does not).
+        WrongReferenceKind { sheet_name, .. } | WrongRangeKind { sheet_name, .. } => {
+            is_external_sheet_name(sheet_name)
+        }
         OpRangeKind { left, right }
         | OpConcatenateKind { left, right }
         | OpSumKind { left, right, .. }
@@ -557,35 +568,72 @@ fn node_is_unevaluable(node: &Node) -> bool {
     }
 }
 
+/// GRIDPATH: true for the sheet name of a reference into ANOTHER workbook:
+/// `[1]Model`, `[NOW.xlsx]Model`, `C:\dir\[Book.xlsx]Sheet`. A sheet of this
+/// workbook cannot have brackets in its name, so an unresolved reference
+/// spelled this way was written as an external one — it is never what a
+/// sheet deleted in this session leaves behind.
+fn is_external_sheet_name(sheet_name: &Option<String>) -> bool {
+    sheet_name.as_deref().is_some_and(|name| name.contains('['))
+}
+
 /// True when the node tree contains an unresolvable reference (see
 /// `import_wrongref_frozen`).
-fn node_has_wrong_ref(node: &Node) -> bool {
+pub(crate) fn node_has_wrong_ref(node: &Node) -> bool {
+    node_has_wrong_ref_of(node, false)
+}
+
+/// As `node_has_wrong_ref`; with `external_only`, only references into
+/// another workbook count.
+fn node_has_wrong_ref_of(node: &Node, external_only: bool) -> bool {
+    node_has_wrong_ref_where(node, &|sheet_name| {
+        !external_only || is_external_sheet_name(sheet_name)
+    })
+}
+
+/// GRIDPATH: true when the formula has an unresolvable reference to the sheet
+/// called `upper_name` (already upper-cased; sheet names match without case).
+pub(crate) fn node_has_wrong_ref_to_sheet(node: &Node, upper_name: &str) -> bool {
+    node_has_wrong_ref_where(node, &|sheet_name| {
+        sheet_name.as_deref().is_some_and(|name| name.to_uppercase() == upper_name)
+    })
+}
+
+/// True when the node tree has an unresolvable reference whose sheet name
+/// satisfies `counts`.
+fn node_has_wrong_ref_where(node: &Node, counts: &dyn Fn(&Option<String>) -> bool) -> bool {
     use Node::*;
+    let has = |n: &Node| node_has_wrong_ref_where(n, counts);
     match node {
-        WrongReferenceKind { .. } | WrongRangeKind { .. } => true,
+        WrongReferenceKind { sheet_name, .. } | WrongRangeKind { sheet_name, .. } => {
+            counts(sheet_name)
+        }
         OpRangeKind { left, right }
         | OpConcatenateKind { left, right }
         | OpSumKind { left, right, .. }
         | OpProductKind { left, right, .. }
         | OpPowerKind { left, right }
-        | CompareKind { left, right, .. } => {
-            node_has_wrong_ref(left) || node_has_wrong_ref(right)
-        }
-        UnaryKind { right, .. } => node_has_wrong_ref(right),
-        FunctionKind { args, .. } | NamedFunctionKind { args, .. } => {
-            args.iter().any(node_has_wrong_ref)
-        }
-        LambdaDefKind { body, .. } => node_has_wrong_ref(body),
-        LambdaCallKind { lambda, args } => {
-            node_has_wrong_ref(lambda) || args.iter().any(node_has_wrong_ref)
-        }
-        ImplicitIntersection { child, .. } | SpillRangeOperator { child } => {
-            node_has_wrong_ref(child)
-        }
+        | CompareKind { left, right, .. } => has(left) || has(right),
+        UnaryKind { right, .. } => has(right),
+        FunctionKind { args, .. } | NamedFunctionKind { args, .. } => args.iter().any(&has),
+        LambdaDefKind { body, .. } => has(body),
+        LambdaCallKind { lambda, args } => has(lambda) || args.iter().any(&has),
+        ImplicitIntersection { child, .. } | SpillRangeOperator { child } => has(child),
         BooleanKind(_) | NumberKind(_) | StringKind(_) | ReferenceKind { .. }
         | RangeKind { .. } | ArrayKind(_) | DefinedNameKind(_) | TableNameKind(_)
         | NamedVariableKind { .. } | ErrorKind(_) | ParseErrorKind { .. }
         | EmptyArgKind => false,
+    }
+}
+
+/// Why an unevaluable formula (see `node_is_unevaluable`) keeps its value.
+fn unevaluable_reason(node: &Node) -> ImportedValueReason {
+    if node_has_wrong_ref_of(node, true) {
+        return ImportedValueReason::ExternalReference;
+    }
+    match first_unknown_function(node) {
+        Some(name) => ImportedValueReason::UnknownFunction(name),
+        None => ImportedValueReason::Unparsed,
     }
 }
 
@@ -1138,6 +1186,11 @@ impl<'a> Model<'a> {
                             self.lambdas.insert(lambda_id, (param_names, body));
                             CalcResult::Lambda(lambda_id)
                         }
+                        ParsedDefinedName::DeletedReference => CalcResult::new_error(
+                            Error::REF,
+                            cell,
+                            format!("The cells that \"{name}\" referred to were deleted."),
+                        ),
                         ParsedDefinedName::InvalidDefinedNameFormula => CalcResult::new_error(
                             Error::NAME,
                             cell,
@@ -1965,7 +2018,7 @@ impl<'a> Model<'a> {
                 // there is NO usable cached value do they evaluate (to the
                 // honest error).
                 if self.formula_is_unevaluable(cell_reference.sheet, f)
-                    || self.import_wrongref_frozen.contains(&key)
+                    || self.keeps_import_frozen(&key, f)
                 {
                     let cached = self.get_cell_value(&original_cell, cell_reference);
                     if !matches!(cached, CalcResult::Error { .. } | CalcResult::EmptyCell) {
@@ -3142,13 +3195,11 @@ impl<'a> Model<'a> {
         formula: &str,
         style: i32,
     ) -> Result<i32, String> {
-        let worksheet = self.workbook.worksheet_mut(sheet)?;
         let cell_reference = CellReferenceRC {
-            sheet: worksheet.get_name(),
+            sheet: self.workbook.worksheet(sheet)?.get_name(),
             row,
             column,
         };
-        let shared_formulas = &mut worksheet.shared_formulas;
         let mut parsed_formula = self.parser.parse(formula, &cell_reference);
         // If the formula fails to parse try adding a parenthesis
         // SUM(A1:A3  => SUM(A1:A3)
@@ -3159,25 +3210,58 @@ impl<'a> Model<'a> {
                 _ => parsed_formula = new_parsed_formula,
             }
         }
-        let static_result = run_static_analysis_on_node(&parsed_formula);
-        let is_dynamic = !matches!(static_result, StaticResult::Scalar);
-
-        let s = to_rc_format(&parsed_formula);
-        let mut formula_index: i32 = -1;
-        if let Some(index) = shared_formulas.iter().position(|x| x == &s) {
-            formula_index = index as i32;
-        }
-        if formula_index == -1 {
-            shared_formulas.push(s);
-            self.parsed_formulas[sheet as usize].push((parsed_formula, static_result));
-            formula_index = (shared_formulas.len() as i32) - 1;
-        }
+        let (formula_index, is_dynamic) = self.intern_parsed_formula(sheet, parsed_formula)?;
+        let worksheet = self.workbook.worksheet_mut(sheet)?;
         if is_dynamic {
             worksheet.set_cell_with_dynamic_formula(row, column, formula_index, style, 1, 1)?;
         } else {
             worksheet.set_cell_with_formula(row, column, formula_index, style)?;
         }
         Ok(formula_index)
+    }
+
+    /// GRIDPATH: the index of `parsed_formula` in the sheet's formula list,
+    /// added to the list if it is not there yet, and whether static analysis
+    /// finds that it returns an array. No cell is touched.
+    fn intern_parsed_formula(
+        &mut self,
+        sheet: u32,
+        parsed_formula: Node,
+    ) -> Result<(i32, bool), String> {
+        let static_result = run_static_analysis_on_node(&parsed_formula);
+        let is_dynamic = !matches!(static_result, StaticResult::Scalar);
+        let s = to_rc_format(&parsed_formula);
+        let shared_formulas = &mut self.workbook.worksheet_mut(sheet)?.shared_formulas;
+        let formula_index = match shared_formulas.iter().position(|x| x == &s) {
+            Some(index) => index,
+            None => {
+                shared_formulas.push(s);
+                self.parsed_formulas[sheet as usize].push((parsed_formula, static_result));
+                shared_formulas.len() - 1
+            }
+        };
+        Ok((formula_index as i32, is_dynamic))
+    }
+
+    /// GRIDPATH: as `intern_parsed_formula`, for `formula` (no leading `=`)
+    /// read as it stands in cell (`row`, `column`). This is how a formula
+    /// gets a new home or new references WITHOUT its cell being written
+    /// again: the caller swaps the index in the cell, and the cell's value,
+    /// style and kind (plain, CSE array, dynamic array) stay what they were.
+    pub(crate) fn intern_formula(
+        &mut self,
+        sheet: u32,
+        row: i32,
+        column: i32,
+        formula: &str,
+    ) -> Result<(i32, bool), String> {
+        let cell_reference = CellReferenceRC {
+            sheet: self.workbook.worksheet(sheet)?.get_name(),
+            row,
+            column,
+        };
+        let parsed_formula = self.parser.parse(formula, &cell_reference);
+        self.intern_parsed_formula(sheet, parsed_formula)
     }
 
     // FIXME
@@ -3870,6 +3954,34 @@ impl<'a> Model<'a> {
         v
     }
 
+    /// GRIDPATH: whether the cell at `key`, holding formula `formula_index`,
+    /// keeps the value it was imported with because of an unresolvable
+    /// reference. The set is keyed by coordinate, so the formula is checked
+    /// as well: a cell the user has since given a working formula is
+    /// calculated like any other.
+    fn is_import_frozen(&self, key: &(u32, i32, i32), formula_index: i32) -> bool {
+        self.import_wrongref_frozen.contains(key)
+            && self
+                .parsed_formulas
+                .get(key.0 as usize)
+                .and_then(|formulas| formulas.get(formula_index as usize))
+                .is_some_and(|(node, _)| node_has_wrong_ref(node))
+    }
+
+    /// As `is_import_frozen`, during evaluation: a coordinate whose formula
+    /// no longer has such a reference is dropped from the set, so a
+    /// reference that breaks there later shows its error.
+    fn keeps_import_frozen(&mut self, key: &(u32, i32, i32), formula_index: i32) -> bool {
+        if !self.import_wrongref_frozen.contains(key) {
+            return false;
+        }
+        if self.is_import_frozen(key, formula_index) {
+            return true;
+        }
+        self.import_wrongref_frozen.remove(key);
+        false
+    }
+
     /// GRIDPATH: the reason a formula cell keeps its imported cached value
     /// (it behaves as a constant, see `evaluate_cell`), or None when it is
     /// calculated. A cell without a usable cached value evaluates to its
@@ -3895,7 +4007,7 @@ impl<'a> Model<'a> {
         if matches!(v, FormulaValue::Error { .. } | FormulaValue::Unevaluated) {
             return None;
         }
-        if self.import_wrongref_frozen.contains(&(sheet, row, column)) {
+        if self.is_import_frozen(&(sheet, row, column), f) {
             return Some(ImportedValueReason::ExternalReference);
         }
         if let Some(r) = known.get(&f) {
@@ -3905,10 +4017,7 @@ impl<'a> Model<'a> {
         if !node_is_unevaluable(node) {
             return None;
         }
-        Some(match first_unknown_function(node) {
-            Some(name) => ImportedValueReason::UnknownFunction(name),
-            None => ImportedValueReason::Unparsed,
-        })
+        Some(unevaluable_reason(node))
     }
 
     /// GRIDPATH: every formula cell keeping its imported cached value, in
@@ -3921,14 +4030,7 @@ impl<'a> Model<'a> {
             let mut known: HashMap<i32, Option<ImportedValueReason>> = HashMap::new();
             if let Some(formulas) = self.parsed_formulas.get(index) {
                 for (i, (node, _)) in formulas.iter().enumerate() {
-                    let r = if node_is_unevaluable(node) {
-                        Some(match first_unknown_function(node) {
-                            Some(name) => ImportedValueReason::UnknownFunction(name),
-                            None => ImportedValueReason::Unparsed,
-                        })
-                    } else {
-                        None
-                    };
+                    let r = node_is_unevaluable(node).then(|| unevaluable_reason(node));
                     known.insert(i as i32, r);
                 }
             }
@@ -4392,41 +4494,33 @@ impl<'a> Model<'a> {
     // * Update the formula cell to be DynamicFormula with r = (1,1)
     pub(crate) fn reset_dynamic_array_spills(&mut self, sheet: u32) -> Result<(), String> {
         // Collect anchor info first — can't mutate sheet_data while iterating over it.
-        let anchors: Vec<(i32, i32, i32, i32, i32, i32)> = {
+        let anchors: Vec<(i32, i32, i32, i32)> = {
             let ws = self.workbook.worksheet(sheet)?;
             let mut result = Vec::new();
             for (row, row_data) in &ws.sheet_data {
                 for (column, cell) in row_data {
                     if let Cell::ArrayFormula {
                         r,
-                        f,
-                        s,
                         kind: ArrayKind::Dynamic,
                         ..
                     } = cell
                     {
                         let (width, height) = *r;
-                        result.push((*row, *column, *f, *s, width, height));
+                        result.push((*row, *column, width, height));
                     }
                 }
             }
             result
         };
 
-        for (row, column, f, s, width, height) in anchors {
+        for (row, column, width, height) in anchors {
             let ws = self.workbook.worksheet_mut(sheet)?;
-            // Reset the anchor cell to DynamicFormula with r = (1, 1)
-            if let Some(row_data) = ws.sheet_data.get_mut(&row) {
-                row_data.insert(
-                    column,
-                    Cell::ArrayFormula {
-                        f,
-                        s,
-                        r: (1, 1),
-                        kind: ArrayKind::Dynamic,
-                        v: FormulaValue::Unevaluated,
-                    },
-                );
+            // Reset the anchor cell to DynamicFormula with r = (1, 1).
+            // GRIDPATH: its value stays. The next evaluation replaces it when
+            // the formula can be calculated; when it cannot (an add-in
+            // function), this is the value the file saved for it.
+            if let Some(Cell::ArrayFormula { r, .. }) = ws.cell_mut(row, column) {
+                *r = (1, 1);
             }
             // Delete all spill cells
             for r in row..row + height {

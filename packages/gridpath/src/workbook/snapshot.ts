@@ -33,6 +33,8 @@ export type EngineStyle = {
 export type EngineCell = { r: number; c: number; f?: string; v: string | number | boolean | null; d?: string; s?: number };
 export type EngineSheet = {
   name: string;
+  /** A hidden copy of another workbook's sheet, kept for links: not a sheet of this workbook. */
+  link?: boolean;
   /** Cells were left out except a skeleton (first rows / label columns); fetch them with the engine's per-sheet call. */
   lazy?: boolean;
   cellCount?: number;
@@ -308,6 +310,7 @@ export function mapSnapshot(engine: EngineSnapshot, id = "workbook", opts: MapSn
   const lazySheets = new Set<string>();
 
   for (const es of engine.sheets) {
+    if (es.link) continue;
     const sid = sheetIdOf(es.name);
     sheetOrder.push(sid);
     if (es.lazy) lazySheets.add(es.name);

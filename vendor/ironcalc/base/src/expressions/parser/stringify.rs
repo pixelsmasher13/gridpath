@@ -962,7 +962,10 @@ fn stringify(
             format!("{x}^{y}")
         }
         NamedFunctionKind { name, args, id: _ } => format_function(
-            &name.to_lowercase(),
+            // GRIDPATH: a what-if data table is imported as TABLE(row input,
+            // column input), which Excel shows in capitals; every other name
+            // called as a function keeps upstream's lower case.
+            &(if name.eq_ignore_ascii_case("TABLE") { "TABLE".to_string() } else { name.to_lowercase() }),
             args,
             context,
             displace_data,
@@ -1247,11 +1250,11 @@ pub(crate) fn rename_sheet_in_node(node: &mut Node, sheet_index: u32, new_name: 
                 }
             }
         }
-        Node::WrongRangeKind { sheet_name, .. } => {
-            if sheet_name.is_some() {
-                *sheet_name = Some(new_name.to_owned());
-            }
-        }
+        // GRIDPATH: a range on a sheet that is not in the workbook (a link to
+        // a workbook that is not loaded, `[2]Other!A1:B2`, or a deleted
+        // sheet) keeps its name, like the single cell above. This arm used to
+        // give every such range the new name of whichever sheet was renamed.
+        Node::WrongRangeKind { .. } => {}
 
         // Go next level
         Node::OpRangeKind { left, right } => {

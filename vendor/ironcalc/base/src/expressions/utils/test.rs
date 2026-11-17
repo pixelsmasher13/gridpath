@@ -227,3 +227,14 @@ fn test_a1_identifier_allows_r_and_c() {
     assert!(!is_valid_a1_identifier("A23"));
     assert!(!is_valid_a1_identifier("true"));
 }
+
+// GRIDPATH: a long run of capitals is not a column, and reading it as one
+// must not overflow (a panic in a debug build, an arbitrary column in a
+// release one).
+#[test]
+fn test_column_to_number_long_names() {
+    assert_eq!(column_to_number("XFD"), Ok(16384));
+    assert!(column_to_number("XFE").is_err());
+    assert!(column_to_number("REVENUEGROWTH").is_err());
+    assert!(column_to_number("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ").is_err());
+}

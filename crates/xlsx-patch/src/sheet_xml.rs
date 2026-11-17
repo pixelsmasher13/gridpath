@@ -1455,7 +1455,7 @@ fn looks_like_x_escape(tail: &[char]) -> bool {
 }
 
 /// Format a float the way Excel likes: shortest round-trip, no trailing ".0".
-fn trim_float(v: f64) -> String {
+pub(crate) fn trim_float(v: f64) -> String {
     if v == v.trunc() && v.abs() < 1e15 {
         format!("{}", v as i64)
     } else {

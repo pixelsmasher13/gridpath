@@ -551,7 +551,11 @@ export const ViewportGrid = React.memo(
       else if (entries.length > 1) pushUndo({ label, undo: () => { for (let i = entries.length - 1; i >= 0; i--) entries[i].undo(); }, redo: () => { for (const e of entries) e.redo(); } });
     };
 
-    const [sheetNames, setSheetNames] = useState<Array<{ name: string; hidden: boolean; color?: string | null }>>([]);
+    /** One entry per engine sheet, in engine order (the index is the sheet
+     * index). `link` marks the hidden copy of a sheet of another workbook:
+     * it keeps its place here and is shown and counted nowhere. */
+    const [sheetNames, setSheetNames] = useState<Array<{ name: string; hidden: boolean; color?: string | null; link?: boolean }>>([]);
+    const sheetTabsOf = (layout: EngineLayout) => layout.sheets.map((x) => ({ name: x.name, hidden: x.hidden, color: x.color, link: x.link || undefined }));
     const [active, setActive] = useState(0);
     const chartLayerRef = useRef<ChartLayerHandle>(null);
     const [nameBox, setNameBox] = useState("A1");
@@ -582,7 +586,7 @@ export const ViewportGrid = React.memo(
       const l = layoutRef.current?.sheets[index];
       if (!l) return;
       l.color = color;
-      setSheetNames(layoutRef.current!.sheets.map((x) => ({ name: x.name, hidden: x.hidden, color: x.color })));
+      setSheetNames(sheetTabsOf(layoutRef.current!));
       onManualSheetOp?.({ kind: "tabColor", name: l.name, color });
       onUserEdit?.();
     };
@@ -625,7 +629,7 @@ export const ViewportGrid = React.memo(
       const visible = sheetNames.filter((x, i) => !x.hidden || i === index).length;
       if (hidden && visible <= 1) return;
       l.hidden = hidden;
-      setSheetNames(layoutRef.current!.sheets.map((x) => ({ name: x.name, hidden: x.hidden, color: x.color })));
+      setSheetNames(sheetTabsOf(layoutRef.current!));
       onManualSheetOp?.({ kind: "visibility", name: l.name, hidden });
       if (hidden && index === activeRef.current) {
         const next = layoutRef.current!.sheets.findIndex((x, i) => !x.hidden && i !== index);
@@ -2111,6 +2115,25 @@ export const ViewportGrid = React.memo(
       sc.addEventListener("scroll", onScroll, { passive: true });
       const ro = new ResizeObserver(() => scheduleDraw());
       ro.observe(sc);
+      // The screen's pixel ratio can change under the grid with no resize:
+      // the display goes away while the lid is closed and comes back, the
+      // window moves to another screen, a browser page is zoomed. The
+      // canvas keeps the backing store of its last draw, so one draw at
+      // the lower ratio left the sheet at half resolution (soft cells
+      // beside sharp page text) until the next scroll. Redraw when the
+      // ratio changes, and when the page is shown again.
+      let ratioQuery: MediaQueryList | null = null;
+      const onRatioChange = () => { watchRatio(); scheduleDraw(); };
+      const watchRatio = () => {
+        ratioQuery?.removeEventListener("change", onRatioChange);
+        ratioQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        ratioQuery.addEventListener("change", onRatioChange);
+      };
+      watchRatio();
+      const onShown = () => { if (document.visibilityState === "visible") scheduleDraw(); };
+      document.addEventListener("visibilitychange", onShown);
+      window.addEventListener("focus", onShown);
+      window.addEventListener("pageshow", onShown);
       // Zoom like Excel: trackpad pinch (WebKit sends gesture events, and
       // browsers send wheel + ctrlKey), Cmd+scroll on a Mac, Ctrl+scroll
       // elsewhere. Pinch deltas are continuous; zoom moves in 5% steps.
@@ -2142,6 +2165,10 @@ export const ViewportGrid = React.memo(
         sc.removeEventListener("gesturechange", onGestureChange);
         sc.removeEventListener("gestureend", onGestureEnd);
         ro.disconnect();
+        ratioQuery?.removeEventListener("change", onRatioChange);
+        document.removeEventListener("visibilitychange", onShown);
+        window.removeEventListener("focus", onShown);
+        window.removeEventListener("pageshow", onShown);
       };
     }, [scheduleDraw]);
 
@@ -2822,8 +2849,10 @@ export const ViewportGrid = React.memo(
           case "9": for (let r = r0; r <= r1; r++) setSize(sheet, "row", r, 0, true); onUserEdit?.(); return done();
           case "0": for (let c = c0; c <= c1; c++) setSize(sheet, "col", c, 0, true); onUserEdit?.(); return done();
           case "-": { // delete rows (or columns when whole columns are selected)
-            if (wholeCols && !wholeRows) structuralRef.current("delete_columns", name, c0 + 1, c1 - c0 + 1);
-            else structuralRef.current("delete_rows", name, r0 + 1, r1 - r0 + 1);
+            // Logged for the save, as the row menu's are: without it the
+            // file keeps the rows while later edits land where they moved to.
+            if (wholeCols && !wholeRows) structuralRef.current("delete_columns", name, c0 + 1, c1 - c0 + 1, "record", true);
+            else structuralRef.current("delete_rows", name, r0 + 1, r1 - r0 + 1, "record", true);
             onUserEdit?.();
             return done();
           }
@@ -2844,8 +2873,8 @@ export const ViewportGrid = React.memo(
         case "(": case "9": { const g0 = geom(sheet); for (let r = Math.max(0, r0 - 1); r <= Math.min(g.rowCount - 1, r1 + 1); r++) if (g0 && g0.rowHeight(r) === 0) setSize(sheet, "row", r, DEFAULT_ROW_PX, true); onUserEdit?.(); return done(); }
         case ")": case "0": { const g0 = geom(sheet); for (let c = Math.max(0, c0 - 1); c <= Math.min(g.colCount - 1, c1 + 1); c++) if (g0 && g0.colWidth(c) === 0) setSize(sheet, "col", c, DEFAULT_COL_PX, true); onUserEdit?.(); return done(); }
         case "+": case "=": { // insert rows above (or columns to the left when whole columns are selected)
-          if (wholeCols && !wholeRows) structuralRef.current("insert_columns", name, c0 + 1, c1 - c0 + 1);
-          else structuralRef.current("insert_rows", name, r0 + 1, r1 - r0 + 1);
+          if (wholeCols && !wholeRows) structuralRef.current("insert_columns", name, c0 + 1, c1 - c0 + 1, "record", true);
+          else structuralRef.current("insert_rows", name, r0 + 1, r1 - r0 + 1, "record", true);
           onUserEdit?.();
           return done();
         }
@@ -2907,7 +2936,7 @@ export const ViewportGrid = React.memo(
       initFilters(layout);
       stylesRef.current = new StyleBook(layout.styles ?? {});
       tilesRef.current.clear();
-      setSheetNames(layout.sheets.map((s) => ({ name: s.name, hidden: s.hidden, color: s.color })));
+      setSheetNames(sheetTabsOf(layout));
       // Open on the sheet Excel had selected, if it is visible; else the first visible.
       const selected = layout.sheets.findIndex((s) => s.selected && !s.hidden);
       const firstVisible = selected >= 0 ? selected : Math.max(0, layout.sheets.findIndex((s) => !s.hidden));
@@ -2934,13 +2963,44 @@ export const ViewportGrid = React.memo(
       geomsRef.current.clear();
       stylesRef.current.merge(layout.styles ?? {});
       tilesRef.current.clear();
-      setSheetNames(layout.sheets.map((s) => ({ name: s.name, hidden: s.hidden, color: s.color })));
-      activeRef.current = Math.min(keep, layout.sheets.length - 1);
+      setSheetNames(sheetTabsOf(layout));
+      let next = Math.min(keep, layout.sheets.length - 1);
+      if (layout.sheets[next]?.link) {
+        // The sheet shown is gone and a hidden copy of another workbook's
+        // sheet holds its index now: show a sheet of this workbook.
+        const visible = layout.sheets.findIndex((s) => !s.hidden && !s.link);
+        next = visible >= 0 ? visible : Math.max(0, layout.sheets.findIndex((s) => !s.link));
+      }
+      activeRef.current = next;
       setActive(activeRef.current);
       updateSpacer();
       bumpVersion();
       scheduleDraw();
     };
+
+    // Formulas rewritten from outside this grid (a workbook this one reads
+    // moved its rows or renamed a sheet): the tiles hold the old text.
+    const reloadLayoutRef = useRef(reloadLayout);
+    reloadLayoutRef.current = reloadLayout;
+    /** The layout fetch a sheet or row/column operation has under way. Until
+     * it lands, a sheet just created has no index, no geometry and no
+     * tiles: a read of it came back empty, and the agent was told that a
+     * write which had landed had not. Readers wait for it. */
+    const layoutPendingRef = useRef<Promise<unknown>>(Promise.resolve());
+    const reloadLayoutWhenSettled = () => {
+      const reload = engine.settled().then(reloadLayout).catch(() => {});
+      layoutPendingRef.current = Promise.all([layoutPendingRef.current, reload]);
+    };
+    /** Bounded, so a reader never hangs on an engine that does not settle. */
+    const layoutLanded = (timeoutMs = 15000) =>
+      Promise.race([layoutPendingRef.current, new Promise((r) => setTimeout(r, timeoutMs))]);
+    useEffect(() => {
+      engine.registerReloader?.(() => {
+        void reloadLayoutRef.current().then(() => firstTilesLanded(1500)).then(refreshFormulaBar);
+      });
+      return () => engine.unregisterReloader?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tabId]);
 
     const handle = useMemo<UniverGridHandle>(() => {
       const real: Partial<UniverGridHandle> & Record<string, unknown> = {
@@ -2961,7 +3021,7 @@ export const ViewportGrid = React.memo(
           // and the first screen of every other sheet, so switching sheets
           // during the evaluate shows cells too (one small window each).
           await firstTilesLanded(3000);
-          const sheets = layout.sheets.map((sh, i) => ({ sh, i })).filter(({ sh, i }) => i !== activeRef.current && sh.maxRow > 0 && sh.maxCol > 0);
+          const sheets = layout.sheets.map((sh, i) => ({ sh, i })).filter(({ sh, i }) => i !== activeRef.current && !sh.link && sh.maxRow > 0 && sh.maxCol > 0);
           await Promise.all(sheets.map(({ i }) => fetchBlock({ sheet: i, tr0: 0, tr1: 0, tc0: 0, tc1: Math.min(1, Math.floor((layout.sheets[i].maxCol - 1) / TILE_COLS)) })));
           engine.startDeferredSettle();
           setCalculating(true);
@@ -2969,10 +3029,11 @@ export const ViewportGrid = React.memo(
           return { engineLoaded: true };
         },
         whenReady: () => readyRef.current!.promise,
-        getSheetNames: () => [...(layoutRef.current?.sheets.map((s) => s.name) ?? []), ...pendingSheetsRef.current],
+        getSheetNames: () => [...(layoutRef.current?.sheets.filter((s) => !s.link).map((s) => s.name) ?? []), ...pendingSheetsRef.current],
         // Every sheet is "lazy": readers must prefetch the ranges they read.
         isSheetLazy: () => true,
         ensureSheetLoaded: async (sheetName) => {
+          await layoutLanded();
           const sheet = sheetIndexOf(sheetName);
           const l = layoutRef.current?.sheets[sheet];
           if (!l) return false;
@@ -2983,6 +3044,7 @@ export const ViewportGrid = React.memo(
           return true;
         },
         prefetchRange: async (sheetName: string, sr: number, sc: number, er: number, ec: number) => {
+          await layoutLanded();
           const sheet = sheetIndexOf(sheetName);
           if (sheet < 0) return;
           await prefetch(sheet, sr, er, sc, ec);
@@ -2994,6 +3056,7 @@ export const ViewportGrid = React.memo(
         setCells: (sheet, cells) => writeCells(sheet, cells, "batch"),
         whenCalculated: async (timeoutMs = 15000) => {
           await engine.settled(timeoutMs);
+          await layoutLanded(timeoutMs);
         },
         getCell: (sheetName, row, col) => {
           const sheet = sheetIndexOf(sheetName);
@@ -3070,6 +3133,8 @@ export const ViewportGrid = React.memo(
           const data = new Map<string, Map<number, EngineWindowCell>>();
           for (let i = 0; i < layout.sheets.length; i++) {
             const s = layout.sheets[i];
+            // Not a sheet of this workbook: the hidden copy of a linked one.
+            if (s.link) continue;
             const cells = new Map<number, EngineWindowCell>();
             // The preview region: the top-left of the used range, one
             // window (≤ 65,536 cells). The capture's byte budget truncates
@@ -3313,6 +3378,23 @@ export const ViewportGrid = React.memo(
         deleteName: (name) => {
           namesRef.current.delete(name);
         },
+        addChart: async (spec) => {
+          if (!engine.addChart) return { ok: false, error: "charts cannot be added to this workbook" };
+          try {
+            const chart = await engine.addChart(spec);
+            pushUndo({
+              label: "chart",
+              undo: () => void engine.removeChart?.(spec.id),
+              redo: () => void engine.addChart?.(spec).catch(() => {}),
+            });
+            return { ok: true, chart };
+          } catch (e) {
+            return { ok: false, error: e instanceof Error ? e.message : String(e) };
+          }
+        },
+        removeChart: async (id) => {
+          await engine.removeChart?.(id);
+        },
         getDefinedNameRef: (name) => namesRef.current.get(name) ?? layoutRef.current?.definedNames.find((d) => d.name === name)?.formula ?? null,
         setCellFormat: (sheetName, row, col, format) => applyFormat(sheetName, row, col, row, col, format),
         setRangeFormat: (sheetName, sr, sc, er, ec, format) => applyFormat(sheetName, sr, sc, er, ec, format),
@@ -3343,18 +3425,18 @@ export const ViewportGrid = React.memo(
           // Not reported as a manual op: agent creates reach the save
           // through their batch, and a second create op makes the patcher
           // refuse the save. The tab menu reports the user's own inserts.
-          void engine.settled().then(reloadLayout);
+          reloadLayoutWhenSettled();
           return true;
         },
         deleteSheet: (name) => {
           // Let a snapshot capture of this sheet finish before the delete is queued.
           void Promise.all(capturesRef.current).then(() => engine.sheetOp("delete", name));
-          void engine.settled().then(reloadLayout);
+          reloadLayoutWhenSettled();
           return true;
         },
         renameSheet: (oldName: string, newName: string) => {
           engine.sheetOp("rename", oldName, newName);
-          void engine.settled().then(reloadLayout);
+          reloadLayoutWhenSettled();
           return true;
         },
         insertRows: (sheetName: string, at: number, count: number, opts?: { log?: boolean }) => structural("insert_rows", sheetName, at + 1, count, "record", !!opts?.log),
@@ -3364,6 +3446,7 @@ export const ViewportGrid = React.memo(
         canUndo: () => undoRef.current.length > 0,
         canRedo: () => redoRef.current.length > 0,
         getSourceBytes: () => sourceBytesRef.current,
+        getManualRowColOps: () => manualRowColOpsRef.current.map((o) => ({ ...o })) as ReturnType<NonNullable<UniverGridHandle["getManualRowColOps"]>>,
         syncEditLog: async () => {
           // The edit log keeps each formula as it was written, keyed by
           // where the cell is now; rows/columns inserted or deleted since
@@ -3445,6 +3528,20 @@ export const ViewportGrid = React.memo(
             }
             snapshot.sheets[`s${i++}`] = { name, cellData };
             baseline.set(name, base);
+          }
+          // A sheet made in this session that holds no cells yet (a sheet of
+          // charts, or one added and left empty) is in no edit log, and the
+          // builder would read its create op as "created, then gone": say
+          // that it is there.
+          const made = new Set<string>();
+          for (const op of mirror?.sheetOps ?? []) {
+            if (op.kind === "create") made.add(op.name);
+            else if (op.kind === "delete") made.delete(op.name);
+            else if (op.kind === "rename" && made.delete(op.oldName)) made.add(op.newName);
+          }
+          const liveSheets = new Set([...(layoutRef.current?.sheets.map((sh) => sh.name) ?? []), ...pendingSheetsRef.current]);
+          for (const name of made) {
+            if (!editsRef.current.has(name) && liveSheets.has(name)) snapshot.sheets[`s${i++}`] = { name, cellData: {} };
           }
           // Only edited sheets appear in both maps: a baseline sheet absent
           // from the snapshot would read as deleted to the builder.
@@ -3561,14 +3658,23 @@ export const ViewportGrid = React.memo(
         });
       };
       /** `log`: a user's own row/column op (not the agent's, which the save
-       * mirror carries): recorded for the save, and so are its undo (the
-       * inverse op) and redo, so the saved structure follows the live one. */
+       * mirror carries): recorded for the save, so the saved structure
+       * follows the live one. An undo takes the op it undoes back out of
+       * the record (it is the last one there), so a change the saver
+       * cannot write stops blocking the save once it is undone; a redo
+       * records it again. */
       const structural = (op: string, sheetName: string, index1: number, count: number, history: "record" | "skip" = "record", log = false) => {
         structuralRef.current = structural;
         if (log) {
           const kinds: Record<string, "insertRows" | "deleteRows" | "insertColumns" | "deleteColumns"> = { insert_rows: "insertRows", delete_rows: "deleteRows", insert_columns: "insertColumns", delete_columns: "deleteColumns" };
           const kind = kinds[op];
-          if (kind) manualRowColOpsRef.current.push(kind.startsWith("insert") ? { kind, sheet: sheetName, before: index1 - 1, count } : { kind, sheet: sheetName, start: index1 - 1, count });
+          if (kind) {
+            const opposite = { insertRows: "deleteRows", deleteRows: "insertRows", insertColumns: "deleteColumns", deleteColumns: "insertColumns" }[kind];
+            const last = manualRowColOpsRef.current[manualRowColOpsRef.current.length - 1];
+            const undoesLast = history === "skip" && !!last && last.kind === opposite && last.sheet === sheetName && last.count === count && (last.before ?? last.start) === index1 - 1;
+            if (undoesLast) manualRowColOpsRef.current.pop();
+            else manualRowColOpsRef.current.push(kind.startsWith("insert") ? { kind, sheet: sheetName, before: index1 - 1, count } : { kind, sheet: sheetName, start: index1 - 1, count });
+          }
         }
         if (history === "record") {
           const inverse: Record<string, string> = { insert_rows: "delete_rows", delete_rows: "insert_rows", insert_columns: "delete_columns", delete_columns: "insert_columns" };
@@ -3597,7 +3703,7 @@ export const ViewportGrid = React.memo(
         }
         engine.structural(op, sheetName, index1, count);
         shiftSession(sheetName, op, index1 - 1, count);
-        void engine.settled().then(reloadLayout);
+        reloadLayoutWhenSettled();
         return true;
       };
       /** The edit log, format overlay, dirty set and size overrides are
@@ -3703,6 +3809,10 @@ export const ViewportGrid = React.memo(
     }, [editing, zoom]);
 
     const lastFindQuery = useRef("");
+
+    // Sheets of this workbook (hidden copies of linked sheets are not).
+    const ownSheetCount = sheetNames.filter((x) => !x.link).length;
+    const hiddenSheetCount = sheetNames.filter((x) => x.hidden && !x.link).length;
 
     return (
       <Root data-vp-root="1">
@@ -3829,7 +3939,7 @@ export const ViewportGrid = React.memo(
         )}
         {tabMenu && (
           <Menu data-vp-menu="1" style={{ left: tabMenu.x, top: tabMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
-            <MenuItem onClick={() => { setTabMenu(null); const base = "Sheet"; let n = sheetNames.length + 1; while (sheetNames.some((x) => x.name === `${base}${n}`)) n++; if (handle.createSheet(`${base}${n}`)) onManualSheetOp?.({ kind: "create", name: `${base}${n}` }); }}>Insert sheet</MenuItem>
+            <MenuItem onClick={() => { setTabMenu(null); const base = "Sheet"; let n = ownSheetCount + 1; while (sheetNames.some((x) => x.name === `${base}${n}`)) n++; if (handle.createSheet(`${base}${n}`)) onManualSheetOp?.({ kind: "create", name: `${base}${n}` }); }}>Insert sheet</MenuItem>
             <MenuItem onClick={() => { setTabMenu(null); setRenaming({ index: tabMenu.index, text: sheetNames[tabMenu.index]?.name ?? "" }); }}>Rename</MenuItem>
             <MenuItem onClick={() => { setColorPick(tabMenu.index); setTabMenu(null); }}>Tab color…</MenuItem>
             {sheetNames[tabMenu.index]?.hidden ? (
@@ -3837,11 +3947,11 @@ export const ViewportGrid = React.memo(
             ) : (
               <MenuItem disabled={sheetNames.filter((x) => !x.hidden).length <= 1} onClick={() => { setTabMenu(null); setSheetVisibility(tabMenu.index, true); }}>Hide</MenuItem>
             )}
-            <MenuItem disabled={sheetNames.length <= 1} onClick={() => { setTabMenu(null); const name = sheetNames[tabMenu.index]?.name; if (name && sheetNames.length > 1) setConfirmDelete({ x: tabMenu.x, y: tabMenu.y, name }); }}>Delete…</MenuItem>
-            {sheetNames.some((x) => x.hidden) && <MenuSep />}
-            {sheetNames.some((x) => x.hidden) && (
+            <MenuItem disabled={ownSheetCount <= 1} onClick={() => { setTabMenu(null); const name = sheetNames[tabMenu.index]?.name; if (name && ownSheetCount > 1) setConfirmDelete({ x: tabMenu.x, y: tabMenu.y, name }); }}>Delete…</MenuItem>
+            {hiddenSheetCount > 0 && <MenuSep />}
+            {hiddenSheetCount > 0 && (
               <MenuItem onClick={() => { setTabMenu(null); setShowHidden((v) => !v); }}>
-                {showHidden ? "Hide hidden sheets" : `Show hidden sheets (${sheetNames.filter((x) => x.hidden).length})`}
+                {showHidden ? "Hide hidden sheets" : `Show hidden sheets (${hiddenSheetCount})`}
               </MenuItem>
             )}
           </Menu>
@@ -3857,7 +3967,7 @@ export const ViewportGrid = React.memo(
                 onClick={() => {
                   const { name } = confirmDelete;
                   setConfirmDelete(null);
-                  if (sheetNames.length > 1 && sheetNames.some((x) => x.name === name)) { handle.deleteSheet(name); onManualSheetOp?.({ kind: "delete", name }); }
+                  if (ownSheetCount > 1 && sheetNames.some((x) => x.name === name)) { handle.deleteSheet(name); onManualSheetOp?.({ kind: "delete", name }); }
                 }}
               >
                 Delete
@@ -4021,7 +4131,7 @@ export const ViewportGrid = React.memo(
           </TabArrows>
         <Tabs ref={tabsRef} onScroll={measureTabs}>
           {sheetNames.map((s, i) =>
-            s.hidden && !showHidden ? null : renaming && renaming.index === i ? (
+            s.link || (s.hidden && !showHidden) ? null : renaming && renaming.index === i ? (
               <TabInput
                 key={`rename-${i}`}
                 autoFocus

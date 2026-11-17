@@ -43,6 +43,8 @@ import { warn as rustWarn, info as rustInfo } from "tauri-plugin-log-api";
 
 import { extractEditedCells } from "./ironcalcShadow";
 import { journalRecordEdit } from "./journal";
+import type { NativeChart } from "../../../packages/grid/src/charts/types";
+import type { ChartSpec } from "./types";
 import type {
   EngineCell as EngineSheetCell,
   EngineSnapshot as EngineWorkbookSnapshot,
@@ -56,20 +58,38 @@ interface CellDelta {
   value: unknown;
 }
 
+/** Values that changed in ANOTHER open workbook: one that reads the
+ * workbook the command was for. */
+interface TabDeltas {
+  tab: string;
+  changed: CellDelta[];
+}
+
 interface CalcEditResult {
   recalc_ms: number;
   changed: CellDelta[];
+  others?: TabDeltas[];
+  /** The sheet list, when the edit added a hidden copy of a linked sheet. */
+  sheets?: string[] | null;
+  /** What became of the links to other workbooks the edit spelled. */
+  links?: { changed: boolean; notes: string[] } | null;
 }
 
 interface CalcSnapshot {
   ms: number;
   cells: CellDelta[];
+  others?: TabDeltas[];
+  /** Tabs whose formulas were rewritten to follow this workbook. */
+  moved?: string[];
 }
 
 interface CalcLoadResult {
   sheets: string[];
   load_ms: number;
   eval_ms: number;
+  others?: TabDeltas[];
+  /** The model was held without a tab and has changes its file lacks. */
+  needs_saving?: boolean;
 }
 
 /** Writes computed values into the visible grid; registered by UniverGrid. */
@@ -140,8 +160,173 @@ interface EditSink {
 
 const appliers = new Map<string, DeltaApplier>();
 const snapshotters = new Map<string, GridSnapshotter>();
+/** Viewport grids: "your formulas changed under you, read them again". */
+const reloaders = new Map<string, () => void>();
 let activeTabId: string | null = null;
 const tabs = new Map<string, TabState>();
+
+/**
+ * Links between open workbooks (`='[NOW.xlsx]Model'!B23`): the Tauri side
+ * keeps every workbook that is read loaded, with or without a tab, and
+ * answers each engine command with what it changed in the OTHER workbooks.
+ * `localStorage.setItem("gridpath.workspaceLinks", "0")` turns it off: a
+ * link then stays text the engine cannot resolve, as before.
+ */
+export function workspaceLinksEnabled(): boolean {
+  try {
+    return localStorage.getItem("gridpath.workspaceLinks") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export type WorkspaceEvent =
+  /** What reads what may have changed: the list is worth reading again. */
+  | { kind: "changed" }
+  /** Formulas in these tabs were rewritten to follow rows, columns or a
+   * sheet name that changed in `by`: they have changes to save now. */
+  | { kind: "moved"; tabs: string[]; by: string }
+  /** The same happened to this workbook while it had no tab. */
+  | { kind: "needs_saving"; tab: string }
+  /** Links an edit spelled that were left as typed, and why. */
+  | { kind: "notes"; tab: string; notes: string[] };
+
+const workspaceListeners = new Set<(e: WorkspaceEvent) => void>();
+export function onWorkspaceEvent(cb: (e: WorkspaceEvent) => void): () => void {
+  workspaceListeners.add(cb);
+  return () => workspaceListeners.delete(cb);
+}
+function emitWorkspace(e: WorkspaceEvent): void {
+  for (const cb of workspaceListeners) {
+    try {
+      cb(e);
+    } catch {}
+  }
+}
+
+/** Values an engine command changed in other open workbooks. */
+function applyOthers(others: TabDeltas[] | undefined | null): void {
+  for (const o of others ?? []) applyDeltas(o.tab, o.changed);
+}
+
+/** Tabs whose formula TEXT changed (the values came with `others`): their
+ * grids hold the old text, and they have something to save. */
+function announceMoved(by: string, moved: string[] | undefined | null): void {
+  if (!moved || moved.length === 0) return;
+  for (const tab of moved) reloaders.get(tab)?.();
+  emitWorkspace({ kind: "moved", tabs: moved, by });
+  emitWorkspace({ kind: "changed" });
+}
+
+// ---------------------------------------------------------------------------
+// Charts
+// ---------------------------------------------------------------------------
+//
+// The file's native charts, as the viewport grid draws them. The Tauri side
+// reads them when a tab opens the file and keeps their ranges in step with
+// row, column and sheet changes; their data is read from the model each
+// time they are asked for, so a chart follows the cells it plots.
+
+const NO_CHARTS: NativeChart[] = [];
+const chartsByTab = new Map<string, NativeChart[]>();
+const chartListeners = new Map<string, Set<() => void>>();
+const chartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** The tab's charts as last read. The same array until they change. */
+export function ironcalcEngineCharts(tabId: string): NativeChart[] {
+  return chartsByTab.get(tabId) ?? NO_CHARTS;
+}
+
+export function subscribeIroncalcCharts(tabId: string, listener: () => void): () => void {
+  let set = chartListeners.get(tabId);
+  if (!set) chartListeners.set(tabId, (set = new Set()));
+  set.add(listener);
+  return () => {
+    chartListeners.get(tabId)?.delete(listener);
+  };
+}
+
+/** Adds a chart made in this session to the tab's workbook, behind the
+ * edits already queued (a sheet the same turn created is there by then).
+ * Rejects with the engine's reason when it cannot be made. */
+export function ironcalcEngineAddChart(tabId: string, spec: ChartSpec): Promise<NativeChart> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded) return Promise.reject(new Error("the calculation engine is not running for this workbook"));
+  return new Promise((resolve, reject) => {
+    enqueue(tabId, async () => {
+      try {
+        const chart = await invoke<NativeChart>("calc_engine_add_chart", { tab: tabId, spec });
+        refreshCharts(tabId, true);
+        resolve(chart);
+      } catch (e) {
+        reject(new Error(String(e)));
+      }
+    });
+  });
+}
+
+/** Takes a chart made in this session away again. */
+export function ironcalcEngineRemoveChart(tabId: string, id: string): Promise<boolean> {
+  if (!tabs.has(tabId)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    enqueue(tabId, async () => {
+      try {
+        const removed = await invoke<boolean>("calc_engine_remove_chart", { tab: tabId, id });
+        refreshCharts(tabId, true);
+        resolve(removed);
+      } catch (e) {
+        engineLog("warn", `remove chart: ${e}`);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/** The charts made in this session, as they are now: what a save writes
+ * into the file. Read from the engine, behind everything queued. */
+export function ironcalcEngineSessionCharts(tabId: string): Promise<NativeChart[]> {
+  if (!tabs.has(tabId)) return Promise.resolve([]);
+  return new Promise((resolve, reject) => {
+    enqueue(tabId, async () => {
+      try {
+        const charts = await invoke<NativeChart[]>("calc_engine_charts", { tab: tabId });
+        resolve(charts.filter((c) => c.part === "" && !c.unsupported));
+      } catch (e) {
+        reject(new Error(String(e)));
+      }
+    });
+  });
+}
+
+/** Reads the tab's charts again, a moment from now (several changes in a
+ * row are one read). A tab known to have no charts is not asked, unless
+ * `always`: after an open, or once a chart has been made. */
+function refreshCharts(tabId: string, always = false): void {
+  if (!always && (chartsByTab.get(tabId)?.length ?? 0) === 0) return;
+  if (chartTimers.has(tabId)) return;
+  chartTimers.set(
+    tabId,
+    setTimeout(() => {
+      chartTimers.delete(tabId);
+      if (!tabs.has(tabId)) return;
+      invoke<NativeChart[]>("calc_engine_charts", { tab: tabId })
+        .then((charts) => {
+          if (!tabs.has(tabId) || !Array.isArray(charts)) return;
+          chartsByTab.set(tabId, charts);
+          for (const listener of chartListeners.get(tabId) ?? []) listener();
+        })
+        .catch((e) => engineLog("warn", `charts: ${e}`));
+    }, 60),
+  );
+}
+
+export function registerIroncalcReloader(tabId: string, fn: () => void): void {
+  reloaders.set(tabId, fn);
+}
+
+export function unregisterIroncalcReloader(tabId: string): void {
+  reloaders.delete(tabId);
+}
 
 export function ironcalcEngineEnabled(): boolean {
   // IronCalc IS the calculation engine — on by default. What remains is an
@@ -315,6 +500,9 @@ function queueDeferredSettle(tabId: string): void {
       const t = performance.now();
       const settled = await invoke<CalcSnapshot>("calc_engine_evaluate_pending", { tab: tabId });
       applyDeltas(tabId, settled.cells);
+      applyOthers(settled.others);
+      // Evaluated now: the charts read the model, not the file's cache.
+      refreshCharts(tabId);
       engineLog(
         "info",
         `first evaluate settled: engine ${settled.ms}ms, ${settled.cells.length} values differed from the file's cache (total ${(performance.now() - t).toFixed(0)}ms)`,
@@ -342,13 +530,17 @@ export function ironcalcEngineOpenLayout(tabId: string, path: string): Promise<a
     enqueue(tabId, async () => {
       try {
         const t0 = performance.now();
-        const res = await invoke<CalcLoadResult>("calc_engine_load", { tab: tabId, path, deferEval: true });
+        const res = await invoke<CalcLoadResult>("calc_engine_load", { tab: tabId, path, deferEval: true, links: workspaceLinksEnabled() });
         const st = tabs.get(tabId);
         if (!st) {
           resolve(null);
           return;
         }
         st.sheets = res.sheets;
+        // Workbooks that read this file now read this tab's model.
+        applyOthers(res.others);
+        if (res.needs_saving) emitWorkspace({ kind: "needs_saving", tab: tabId });
+        emitWorkspace({ kind: "changed" });
         const t1 = performance.now();
         const raw = await invoke<ArrayBuffer>("calc_engine_workbook_layout", { tab: tabId });
         const layout = JSON.parse(new TextDecoder().decode(new Uint8Array(raw)));
@@ -358,6 +550,9 @@ export function ironcalcEngineOpenLayout(tabId: string, path: string): Promise<a
           `ready (viewport): ${path} — import ${res.load_ms}ms (evaluate deferred), layout ${(raw.byteLength / 1000).toFixed(0)} KB in ${(performance.now() - t1).toFixed(0)}ms (total ${(performance.now() - t0).toFixed(0)}ms)`,
         );
         resolve(layout);
+        // The file's charts, with the data the file saved for them until
+        // the first evaluate has run.
+        refreshCharts(tabId, true);
         // The grid starts the deferred evaluate once its first tiles are on
         // screen (ironcalcEngineStartDeferredSettle); this is the backstop.
         const timer = setTimeout(() => ironcalcEngineStartDeferredSettle(tabId), 10_000);
@@ -455,6 +650,7 @@ export function ironcalcEngineDefineName(tabId: string, name: string, formula: s
       try {
         const res = await invoke<CalcSnapshot>("calc_engine_define_name", { tab: tabId, name, formula });
         applyDeltas(tabId, res.cells);
+        applyOthers(res.others);
         engineLog("info", `defined name ${name}: ${res.ms}ms, ${res.cells.length} values changed`);
         resolve(true);
       } catch (e) {
@@ -725,13 +921,66 @@ export function ironcalcEngineSettled(tabId?: string, timeoutMs = 30_000): Promi
   ]).then(() => undefined);
 }
 
-export function ironcalcEngineOnClose(tabId: string): void {
+/**
+ * `dirty`: the tab is closed with changes that were not saved. Workbooks
+ * that read it go back to reading the file as it is on disk (their values
+ * come back in the answer); a clean one keeps being read as it is.
+ */
+export function ironcalcEngineOnClose(tabId: string, dirty = false): void {
   appliers.delete(tabId);
   snapshotters.delete(tabId);
+  reloaders.delete(tabId);
+  chartsByTab.delete(tabId);
+  chartListeners.delete(tabId);
+  const chartTimer = chartTimers.get(tabId);
+  if (chartTimer !== undefined) clearTimeout(chartTimer);
+  chartTimers.delete(tabId);
   if (!tabs.has(tabId)) return;
   tabs.delete(tabId);
   if (activeTabId === tabId) activeTabId = null;
-  void invoke("calc_engine_unload", { tab: tabId }).catch(() => {});
+  void invoke<TabDeltas[] | null>("calc_engine_unload", { tab: tabId, dirty })
+    .then((others) => {
+      applyOthers(others);
+      emitWorkspace({ kind: "changed" });
+    })
+    .catch(() => {});
+}
+
+/** What a save has to add to its patch for the links of a workbook
+ * (`calc_engine_link_save_plan`). Cell coordinates are 0-based. */
+export interface LinkSavePlan {
+  cells: Array<{ sheet: string; r: number; c: number; f: string; v?: unknown }>;
+  rewriteAll: boolean;
+  externalLinks: Array<{
+    index: number;
+    target?: string;
+    sheets: Array<{ name: string; areas: number[][]; cells: Array<{ r: number; c: number; v: unknown }> }>;
+  }>;
+  reads: string[];
+}
+
+/** The links part of a save of `tabId` to `targetPath`, after every queued
+ * edit has reached the engine. Null when the tab has no engine model or the
+ * links are off; a plan with no cells when the workbook reads no other. */
+export async function ironcalcEngineLinkSavePlan(tabId: string, targetPath: string): Promise<LinkSavePlan | null> {
+  const st = tabs.get(tabId);
+  if (!st || st.degraded || !workspaceLinksEnabled()) return null;
+  await ironcalcEngineSettled(tabId);
+  return await invoke<LinkSavePlan>("calc_engine_link_save_plan", { tab: tabId, targetPath });
+}
+
+/** The tab's workbook is on disk at `path` now (a save, or a Save As). */
+export async function ironcalcEngineMarkSaved(tabId: string, path: string): Promise<void> {
+  const st = tabs.get(tabId);
+  if (!st || !workspaceLinksEnabled()) return;
+  try {
+    const others = await invoke<TabDeltas[] | null>("calc_engine_mark_saved", { tab: tabId, path });
+    st.path = path;
+    applyOthers(others);
+    emitWorkspace({ kind: "changed" });
+  } catch (e) {
+    engineLog("warn", `mark saved failed: ${e}`);
+  }
 }
 
 /** Console + the Rust log file (GridPath.log): engine-state transitions
@@ -813,13 +1062,14 @@ function resync(tabId: string, reason: string): void {
     }
     try {
       const t0 = performance.now();
-      const res = await invoke<{ sheets: string[]; cells: CellDelta[]; seeded: number; ms: number }>(
+      const res = await invoke<{ sheets: string[]; cells: CellDelta[]; seeded: number; ms: number; others?: TabDeltas[] }>(
         "calc_engine_resync",
         { tab: tabId, sheets: snap },
       );
       stNow.sheets = res.sheets;
       stNow.ready = true;
       applyDeltas(tabId, res.cells);
+      applyOthers(res.others);
       engineLog(
         "info",
         `resynced (${reason}): ${res.seeded} cells seeded → ${res.cells.length} formula values re-applied ` +
@@ -850,6 +1100,7 @@ function enqueueRaw(tabId: string, work: () => Promise<void>): void {
 function applyDeltas(tabId: string, deltas: CellDelta[]): void {
   const st = tabs.get(tabId);
   if (!st || deltas.length === 0) return;
+  refreshCharts(tabId);
   const applier = appliers.get(tabId);
   if (!applier) {
     // Grid not mounted yet (load raced the mount) — flushed on register.
@@ -987,7 +1238,12 @@ async function engineEditBatch(tabId: string, label: string, edits: EditCellWire
       `[ironcalc-engine] ${label}: ${edits.length} cell${edits.length === 1 ? "" : "s"} → ` +
         `recalc ${res.recalc_ms}ms, ${res.changed.length} cells updated`,
     );
+    // A first link to a sheet of another workbook added its hidden copy.
+    if (res.sheets) st.sheets = res.sheets;
     applyDeltas(tabId, res.changed);
+    applyOthers(res.others);
+    if (res.links?.notes?.length) emitWorkspace({ kind: "notes", tab: tabId, notes: res.links.notes });
+    if (res.links?.changed) emitWorkspace({ kind: "changed" });
   } catch (e) {
     // The model may be mid-mutation (a failed multi-cell batch) — rebuild it
     // from the grid rather than freezing the session.
@@ -1029,6 +1285,9 @@ async function engineStructural(
         `${snap.cells.length} values re-applied`,
     );
     applyDeltas(tabId, snap.cells);
+    applyOthers(snap.others);
+    announceMoved(tabId, snap.moved);
+    refreshCharts(tabId);
   } catch (e) {
     resync(tabId, `${op} failed: ${e}`);
   }
@@ -1231,7 +1490,7 @@ async function engineSheetOp(
   // insert-sheet mutation can both ask for the same sheet.
   if (op === "add" && st.sheets.includes(name)) return;
   try {
-    const res = await invoke<{ sheets: string[]; cells: CellDelta[] }>("calc_engine_sheet_op", {
+    const res = await invoke<{ sheets: string[]; cells: CellDelta[]; others?: TabDeltas[]; moved?: string[] }>("calc_engine_sheet_op", {
       tab: tabId,
       op,
       name,
@@ -1240,6 +1499,11 @@ async function engineSheetOp(
     st.sheets = res.sheets;
     engineLog("info", `sheet ${op} "${name}"${newName ? ` -> "${newName}"` : ""} → ${res.sheets.length} sheets, ${res.cells.length} values changed`);
     applyDeltas(tabId, res.cells);
+    applyOthers(res.others);
+    announceMoved(tabId, res.moved);
+    refreshCharts(tabId);
+    // A renamed or deleted sheet can be one another workbook reads.
+    if (op !== "add" && workspaceLinksEnabled()) emitWorkspace({ kind: "changed" });
   } catch (e) {
     resync(tabId, `sheet ${op} failed: ${e}`);
   }
